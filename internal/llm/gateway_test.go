@@ -115,11 +115,8 @@ func TestGatewayCompletesAndRedactsActivityPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Model != request.Model {
-		t.Fatalf("expected model fallback %q, got %q", request.Model, response.Model)
-	}
-	if response.Usage.TotalTokens != 160 {
-		t.Fatalf("expected normalized total usage 160, got %d", response.Usage.TotalTokens)
+	if response.Model != request.Model || response.Usage.TotalTokens != 160 {
+		t.Fatalf("unexpected normalized response: %#v", response)
 	}
 
 	requests := fake.Requests()
@@ -140,10 +137,9 @@ func TestGatewayCompletesAndRedactsActivityPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(encoded)
 	for _, secret := range []string{"secret requirement text", "must-not-be-recorded", `{"summary":"done"}`} {
-		if strings.Contains(text, secret) {
-			t.Fatalf("activity payload leaked protected content %q: %s", secret, text)
+		if strings.Contains(string(encoded), secret) {
+			t.Fatalf("activity payload leaked protected content %q: %s", secret, encoded)
 		}
 	}
 	if events[1].Payload["plan_id"] != "plan-1" || events[1].Payload["plan_version"] != float64(3) {
