@@ -10,8 +10,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/livingdolls/orkoda-tui/internal/activity"
 	"github.com/livingdolls/orkoda-tui/internal/config"
 	"github.com/livingdolls/orkoda-tui/internal/database"
+	"github.com/livingdolls/orkoda-tui/internal/eventbus"
 	"github.com/livingdolls/orkoda-tui/internal/httpapi"
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
 	"github.com/livingdolls/orkoda-tui/internal/scheduler"
@@ -53,6 +55,14 @@ func run() error {
 	}
 	logger.Info("sqlite ready", "path", cfg.DatabasePath)
 
+	activityRepository := activity.NewRepository(db)
+	liveEvents := eventbus.New()
+	defer liveEvents.Close()
+	activityRecorder, err := activity.NewRecorder(activityRepository, liveEvents)
+	if err != nil {
+		return err
+	}
+
 	queue := jobqueue.New(db)
 	queueScheduler, err := scheduler.New(
 		queue,
@@ -63,6 +73,7 @@ func run() error {
 				return nil
 			},
 		},
+		activityRecorder,
 		logger,
 	)
 	if err != nil {
@@ -71,7 +82,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              cfg.APIAddress(),
-		Handler:           httpapi.NewRouter(cfg.Environment),
+		Handler:           httpapi.NewRouter(cfg.Environment, activityRepository),
 		ReadHeaderTimeout: 5 * cfg.ShutdownTimeout / 10,
 	}
 
