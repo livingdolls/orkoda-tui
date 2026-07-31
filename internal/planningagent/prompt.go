@@ -64,7 +64,7 @@ Do not include Markdown fences, prose outside JSON, or invented repository files
 Use open_questions when essential information is missing instead of guessing.`),
 			},
 			{
-				Role: llm.RoleUser,
+				Role:    llm.RoleUser,
 				Content: "Create a safe, testable implementation plan for this context:\n" + string(contextJSON),
 			},
 		},

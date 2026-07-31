@@ -9,7 +9,7 @@ import (
 type ErrorCode string
 
 const (
-	ErrorAuthentication ErrorCode = "AUTHENTICATION"
+	ErrorAuthentication  ErrorCode = "AUTHENTICATION"
 	ErrorRateLimited     ErrorCode = "RATE_LIMITED"
 	ErrorTimeout         ErrorCode = "TIMEOUT"
 	ErrorCancelled       ErrorCode = "CANCELLED"
