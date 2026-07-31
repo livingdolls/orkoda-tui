@@ -9,7 +9,8 @@ Backlog ini khusus untuk AI software development workflow berbasis OpenTUI.
 - [ ] Setup TypeScript OpenTUI application.
 - [ ] Pilih `@opentui/core` atau `@opentui/react` dan dokumentasikan keputusan.
 - [ ] Setup shared protocol schema.
-- [ ] Tambahkan Docker Compose untuk PostgreSQL, Redis, RabbitMQ, dan MinIO.
+- [ ] Tambahkan Docker Compose untuk PostgreSQL, Redis, dan RabbitMQ.
+- [ ] Tambahkan local filesystem artifact storage.
 - [ ] Tambahkan Makefile dan task runner.
 - [ ] Tambahkan `.env.example` tanpa secret.
 - [ ] Tambahkan formatter, linter, test, dan CI dasar.
