@@ -104,12 +104,12 @@ func (r *Repository) Generate(ctx context.Context, repositoryID string) (Summary
 		return Summary{}, err
 	}
 	r.record(ctx, "repository.summary_completed", map[string]any{
-		"project_id": state.ProjectID,
+		"project_id":    state.ProjectID,
 		"repository_id": state.ID,
-		"summary_id": summary.ID,
-		"head_sha": state.HeadSHA,
-		"file_count": summary.Snapshot.FileCount,
-		"truncated": summary.Snapshot.Truncated,
+		"summary_id":    summary.ID,
+		"head_sha":      state.HeadSHA,
+		"file_count":    summary.Snapshot.FileCount,
+		"truncated":     summary.Snapshot.Truncated,
 	}, summary.CreatedAt)
 	return summary, nil
 }
@@ -171,10 +171,10 @@ func (r *Repository) getByHead(ctx context.Context, state repositoryState, headS
 
 func (r *Repository) recordFailure(ctx context.Context, state repositoryState, cause error) {
 	r.record(ctx, "repository.summary_failed", map[string]any{
-		"project_id": state.ProjectID,
+		"project_id":    state.ProjectID,
 		"repository_id": state.ID,
-		"head_sha": state.HeadSHA,
-		"error": cause.Error(),
+		"head_sha":      state.HeadSHA,
+		"error":         cause.Error(),
 	}, time.Now().UTC())
 }
 
