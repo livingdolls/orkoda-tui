@@ -13,6 +13,8 @@ const (
 	defaultEnvironment     = "development"
 	defaultLogLevel        = "info"
 	defaultShutdownTimeout = 10 * time.Second
+	defaultDataDir         = ".orkoda"
+	defaultArtifactDir     = ".orkoda/artifacts"
 )
 
 // Config contains process-level settings shared by the local daemon and workers.
@@ -22,6 +24,8 @@ type Config struct {
 	APIHost         string
 	APIPort         int
 	ShutdownTimeout time.Duration
+	DataDir         string
+	ArtifactDir     string
 	DatabaseURL     string
 	RedisURL        string
 	RabbitMQURL     string
@@ -45,6 +49,8 @@ func Load() (Config, error) {
 		APIHost:         stringFromEnv("ORKODA_API_HOST", defaultAPIHost),
 		APIPort:         port,
 		ShutdownTimeout: shutdownTimeout,
+		DataDir:         stringFromEnv("ORKODA_DATA_DIR", defaultDataDir),
+		ArtifactDir:     stringFromEnv("ORKODA_ARTIFACT_DIR", defaultArtifactDir),
 		DatabaseURL:     os.Getenv("DATABASE_URL"),
 		RedisURL:        os.Getenv("REDIS_URL"),
 		RabbitMQURL:     os.Getenv("RABBITMQ_URL"),
