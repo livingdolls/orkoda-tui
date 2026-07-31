@@ -2,6 +2,7 @@ package gitrepo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -29,7 +30,7 @@ func (execRunner) Run(ctx context.Context, directory string, arguments ...string
 	output, err := command.Output()
 	if err != nil {
 		var exitError *exec.ExitError
-		if ok := errorAs(err, &exitError); ok {
+		if errors.As(err, &exitError) {
 			message := strings.TrimSpace(string(exitError.Stderr))
 			if message != "" {
 				return "", fmt.Errorf("git %s: %s", strings.Join(arguments, " "), message)
@@ -38,16 +39,6 @@ func (execRunner) Run(ctx context.Context, directory string, arguments ...string
 		return "", fmt.Errorf("git %s: %w", strings.Join(arguments, " "), err)
 	}
 	return strings.TrimSpace(string(output)), nil
-}
-
-// errorAs is a small seam that keeps the command runner easy to test without
-// exposing implementation details outside this package.
-var errorAs = func(err error, target any) bool {
-	return errorsAs(err, target)
-}
-
-var errorsAs = func(err error, target any) bool {
-	return false
 }
 
 type Inspector struct {
