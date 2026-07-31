@@ -17,8 +17,10 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/gitrepo"
 	"github.com/livingdolls/orkoda-tui/internal/httpapi"
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
+	"github.com/livingdolls/orkoda-tui/internal/planningcontext"
 	"github.com/livingdolls/orkoda-tui/internal/plans"
 	"github.com/livingdolls/orkoda-tui/internal/projects"
+	"github.com/livingdolls/orkoda-tui/internal/repositorysummary"
 	"github.com/livingdolls/orkoda-tui/internal/scheduler"
 )
 
@@ -74,6 +76,22 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	summaryRepository, err := repositorysummary.NewRepository(
+		db,
+		repositorysummary.NewScanner(),
+		activityRecorder,
+	)
+	if err != nil {
+		return err
+	}
+	planningContextRepository, err := planningcontext.NewRepository(
+		db,
+		summaryRepository,
+		activityRecorder,
+	)
+	if err != nil {
+		return err
+	}
 
 	queue := jobqueue.New(db)
 	queueScheduler, err := scheduler.New(
@@ -93,8 +111,17 @@ func run() error {
 	}
 
 	server := &http.Server{
-		Addr:              cfg.APIAddress(),
-		Handler:           httpapi.NewRouter(cfg.Environment, activityRepository, projectRepository, planRepository),
+		Addr: cfg.APIAddress(),
+		Handler: httpapi.NewRouterWithServices(
+			cfg.Environment,
+			activityRepository,
+			projectRepository,
+			httpapi.RouterServices{
+				Plans:               planRepository,
+				RepositorySummaries: summaryRepository,
+				PlanningContexts:    planningContextRepository,
+			},
+		),
 		ReadHeaderTimeout: 5 * cfg.ShutdownTimeout / 10,
 	}
 

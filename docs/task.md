@@ -70,7 +70,7 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 ## Epic 7 — Planning and LLM Gateway
 
 - [x] Buat requirement editor dan structured plan schema.
-- [ ] Implementasikan repository summary dan plan normalization.
+- [x] Implementasikan repository summary dan plan normalization.
 - [ ] Buat Planning Agent dan open-question flow.
 - [ ] Definisikan provider-neutral request, response, usage, dan error.
 - [ ] Implementasikan provider adapter pertama dan fake provider.
