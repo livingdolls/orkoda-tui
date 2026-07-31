@@ -1,0 +1,29 @@
+# Environment
+.env
+.env.local
+
+# Go
+bin/
+coverage.out
+*.test
+
+# Bun / TypeScript
+node_modules/
+bun.lockb
+bun.lock
+
+# Build output
+dist/
+.tmp/
+coverage/
+
+# Runtime data
+.data/
+artifacts/
+workspaces/
+*.log
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
