@@ -59,9 +59,7 @@ export function ProjectScreen({
   const latestPlan = planList[0] ?? null
   const pickerItems = pickerListing ? buildDirectoryPickerItems(pickerListing) : []
   const selectedRepositoryID = selectedRepository?.id ?? ""
-  const selectedRepositoryHead = selectedRepository?.head_sha ?? ""
   const latestPlanID = latestPlan?.id ?? ""
-  const latestPlanVersion = latestPlan?.current_version ?? 0
   const repositorySummaryID = repositorySummary?.id ?? ""
 
   const reloadProjects = async () => {
@@ -412,16 +410,12 @@ export function ProjectScreen({
     return () => {
       disposed = true
     }
-  }, [connection.state, selectedRepositoryID, selectedRepositoryHead])
+  }, [connection.state, selectedRepositoryID])
 
   useEffect(() => {
     let disposed = false
     setPlanningContext(null)
-    if (
-      connection.state !== "connected" ||
-      latestPlanID === "" ||
-      repositorySummaryID === ""
-    ) {
+    if (connection.state !== "connected" || latestPlanID === "" || repositorySummaryID === "") {
       return
     }
 
@@ -440,7 +434,7 @@ export function ProjectScreen({
     return () => {
       disposed = true
     }
-  }, [connection.state, latestPlanID, latestPlanVersion, repositorySummaryID])
+  }, [connection.state, latestPlanID, repositorySummaryID])
 
   if (mode === "plan" && selectedProject) {
     return (
@@ -497,7 +491,7 @@ export function ProjectScreen({
         {pickerLoading ? <text fg="#FACC15">Reading directories...</text> : null}
         {!pickerLoading && pickerListing ? (
           <box flexDirection="column" borderStyle="rounded" borderColor="#334155" padding={1}>
-            {visibleDirectoryItems(pickerItems, pickerIndex).map(({ item, index }) => {
+            {visibleItems.map(({ item, index }) => {
               let label = item.label
               if (item.kind === "select") {
                 label = `[ ${item.label} ]`
