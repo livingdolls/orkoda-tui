@@ -17,6 +17,7 @@ import {
   screenLabel,
 } from "./navigation"
 import { ProjectScreen } from "./project-screen"
+import { SettingsScreen } from "./settings-screen"
 
 const connectionColors: Record<DaemonConnection["state"], string> = {
   checking: "#FACC15",
@@ -178,13 +179,7 @@ function ScreenContent({ screen, connection }: { screen: Screen; connection: Dae
   }
 
   if (screen === "settings") {
-    return (
-      <box flexDirection="column" gap={1}>
-        <text fg="#E2E8F0">Local daemon endpoint</text>
-        <text fg="#7DD3FC">{daemonBaseURL}</text>
-        <text fg="#94A3B8">Override with ORKODA_DAEMON_URL before running the TUI.</text>
-      </box>
-    )
+    return <SettingsScreen connection={connection} />
   }
 
   return (
