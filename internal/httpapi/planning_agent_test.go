@@ -14,20 +14,24 @@ import (
 )
 
 type planningAgentStub struct {
-	run         planningagent.Run
-	startErr    error
-	currentErr  error
-	getErr      error
-	answerErr   error
-	answers     []planningagent.AnswerInput
-	startedPlan string
+	run             planningagent.Run
+	startErr        error
+	currentErr      error
+	getErr          error
+	answerErr       error
+	answers         []planningagent.AnswerInput
+	startedPlan     string
+	startedProvider string
+	startedModel    string
 }
 
 func (s *planningAgentStub) Start(
 	_ context.Context,
-	planID, _, _ string,
+	planID, provider, model string,
 ) (planningagent.Run, error) {
 	s.startedPlan = planID
+	s.startedProvider = provider
+	s.startedModel = model
 	return s.run, s.startErr
 }
 
@@ -57,11 +61,24 @@ func TestPlanningAgentRoutes(t *testing.T) {
 		Questions: []planningagent.Question{},
 	}}
 	router := gin.New()
-	registerPlanningAgentRoutes(router.Group("/api/v1"), stub)
+	registerPlanningAgentRoutes(router.Group("/api/v1"), stub, "openrouter", "example/model")
 
 	response := performRequest(router, http.MethodPost, "/api/v1/plans/plan-1/planning-runs", `{}`)
 	if response.Code != http.StatusCreated || stub.startedPlan != "plan-1" {
 		t.Fatalf("unexpected start response: %d %s", response.Code, response.Body.String())
+	}
+	if stub.startedProvider != "openrouter" || stub.startedModel != "example/model" {
+		t.Fatalf("unexpected defaults provider=%q model=%q", stub.startedProvider, stub.startedModel)
+	}
+
+	response = performRequest(
+		router,
+		http.MethodPost,
+		"/api/v1/plans/plan-1/planning-runs",
+		`{"provider":"custom","model":"custom-model"}`,
+	)
+	if response.Code != http.StatusCreated || stub.startedProvider != "custom" || stub.startedModel != "custom-model" {
+		t.Fatalf("unexpected explicit provider response: %d provider=%q model=%q", response.Code, stub.startedProvider, stub.startedModel)
 	}
 
 	response = performRequest(router, http.MethodGet, "/api/v1/plans/plan-1/planning-runs/current", "")
@@ -87,7 +104,7 @@ func TestPlanningAgentRouteErrors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	stub := &planningAgentStub{startErr: planningagent.ErrActiveRun}
 	router := gin.New()
-	registerPlanningAgentRoutes(router.Group("/api/v1"), stub)
+	registerPlanningAgentRoutes(router.Group("/api/v1"), stub, "local-fake", "local-fake-planner-v1")
 
 	response := performRequest(router, http.MethodPost, "/api/v1/plans/plan-1/planning-runs", `{}`)
 	if response.Code != http.StatusConflict {
