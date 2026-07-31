@@ -4,17 +4,17 @@ import { useKeyboard } from "@opentui/react"
 import { useEffect, useState } from "react"
 
 import {
+  type DaemonConnection,
   daemonBaseURL,
   initialDaemonConnection,
   probeDaemon,
-  type DaemonConnection,
 } from "./daemon"
 import {
   moveScreen,
+  type Screen,
   screenDefinitions,
   screenFromShortcut,
   screenLabel,
-  type Screen,
 } from "./navigation"
 
 const connectionColors: Record<DaemonConnection["state"], string> = {
@@ -26,7 +26,6 @@ const connectionColors: Record<DaemonConnection["state"], string> = {
 export function App() {
   const [activeScreen, setActiveScreen] = useState<Screen>("projects")
   const [connection, setConnection] = useState<DaemonConnection>(initialDaemonConnection)
-  const [refreshVersion, setRefreshVersion] = useState(0)
 
   useKeyboard((key) => {
     const shortcut = screenFromShortcut(key.name)
@@ -47,7 +46,7 @@ export function App() {
 
     if (key.name === "r") {
       setConnection(initialDaemonConnection)
-      setRefreshVersion((version) => version + 1)
+      void probeDaemon().then(setConnection)
     }
   })
 
@@ -68,7 +67,7 @@ export function App() {
       disposed = true
       clearInterval(interval)
     }
-  }, [refreshVersion])
+  }, [])
 
   return (
     <box flexDirection="column" width="100%" height="100%" backgroundColor="#0B1020">
@@ -135,13 +134,7 @@ export function App() {
   )
 }
 
-function ScreenContent({
-  screen,
-  connection,
-}: {
-  screen: Screen
-  connection: DaemonConnection
-}) {
+function ScreenContent({ screen, connection }: { screen: Screen; connection: DaemonConnection }) {
   if (screen === "projects") {
     return (
       <box flexDirection="column" gap={1}>
