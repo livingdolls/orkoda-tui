@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	defaultMaxFiles    = 5000
-	defaultMaxReadSize = int64(256 * 1024)
+	defaultMaxFiles     = 5000
+	defaultMaxReadSize  = int64(256 * 1024)
 	defaultMaxImportant = 100
 )
 
@@ -312,10 +312,10 @@ func detectManifest(path string, content []byte, languages, frameworks, packageM
 
 func detectGoFrameworks(text string, frameworks stringSet) {
 	candidates := map[string]string{
-		"github.com/gin-gonic/gin":       "Gin",
-		"github.com/labstack/echo":       "Echo",
-		"github.com/gofiber/fiber":       "Fiber",
-		"github.com/spf13/cobra":         "Cobra",
+		"github.com/gin-gonic/gin":           "Gin",
+		"github.com/labstack/echo":           "Echo",
+		"github.com/gofiber/fiber":           "Fiber",
+		"github.com/spf13/cobra":             "Cobra",
 		"github.com/charmbracelet/bubbletea": "Bubble Tea",
 	}
 	for dependency, framework := range candidates {
@@ -327,8 +327,8 @@ func detectGoFrameworks(text string, frameworks stringSet) {
 
 func detectPackageJSON(content []byte, languages, frameworks stringSet, commands Commands) {
 	var manifest struct {
-		Scripts      map[string]string `json:"scripts"`
-		Dependencies map[string]string `json:"dependencies"`
+		Scripts         map[string]string `json:"scripts"`
+		Dependencies    map[string]string `json:"dependencies"`
 		DevDependencies map[string]string `json:"devDependencies"`
 	}
 	if err := json.Unmarshal(content, &manifest); err != nil {
