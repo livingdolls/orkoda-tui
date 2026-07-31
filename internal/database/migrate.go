@@ -52,6 +52,31 @@ var foundationStatements = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_plan_versions_plan_version
 		ON plan_versions(plan_id, version DESC)`,
+	`CREATE TABLE IF NOT EXISTS repository_summaries (
+		id TEXT PRIMARY KEY,
+		repository_id TEXT NOT NULL,
+		head_sha TEXT NOT NULL,
+		summary_json TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+		UNIQUE (repository_id, head_sha)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_repository_summaries_current
+		ON repository_summaries(repository_id, created_at DESC)`,
+	`CREATE TABLE IF NOT EXISTS planning_contexts (
+		id TEXT PRIMARY KEY,
+		plan_id TEXT NOT NULL,
+		plan_version_id TEXT NOT NULL,
+		repository_summary_id TEXT NOT NULL,
+		normalized_plan_json TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+		FOREIGN KEY (plan_version_id) REFERENCES plan_versions(id) ON DELETE CASCADE,
+		FOREIGN KEY (repository_summary_id) REFERENCES repository_summaries(id) ON DELETE CASCADE,
+		UNIQUE (plan_version_id, repository_summary_id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_planning_contexts_plan_created
+		ON planning_contexts(plan_id, created_at DESC)`,
 	`CREATE TABLE IF NOT EXISTS jobs (
 		id TEXT PRIMARY KEY,
 		type TEXT NOT NULL,
