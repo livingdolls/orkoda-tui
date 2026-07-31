@@ -46,25 +46,7 @@ services:
       timeout: 5s
       retries: 10
 
-  minio:
-    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-orkoda}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-orkoda_dev_password}
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
 volumes:
   postgres-data:
   redis-data:
   rabbitmq-data:
-  minio-data:
