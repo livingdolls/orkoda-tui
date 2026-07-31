@@ -102,13 +102,14 @@ export function PlanEditor({
       <text fg={field === "requirement" ? "#7DD3FC" : "#64748B"}>Requirement</text>
       <textarea
         ref={requirementRef}
+        width="100%"
         height={6}
         initialValue={requirement}
         placeholder="Describe the feature, expected behavior, and important context..."
         focused={field === "requirement"}
         wrapMode="word"
-        borderStyle="rounded"
-        borderColor={field === "requirement" ? "#7DD3FC" : "#334155"}
+        backgroundColor="#11182B"
+        focusedBackgroundColor="#172036"
         onContentChange={() => setRequirement(requirementRef.current?.plainText ?? "")}
       />
 
@@ -119,13 +120,14 @@ export function PlanEditor({
           </text>
           <textarea
             ref={criteriaRef}
+            width="100%"
             height={5}
             initialValue={criteria}
             placeholder={"User can list articles\nUser can open article details"}
             focused={field === "criteria"}
             wrapMode="word"
-            borderStyle="rounded"
-            borderColor={field === "criteria" ? "#7DD3FC" : "#334155"}
+            backgroundColor="#11182B"
+            focusedBackgroundColor="#172036"
             onContentChange={() => setCriteria(criteriaRef.current?.plainText ?? "")}
           />
         </box>
@@ -136,13 +138,14 @@ export function PlanEditor({
           </text>
           <textarea
             ref={constraintsRef}
+            width="100%"
             height={5}
             initialValue={constraints}
             placeholder={"Use the existing stack\nDo not add an external database"}
             focused={field === "constraints"}
             wrapMode="word"
-            borderStyle="rounded"
-            borderColor={field === "constraints" ? "#7DD3FC" : "#334155"}
+            backgroundColor="#11182B"
+            focusedBackgroundColor="#172036"
             onContentChange={() => setConstraints(constraintsRef.current?.plainText ?? "")}
           />
         </box>
