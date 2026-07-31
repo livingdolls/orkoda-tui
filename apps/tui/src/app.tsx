@@ -3,11 +3,7 @@
 import { useKeyboard } from "@opentui/react"
 import { useEffect, useState } from "react"
 
-import {
-  type DaemonConnection,
-  initialDaemonConnection,
-  probeDaemon,
-} from "./daemon"
+import { type DaemonConnection, initialDaemonConnection, probeDaemon } from "./daemon"
 import {
   moveScreen,
   type Screen,
