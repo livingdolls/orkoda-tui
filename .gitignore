@@ -17,10 +17,8 @@ dist/
 .tmp/
 coverage/
 
-# Runtime data
-.data/
-artifacts/
-workspaces/
+# Local runtime data
+.orkoda/
 *.log
 
 # Editors / OS
