@@ -31,15 +31,15 @@ type SummaryReader interface {
 }
 
 type RepositoryContext struct {
-	RepositoryID   string                         `json:"repository_id"`
-	SummaryID      string                         `json:"summary_id"`
-	HeadSHA        string                         `json:"head_sha"`
-	Dirty          bool                           `json:"dirty"`
-	Languages      []string                       `json:"languages"`
-	Frameworks     []string                       `json:"frameworks"`
-	PackageManagers []string                      `json:"package_managers"`
-	Commands       repositorysummary.Commands     `json:"commands"`
-	ImportantFiles []string                       `json:"important_files"`
+	RepositoryID    string                     `json:"repository_id"`
+	SummaryID       string                     `json:"summary_id"`
+	HeadSHA         string                     `json:"head_sha"`
+	Dirty           bool                       `json:"dirty"`
+	Languages       []string                   `json:"languages"`
+	Frameworks      []string                   `json:"frameworks"`
+	PackageManagers []string                   `json:"package_managers"`
+	Commands        repositorysummary.Commands `json:"commands"`
+	ImportantFiles  []string                   `json:"important_files"`
 }
 
 type NormalizedPlan struct {
@@ -66,15 +66,15 @@ type Context struct {
 }
 
 type planState struct {
-	PlanID              string
-	ProjectID           string
-	Title               string
-	PlanVersionID       string
-	PlanVersion         int
-	Requirement         string
-	AcceptanceCriteria  []string
-	Constraints         []string
-	RepositoryID        string
+	PlanID             string
+	ProjectID          string
+	Title              string
+	PlanVersionID      string
+	PlanVersion        int
+	Requirement        string
+	AcceptanceCriteria []string
+	Constraints        []string
+	RepositoryID       string
 }
 
 type Repository struct {
@@ -101,9 +101,9 @@ func (r *Repository) Normalize(ctx context.Context, planID string) (Context, err
 
 	startedAt := time.Now().UTC()
 	r.record(ctx, "plan.normalization_started", map[string]any{
-		"plan_id": state.PlanID,
-		"project_id": state.ProjectID,
-		"plan_version": state.PlanVersion,
+		"plan_id":       state.PlanID,
+		"project_id":    state.ProjectID,
+		"plan_version":  state.PlanVersion,
 		"repository_id": state.RepositoryID,
 	}, startedAt)
 
@@ -144,13 +144,13 @@ func (r *Repository) Normalize(ctx context.Context, planID string) (Context, err
 		return Context{}, err
 	}
 	r.record(ctx, "plan.normalized", map[string]any{
-		"plan_id": state.PlanID,
-		"project_id": state.ProjectID,
-		"plan_version": state.PlanVersion,
-		"repository_id": state.RepositoryID,
+		"plan_id":               state.PlanID,
+		"project_id":            state.ProjectID,
+		"plan_version":          state.PlanVersion,
+		"repository_id":         state.RepositoryID,
 		"repository_summary_id": summary.ID,
-		"head_sha": summary.HeadSHA,
-		"planning_context_id": planningContext.ID,
+		"head_sha":              summary.HeadSHA,
+		"planning_context_id":   planningContext.ID,
 	}, planningContext.CreatedAt)
 	return planningContext, nil
 }
@@ -350,11 +350,11 @@ func cloneCommands(commands repositorysummary.Commands) repositorysummary.Comman
 
 func (r *Repository) recordFailure(ctx context.Context, state planState, cause error) {
 	r.record(ctx, "plan.normalization_failed", map[string]any{
-		"plan_id": state.PlanID,
-		"project_id": state.ProjectID,
-		"plan_version": state.PlanVersion,
+		"plan_id":       state.PlanID,
+		"project_id":    state.ProjectID,
+		"plan_version":  state.PlanVersion,
 		"repository_id": state.RepositoryID,
-		"error": cause.Error(),
+		"error":         cause.Error(),
 	}, time.Now().UTC())
 }
 
