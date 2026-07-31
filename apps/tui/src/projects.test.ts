@@ -4,8 +4,8 @@ import {
   createProject,
   deleteProject,
   listProjects,
-  refreshProject,
   type ProjectFetch,
+  refreshProject,
 } from "./projects"
 
 const projectPayload = {
