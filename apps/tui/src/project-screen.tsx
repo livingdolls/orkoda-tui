@@ -321,7 +321,10 @@ export function ProjectScreen({
                 label = `  ${item.label}`
               }
               return (
-                <text key={`${item.kind}:${item.path}`} fg={index === pickerIndex ? "#7DD3FC" : "#94A3B8"}>
+                <text
+                  key={`${item.kind}:${item.path}`}
+                  fg={index === pickerIndex ? "#7DD3FC" : "#94A3B8"}
+                >
                   {index === pickerIndex ? `› ${label}` : `  ${label}`}
                 </text>
               )
