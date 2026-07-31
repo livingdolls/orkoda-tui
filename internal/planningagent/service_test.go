@@ -2,6 +2,7 @@ package planningagent
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -180,10 +181,82 @@ func TestPlanningAgentRejectsStaleQuestionAnswers(t *testing.T) {
 func seedPlanningAgentState(
 	t *testing.T,
 	ctx context.Context,
-	db interface {
-		ExecContext(context.Context, string, ...any) (sql.Result, error)
-	},
+	db *sql.DB,
 ) (*plans.Repository, planningcontext.Context) {
 	t.Helper()
-	panic("implemented below")
+	now := time.Now().UTC()
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO projects (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)
+	`, "project-1", "Example", now.UnixMilli(), now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO repositories (
+			id, project_id, local_path, current_branch, head_sha, remote_url,
+			dirty, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+	`, "repository-1", "project-1", "/tmp/example", "main", "abc123", "", now.UnixMilli(), now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO repository_summaries (id, repository_id, head_sha, summary_json, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, "summary-1", "repository-1", "abc123", `{}`, now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+
+	planRepository, err := plans.NewRepository(db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := planRepository.Create(ctx, "project-1", "Add Markdown blog", plans.VersionInput{
+		Requirement:        "Add a Markdown blog.",
+		AcceptanceCriteria: []string{"Articles can be listed"},
+		Constraints:        []string{"Use the existing stack"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized := planningcontext.NormalizedPlan{
+		Goal:               plan.Title,
+		Summary:            "Add a Markdown blog.",
+		Scope:              []string{"Load Markdown articles"},
+		NonGoals:           []string{},
+		AcceptanceCriteria: []string{"Articles can be listed"},
+		Constraints:        []string{"Use the existing stack"},
+		AffectedAreas:      []string{"backend"},
+		Risks:              []string{},
+		OpenQuestions:      []string{"Which directory should store Markdown files?"},
+		Repository: planningcontext.RepositoryContext{
+			RepositoryID:    "repository-1",
+			SummaryID:       "summary-1",
+			HeadSHA:         "abc123",
+			Languages:       []string{"Go"},
+			Frameworks:      []string{},
+			PackageManagers: []string{"Go Modules"},
+			ImportantFiles:  []string{"go.mod"},
+		},
+	}
+	normalizedJSON, err := json.Marshal(normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planningContext := planningcontext.Context{
+		ID:                  "context-1",
+		PlanID:              plan.ID,
+		PlanVersionID:       plan.Versions[0].ID,
+		PlanVersion:         1,
+		RepositorySummaryID: "summary-1",
+		NormalizedPlan:      normalized,
+		CreatedAt:           now,
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO planning_contexts (
+			id, plan_id, plan_version_id, repository_summary_id, normalized_plan_json, created_at
+		) VALUES (?, ?, ?, ?, ?, ?)
+	`, planningContext.ID, planningContext.PlanID, planningContext.PlanVersionID,
+		planningContext.RepositorySummaryID, string(normalizedJSON), now.UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	return planRepository, planningContext
 }
