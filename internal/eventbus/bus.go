@@ -4,6 +4,7 @@ import "sync"
 
 type Event struct {
 	Sequence int64
+	JobID    string
 	Type     string
 	Payload  any
 }
