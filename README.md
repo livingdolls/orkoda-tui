@@ -9,7 +9,8 @@ The repository currently contains the Phase 1 foundation:
 - OpenTUI React shell under `apps/tui`.
 - Go local daemon, worker, and migration command entry points.
 - Shared versioned JSON protocol schema.
-- Local PostgreSQL, Redis, RabbitMQ, and MinIO infrastructure.
+- Local PostgreSQL, Redis, and RabbitMQ infrastructure.
+- Local filesystem artifact storage under `.orkoda/artifacts`.
 - Formatting, linting, tests, Make targets, and GitHub Actions CI.
 
 Product and implementation documents are available in [`docs/`](./docs/README.md).
@@ -48,6 +49,19 @@ The API exposes:
 GET /health/live
 GET /api/v1/status
 ```
+
+## Local data
+
+Orkoda is designed to run locally for personal use. Runtime data is stored under `.orkoda/` by default:
+
+```text
+.orkoda/
+├── artifacts/
+├── workspaces/
+└── logs/
+```
+
+The directories can be changed with `ORKODA_DATA_DIR` and `ORKODA_ARTIFACT_DIR`. The entire `.orkoda/` directory is ignored by Git.
 
 ## Quality checks
 
