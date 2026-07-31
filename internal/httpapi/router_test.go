@@ -40,7 +40,7 @@ func TestReplayEventsReturnsPaginationMetadata(t *testing.T) {
 		{Sequence: 12, JobID: "job-a", Type: "job.completed", PayloadJSON: json.RawMessage(`{"attempt":1}`), CreatedAt: time.Unix(2, 0).UTC()},
 		{Sequence: 13, JobID: "job-b", Type: "job.started", PayloadJSON: json.RawMessage(`{}`), CreatedAt: time.Unix(3, 0).UTC()},
 	}}
-	router := NewRouter("development", reader)
+	router := NewRouter("development", reader, nil)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/events?after_sequence=10&limit=2", nil)
 	response := httptest.NewRecorder()
@@ -63,7 +63,7 @@ func TestReplayEventsReturnsPaginationMetadata(t *testing.T) {
 
 func TestReplayJobEventsUsesJobFilter(t *testing.T) {
 	reader := &fakeEventReader{}
-	router := NewRouter("development", reader)
+	router := NewRouter("development", reader, nil)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/job-42/events", nil)
 	response := httptest.NewRecorder()
@@ -78,7 +78,7 @@ func TestReplayJobEventsUsesJobFilter(t *testing.T) {
 }
 
 func TestReplayEventsRejectsInvalidQuery(t *testing.T) {
-	router := NewRouter("development", &fakeEventReader{})
+	router := NewRouter("development", &fakeEventReader{}, nil)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/events?after_sequence=-1&limit=0", nil)
 	response := httptest.NewRecorder()
