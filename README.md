@@ -7,11 +7,15 @@ Orkoda is a terminal-native orchestrator for AI-assisted software development. A
 The repository currently contains the Phase 1 foundation:
 
 - OpenTUI React shell under `apps/tui`.
-- Go local daemon, worker, and migration command entry points.
-- Shared versioned JSON protocol schema.
-- Local PostgreSQL, Redis, and RabbitMQ infrastructure.
+- A single Go local daemon and migration command.
+- Embedded SQLite persistence with WAL mode.
+- A durable SQLite-backed job queue with retry and dead-job handling.
+- An in-memory event bus for live TUI updates.
 - Local filesystem artifact storage under `.orkoda/artifacts`.
+- Shared versioned JSON protocol schema.
 - Formatting, linting, tests, Make targets, and GitHub Actions CI.
+
+Orkoda does not require PostgreSQL, Redis, RabbitMQ, MinIO, or Docker Compose.
 
 Product and implementation documents are available in [`docs/`](./docs/README.md).
 
@@ -19,23 +23,24 @@ Product and implementation documents are available in [`docs/`](./docs/README.md
 
 - Go 1.26+
 - Bun 1.3.14+
-- Docker with Compose v2
 
-OpenTUI uses Bun as the supported native runtime for the TUI renderer.
+Docker is optional and will only be needed by the future command sandbox, not by the Orkoda daemon itself.
 
 ## Getting started
 
 ```bash
 cp .env.example .env
 make install
-make dev-up
+make migrate
 ```
 
-Run the local API daemon:
+Run the local daemon:
 
 ```bash
 make api
 ```
+
+The daemon also applies idempotent SQLite migrations automatically during startup.
 
 In another terminal, run the TUI:
 
@@ -52,16 +57,27 @@ GET /api/v1/status
 
 ## Local data
 
-Orkoda is designed to run locally for personal use. Runtime data is stored under `.orkoda/` by default:
+Runtime data is stored under `.orkoda/` by default:
 
 ```text
 .orkoda/
+├── orkoda.db
+├── orkoda.db-wal
+├── orkoda.db-shm
 ├── artifacts/
 ├── workspaces/
 └── logs/
 ```
 
-The directories can be changed with `ORKODA_DATA_DIR` and `ORKODA_ARTIFACT_DIR`. The entire `.orkoda/` directory is ignored by Git.
+Configuration:
+
+```text
+ORKODA_DATA_DIR=.orkoda
+ORKODA_DATABASE_PATH=.orkoda/orkoda.db
+ORKODA_ARTIFACT_DIR=.orkoda/artifacts
+```
+
+The entire `.orkoda/` directory is ignored by Git. Run `make clean-data` only when you intentionally want to delete all local Orkoda state.
 
 ## Quality checks
 
@@ -75,10 +91,13 @@ Individual commands are available through `make help`.
 
 ```text
 apps/tui/              OpenTUI + React client
-cmd/api/               Go API and local daemon
-cmd/worker/            Executor/reviewer worker process
-cmd/migrate/           Database migration command
-internal/              Go application packages
+cmd/api/               Go local daemon
+cmd/migrate/           SQLite migration command
+internal/artifact/     Local filesystem artifact storage
+internal/database/     SQLite bootstrap and migrations
+internal/eventbus/     In-process live event delivery
+internal/jobqueue/     Durable SQLite job queue
+internal/              Remaining Go application packages
 packages/protocol/     Shared versioned JSON schemas
 docs/                  Product, architecture, and implementation docs
 ```
