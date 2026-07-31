@@ -1,123 +1,123 @@
-# Deployment and Operations
+# Distribution and Local Operations
 
-## 1. Distribution Modes
+## 1. Supported Mode
 
-### Local Mode
-
-- OpenTUI TypeScript application.
-- Golang local daemon.
-- Local PostgreSQL atau embedded development profile untuk prototype.
-- Docker-based sandbox.
-- Repository dan workspace pada mesin developer.
-
-### Remote Mode
-
-- OpenTUI tetap berjalan di terminal developer.
-- API, database, Redis, RabbitMQ, workers, sandbox pool, dan storage berjalan di server.
-- Repository remote dikloning ke ephemeral workspace.
-
-## 2. Local Development
+Orkoda hanya mendukung personal local mode pada MVP:
 
 ```text
-OpenTUI app
-Golang API/local daemon
-Executor worker
-Reviewer worker
-PostgreSQL
-Redis
-RabbitMQ
-MinIO
-Docker sandbox runtime
+OpenTUI client
+Local Go daemon
+SQLite database
+Local artifacts and workspaces
+Optional Docker command sandbox
 ```
 
-Docker Compose digunakan untuk dependency. TUI dijalankan langsung agar iterasi UI cepat.
+Tidak ada remote API, hosted control plane, external database, cache server, message broker, atau object storage.
 
-## 3. Build Artifacts
+## 2. Requirements
 
-- TUI package atau bundled executable untuk platform yang didukung.
-- Golang binaries: `api`, `worker`, dan `migrate`.
-- Container images untuk API, workers, and sandbox base images.
-- Versioned JSON Schema dan protocol types.
+- Go 1.26 atau lebih baru.
+- Bun 1.3.14 atau lebih baru.
+- Git.
+- Docker opsional untuk sandbox command pada fase executor.
 
-TUI dan API harus melakukan protocol-version negotiation.
+## 3. Local Setup
 
-## 4. Production Components
+```bash
+cp .env.example .env
+make install
+make migrate
+```
 
-- API replicas.
-- Outbox publisher.
-- Executor worker pool.
-- Check runner pool.
-- Reviewer worker pool.
-- Publication worker.
-- PostgreSQL.
-- Redis.
-- RabbitMQ.
-- Object storage.
-- Sandbox runtime nodes.
-- Metrics, logs, and tracing backend.
+Jalankan daemon:
 
-Tidak ada Next.js atau browser frontend dalam deployment.
+```bash
+make api
+```
 
-## 5. Container and Sandbox Requirements
+Jalankan OpenTUI pada terminal lain:
 
-Service container:
+```bash
+make tui
+```
 
-- Non-root.
-- Read-only filesystem bila memungkinkan.
-- Health endpoint.
-- Graceful shutdown.
-- Resource requests and limits.
+Daemon menjalankan migration idempotent pada startup, sehingga `make migrate` bersifat eksplisit tetapi tidak wajib setiap kali aplikasi dijalankan.
 
-Sandbox container lebih ketat:
+## 4. Runtime Files
 
-- No privileged mode.
-- No Docker socket.
-- Network disabled by default.
-- Temporary filesystem.
-- Explicit workspace mount.
-- PID and output limits.
+```text
+.orkoda/
+├── orkoda.db
+├── orkoda.db-wal
+├── orkoda.db-shm
+├── artifacts/
+├── workspaces/
+└── logs/
+```
+
+`.orkoda/` harus berada pada filesystem lokal. Jangan meletakkan database WAL aktif pada network filesystem yang tidak menjamin locking SQLite.
+
+## 5. Build Artifacts
+
+- Go local-daemon binary.
+- OpenTUI package atau bundled executable.
+- Versioned JSON Schema dan generated protocol types.
+- Optional sandbox base image.
+
+Tidak ada API image, worker image, PostgreSQL, Redis, RabbitMQ, atau MinIO image.
 
 ## 6. Health Endpoints
 
 ```text
 GET /health/live
-GET /health/ready
-GET /health/dependencies
+GET /api/v1/status
 ```
 
-Readiness memeriksa database dan dependency wajib tanpa melakukan operasi mahal.
+Readiness endpoint dapat ditambahkan ketika repository, provider, dan sandbox dependency sudah tersedia. Pemeriksaan dependency tidak boleh melakukan operasi mahal.
 
 ## 7. Graceful Shutdown
 
-Worker:
+1. Batalkan root context daemon.
+2. Hentikan penerimaan API request baru.
+3. Hentikan queue polling dan scheduler.
+4. Tunggu handler yang aman untuk diselesaikan.
+5. Simpan checkpoint workspace bila diperlukan.
+6. Kembalikan job yang tidak selesai ke status recoverable.
+7. Tutup subscriber event bus.
+8. Tutup SQLite connection.
 
-1. Stop consuming messages.
-2. Mark lease as draining.
-3. Batalkan atau selesaikan tool sesuai policy.
-4. Simpan checkpoint.
-5. Ack hanya setelah durable state tersimpan.
-6. Lepaskan workspace lease.
+## 8. SQLite Operations
 
-## 8. Database Migration
+### Migration
 
-- Migration backward-compatible.
-- Expand/migrate/contract untuk perubahan besar.
-- Migration tidak dijalankan serentak oleh seluruh replica.
-- Backup dan restore test dilakukan sebelum release penting.
+- Migration berjalan otomatis saat daemon startup.
+- Jalankan `make migrate` untuk initialization atau pemeriksaan manual.
+- Migration harus idempotent dan teruji pada database temporary.
 
-## 9. CI/CD Pipeline
+### Backup
 
-1. Go format, lint, test, and race test.
-2. TypeScript type check and lint.
-3. OpenTUI component tests.
-4. Integration tests untuk database, queue, Git, dan provider fixtures.
-5. JSON Schema compatibility test.
-6. Dependency and secret scan.
-7. Build Go binaries dan TUI artifact.
-8. Build/sign container images.
-9. Run sandbox security suite.
-10. Deploy staging dan run end-to-end workflow.
-11. Manual approval untuk production backend release.
+Saat daemon aktif dan WAL digunakan, backup harus menggunakan SQLite backup API atau checkpoint yang aman. Jangan hanya menyalin `orkoda.db` dan mengabaikan file `-wal` serta `-shm`.
+
+### Recovery
+
+- Jalankan SQLite integrity check pada database yang diduga rusak.
+- Pulihkan database dan folder artifact sebagai satu set.
+- Workspace dapat dibuat ulang dari base commit dan patch artifact.
+- Job `RUNNING` yang stale dikembalikan ke queue pada startup.
+
+## 9. CI Pipeline
+
+1. Go format check.
+2. Go vet dan unit test.
+3. SQLite migration dan queue integration test menggunakan temporary directory.
+4. TypeScript lint dan type check.
+5. OpenTUI tests.
+6. JSON Schema compatibility test.
+7. Dependency dan secret scan.
+8. Build daemon dan TUI artifact.
+9. Sandbox security suite ketika sandbox sudah tersedia.
+
+CI tidak menjalankan service container.
 
 ## 10. Configuration
 
@@ -125,35 +125,31 @@ Configuration precedence:
 
 ```text
 Built-in defaults
--> config file
 -> environment variables
--> command-line flags
+-> command-line flags (future)
 ```
 
-TUI config menyimpan endpoint, profile, key binding, dan display preference. Secret tetap berada di keychain atau secret manager.
+Konfigurasi utama:
 
-## 11. Scaling
+```text
+ORKODA_DATA_DIR
+ORKODA_DATABASE_PATH
+ORKODA_ARTIFACT_DIR
+ORKODA_API_HOST
+ORKODA_API_PORT
+ORKODA_SHUTDOWN_TIMEOUT
+```
 
-- Scale Executor berdasarkan queue depth dan provider quota.
-- Scale Reviewer terpisah.
-- Check runner dapat dikelompokkan berdasarkan language/toolchain image.
-- Sandbox node dipisahkan dari API node.
-- Workspace storage quota dipantau per node dan project.
+Credential provider dan Git disimpan melalui OS keychain adapter bila tersedia. Credential tidak boleh disimpan di SQLite dalam plaintext.
 
-## 12. Backup and Recovery
+## 11. Reset Local State
 
-Backup:
+```bash
+make clean-data
+```
 
-- PostgreSQL.
-- Artifact storage.
-- Provider/Git credential metadata terenkripsi.
-- Configuration dan schema versions.
+Command tersebut menghapus seluruh `.orkoda/`, termasuk database, approval history, artifact, dan workspace. Gunakan hanya ketika reset total memang diinginkan.
 
-Recovery job dapat membuat ulang workspace dari repository base commit dan patch artifact.
+## 12. Future Scope Boundary
 
-## 13. Rollback
-
-- TUI dapat mendukung satu atau lebih protocol version sebelumnya.
-- Backend rollback hanya dilakukan bila database migration kompatibel.
-- Sandbox image version dicatat per execution.
-- Feature flag dapat menonaktifkan provider, tool, command profile, atau Git publication tanpa menghentikan seluruh sistem.
+Arsitektur distributed hanya dipertimbangkan bila Orkoda berubah menjadi multi-machine. Pada kondisi tersebut, keputusan baru harus dibuat untuk database, broker, event distribution, storage, authentication, dan deployment. Komponen itu tidak disiapkan secara prematur pada MVP lokal.
