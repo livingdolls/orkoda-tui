@@ -85,7 +85,11 @@ export function buildDirectoryPickerItems(listing: DirectoryListing): DirectoryP
   return items
 }
 
-export function visibleDirectoryItems<T>(items: T[], selectedIndex: number, limit = 12): Array<{
+export function visibleDirectoryItems<T>(
+  items: T[],
+  selectedIndex: number,
+  limit = 12,
+): Array<{
   item: T
   index: number
 }> {
