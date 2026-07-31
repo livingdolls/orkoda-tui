@@ -8,9 +8,9 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:tui": "bun --cwd apps/tui run dev",
-    "typecheck": "bun --cwd apps/tui run typecheck",
-    "test:ts": "bun --cwd apps/tui run test",
+    "dev:tui": "cd apps/tui && bun run dev",
+    "typecheck": "cd apps/tui && bun run typecheck",
+    "test:ts": "cd apps/tui && bun run test",
     "lint:ts": "biome check apps packages",
     "format:ts": "biome format --write apps packages"
   },
