@@ -4,11 +4,7 @@ import type { TextareaRenderable } from "@opentui/core"
 import { useKeyboard } from "@opentui/react"
 import { useRef, useState } from "react"
 
-import {
-  answerPlanningRun,
-  type PlanningAnswer,
-  type PlanningRun,
-} from "./planning-agent"
+import { answerPlanningRun, type PlanningAnswer, type PlanningRun } from "./planning-agent"
 
 export function PlanningQuestionEditor({
   run,

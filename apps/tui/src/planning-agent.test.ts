@@ -59,7 +59,9 @@ describe("planning agent API client", () => {
     const fetcher: PlanningAgentFetch = async (_input, init) => {
       requestBody = String(init?.body)
       return new Response(
-        JSON.stringify({ data: { ...runPayload, id: "run-2", status: "COMPLETED", questions: [] } }),
+        JSON.stringify({
+          data: { ...runPayload, id: "run-2", status: "COMPLETED", questions: [] },
+        }),
         { status: 201 },
       )
     }

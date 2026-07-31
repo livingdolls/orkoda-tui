@@ -18,22 +18,22 @@ import (
 )
 
 var (
-	ErrRunNotFound        = errors.New("planning run not found")
-	ErrActiveRun          = errors.New("plan already has an active planning run")
+	ErrRunNotFound         = errors.New("planning run not found")
+	ErrActiveRun           = errors.New("plan already has an active planning run")
 	ErrRunNotAwaitingInput = errors.New("planning run is not awaiting input")
-	ErrInvalidAnswers     = errors.New("invalid planning answers")
-	ErrStaleRun           = errors.New("planning run no longer matches the current plan context")
+	ErrInvalidAnswers      = errors.New("invalid planning answers")
+	ErrStaleRun            = errors.New("planning run no longer matches the current plan context")
 )
 
 type RunStatus string
 
 const (
-	RunStatusRunning     RunStatus = "RUNNING"
-	RunStatusNeedsInput  RunStatus = "NEEDS_INPUT"
-	RunStatusCompleted   RunStatus = "COMPLETED"
-	RunStatusFailed      RunStatus = "FAILED"
-	RunStatusCancelled   RunStatus = "CANCELLED"
-	RunStatusSuperseded  RunStatus = "SUPERSEDED"
+	RunStatusRunning    RunStatus = "RUNNING"
+	RunStatusNeedsInput RunStatus = "NEEDS_INPUT"
+	RunStatusCompleted  RunStatus = "COMPLETED"
+	RunStatusFailed     RunStatus = "FAILED"
+	RunStatusCancelled  RunStatus = "CANCELLED"
+	RunStatusSuperseded RunStatus = "SUPERSEDED"
 )
 
 type QuestionStatus string
@@ -55,21 +55,21 @@ type Question struct {
 }
 
 type Run struct {
-	ID                string      `json:"id"`
-	PlanID            string      `json:"plan_id"`
-	PlanVersionID     string      `json:"plan_version_id"`
-	PlanningContextID string      `json:"planning_context_id"`
-	ParentRunID       string      `json:"parent_run_id,omitempty"`
-	Provider          string      `json:"provider"`
-	Model             string      `json:"model"`
-	Status            RunStatus   `json:"status"`
-	Result            *Plan       `json:"result,omitempty"`
-	Questions         []Question  `json:"questions"`
-	Usage             llm.Usage   `json:"usage"`
+	ID                string        `json:"id"`
+	PlanID            string        `json:"plan_id"`
+	PlanVersionID     string        `json:"plan_version_id"`
+	PlanningContextID string        `json:"planning_context_id"`
+	ParentRunID       string        `json:"parent_run_id,omitempty"`
+	Provider          string        `json:"provider"`
+	Model             string        `json:"model"`
+	Status            RunStatus     `json:"status"`
+	Result            *Plan         `json:"result,omitempty"`
+	Questions         []Question    `json:"questions"`
+	Usage             llm.Usage     `json:"usage"`
 	ErrorCode         llm.ErrorCode `json:"error_code,omitempty"`
-	ErrorMessage      string      `json:"error_message,omitempty"`
-	CreatedAt         time.Time   `json:"created_at"`
-	UpdatedAt         time.Time   `json:"updated_at"`
+	ErrorMessage      string        `json:"error_message,omitempty"`
+	CreatedAt         time.Time     `json:"created_at"`
+	UpdatedAt         time.Time     `json:"updated_at"`
 }
 
 type AnswerInput struct {

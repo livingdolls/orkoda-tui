@@ -13,12 +13,6 @@ import {
 } from "./directory-picker"
 import { PlanEditor } from "./plan-editor"
 import {
-  getCurrentPlanningRun,
-  type PlanningRun,
-  startPlanningRun,
-} from "./planning-agent"
-import { PlanningQuestionEditor } from "./planning-question-editor"
-import {
   generateRepositorySummary,
   getCurrentRepositorySummary,
   getPlanningContext,
@@ -26,6 +20,8 @@ import {
   type PlanningContext,
   type RepositorySummary,
 } from "./planning"
+import { getCurrentPlanningRun, type PlanningRun, startPlanningRun } from "./planning-agent"
+import { PlanningQuestionEditor } from "./planning-question-editor"
 import { listPlans, type Plan } from "./plans"
 import {
   createProject,
