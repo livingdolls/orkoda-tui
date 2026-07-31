@@ -18,7 +18,12 @@ jobs:
         with:
           go-version: "1.26.x"
           cache: true
-      - run: go mod download
+      - name: Check Go module files
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: Verify Go modules
+        run: go mod verify
       - run: test -z "$(gofmt -l cmd internal)"
       - run: go vet ./...
       - run: go test -race -coverprofile=coverage.out ./...
