@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { listLLMProviders, type LLMProviderFetch } from "./llm-providers"
+import { type LLMProviderFetch, listLLMProviders } from "./llm-providers"
 
 describe("LLM provider API client", () => {
   test("lists safe provider metadata", async () => {
