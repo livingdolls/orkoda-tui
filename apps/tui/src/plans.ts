@@ -81,7 +81,11 @@ export function listPlans(projectID: string, fetcher: PlanFetch = fetch): Promis
   return request<Plan[]>(`/api/v1/projects/${projectID}/plans`, { method: "GET" }, fetcher)
 }
 
-export function createPlan(projectID: string, input: PlanInput, fetcher: PlanFetch = fetch): Promise<Plan> {
+export function createPlan(
+  projectID: string,
+  input: PlanInput,
+  fetcher: PlanFetch = fetch,
+): Promise<Plan> {
   return request<Plan>(
     `/api/v1/projects/${projectID}/plans`,
     {
