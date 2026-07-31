@@ -1,0 +1,41 @@
+name: Fix PR 13 Fixture
+
+on:
+  push:
+    branches: [feat/planning-agent-open-questions]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/planning-agent-open-questions
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+      - name: Normalize stale-run fixture
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("internal/planningagent/service_test.go")
+          text = path.read_text()
+          old = r'Content: `{"summary":"Need input","steps":[],"open_questions":["Which API?"],"risks":[]}`'
+          new = 'Content: `{"summary":"Need input","steps":[],"open_questions":["Which API?"],"risks":[]}`'.replace('\\"', '"')
+          if old not in text:
+              raise SystemExit("expected escaped fixture was not found")
+          path.write_text(text.replace(old, new))
+          PY
+          gofmt -w internal/planningagent/service_test.go
+      - name: Commit fixture fix
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add internal/planningagent/service_test.go
+            git commit -m "test: normalize planning agent fixture"
+            git push origin HEAD:feat/planning-agent-open-questions
+          fi
