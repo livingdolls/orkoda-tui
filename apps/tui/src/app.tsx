@@ -5,7 +5,6 @@ import { useEffect, useState } from "react"
 
 import {
   type DaemonConnection,
-  daemonBaseURL,
   initialDaemonConnection,
   probeDaemon,
 } from "./daemon"
