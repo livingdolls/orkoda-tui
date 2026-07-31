@@ -18,6 +18,7 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/httpapi"
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
 	"github.com/livingdolls/orkoda-tui/internal/llm"
+	"github.com/livingdolls/orkoda-tui/internal/llm/openaicompat"
 	"github.com/livingdolls/orkoda-tui/internal/planningagent"
 	"github.com/livingdolls/orkoda-tui/internal/planningcontext"
 	"github.com/livingdolls/orkoda-tui/internal/plans"
@@ -100,6 +101,30 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	defaultProvider := planningagent.LocalFakeProviderName
+	defaultModel := planningagent.LocalFakeModelName
+	if cfg.LLM.Provider != planningagent.LocalFakeProviderName {
+		provider, err := openaicompat.New(openaicompat.Config{
+			Name:         cfg.LLM.Provider,
+			BaseURL:      cfg.LLM.BaseURL,
+			APIKey:       cfg.LLM.APIKey,
+			DefaultModel: cfg.LLM.Model,
+			Headers:      cfg.LLM.Headers,
+			Timeout:      cfg.LLM.Timeout,
+			JSONMode:     openaicompat.JSONMode(cfg.LLM.JSONMode),
+		})
+		if err != nil {
+			return err
+		}
+		if err := providerRegistry.Register(provider); err != nil {
+			return err
+		}
+		defaultProvider = provider.Name()
+		defaultModel = cfg.LLM.Model
+	}
+	providerCatalog := llm.NewCatalog(providerRegistry, defaultProvider)
+	logger.Info("LLM providers ready", "default_provider", defaultProvider, "default_model", defaultModel, "provider_count", len(providerCatalog.List()))
+
 	llmGateway, err := llm.NewGateway(providerRegistry, activityRecorder)
 	if err != nil {
 		return err
@@ -143,6 +168,9 @@ func run() error {
 				RepositorySummaries: summaryRepository,
 				PlanningContexts:    planningContextRepository,
 				PlanningAgent:       planningAgentService,
+				LLMProviders:        providerCatalog,
+				DefaultLLMProvider:  defaultProvider,
+				DefaultLLMModel:     defaultModel,
 			},
 		),
 		ReadHeaderTimeout: 5 * cfg.ShutdownTimeout / 10,
