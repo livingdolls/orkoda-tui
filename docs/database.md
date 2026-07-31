@@ -2,337 +2,147 @@
 
 ## 1. Prinsip
 
-- PostgreSQL menjadi source of truth.
-- ID menggunakan UUID.
-- Execution, review, approval, dan publication bersifat immutable.
-- JSONB hanya untuk konfigurasi fleksibel; relasi penting tetap dinormalisasi.
-- Workspace dapat direkonstruksi dari repository base commit dan patch artifact.
+- SQLite adalah satu-satunya source of truth.
+- Database berada di `.orkoda/orkoda.db` secara default.
+- Seluruh timestamp disimpan sebagai Unix milliseconds dalam kolom `INTEGER`.
+- ID domain menggunakan string acak agar tidak bergantung pada extension database.
+- JSON disimpan sebagai `TEXT` dan divalidasi application layer.
+- Foreign key diaktifkan pada setiap koneksi.
+- Transaction harus pendek; model call, command, dan Git operation berjalan di luar transaction.
+- File besar disimpan pada local artifact storage, bukan sebagai database BLOB.
 
-## 2. Core Tables
-
-### users
-
-```sql
-CREATE TABLE users (
-    id UUID PRIMARY KEY,
-    name TEXT NOT NULL,
-    email TEXT NOT NULL UNIQUE,
-    password_hash TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-### projects
+## 2. SQLite Runtime Configuration
 
 ```sql
-CREATE TABLE projects (
-    id UUID PRIMARY KEY,
-    owner_id UUID NOT NULL REFERENCES users(id),
-    name TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    global_instruction TEXT NOT NULL DEFAULT '',
-    default_base_branch TEXT,
-    status TEXT NOT NULL DEFAULT 'ACTIVE',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
+PRAGMA busy_timeout = 5000;
+PRAGMA synchronous = NORMAL;
 ```
 
-### repositories
+Daemon menggunakan satu pooled database connection untuk menjaga pragma per-connection konsisten dan menghindari competing writer di dalam satu process.
 
-```sql
-CREATE TABLE repositories (
-    id UUID PRIMARY KEY,
-    project_id UUID NOT NULL REFERENCES projects(id),
-    provider TEXT NOT NULL,
-    remote_url TEXT,
-    local_path TEXT,
-    default_branch TEXT NOT NULL,
-    trust_level TEXT NOT NULL DEFAULT 'RESTRICTED',
-    config JSONB NOT NULL DEFAULT '{}',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CHECK (remote_url IS NOT NULL OR local_path IS NOT NULL)
-);
-```
+## 3. Foundation Tables
 
-### plans and plan_versions
-
-```sql
-CREATE TABLE plans (
-    id UUID PRIMARY KEY,
-    project_id UUID NOT NULL REFERENCES projects(id),
-    title TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'DRAFT',
-    current_version INT NOT NULL DEFAULT 1,
-    created_by UUID NOT NULL REFERENCES users(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE plan_versions (
-    id UUID PRIMARY KEY,
-    plan_id UUID NOT NULL REFERENCES plans(id),
-    version INT NOT NULL,
-    requirement_markdown TEXT NOT NULL,
-    structured_plan JSONB NOT NULL,
-    created_by UUID NOT NULL REFERENCES users(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE(plan_id, version)
-);
-```
-
-### agents
-
-```sql
-CREATE TABLE agents (
-    id UUID PRIMARY KEY,
-    project_id UUID NOT NULL REFERENCES projects(id),
-    name TEXT NOT NULL,
-    role TEXT NOT NULL,
-    provider TEXT NOT NULL,
-    model TEXT NOT NULL,
-    system_instruction TEXT NOT NULL,
-    configuration JSONB NOT NULL DEFAULT '{}',
-    tool_policy JSONB NOT NULL DEFAULT '{}',
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-### jobs
+### Durable jobs
 
 ```sql
 CREATE TABLE jobs (
-    id UUID PRIMARY KEY,
-    project_id UUID NOT NULL REFERENCES projects(id),
-    repository_id UUID NOT NULL REFERENCES repositories(id),
-    plan_id UUID NOT NULL REFERENCES plans(id),
-    plan_version INT NOT NULL,
-    title TEXT NOT NULL,
-    status TEXT NOT NULL,
-    current_stage TEXT NOT NULL,
-    base_branch TEXT NOT NULL,
-    base_commit_sha TEXT NOT NULL,
-    executor_agent_id UUID NOT NULL REFERENCES agents(id),
-    reviewer_agent_id UUID NOT NULL REFERENCES agents(id),
-    current_execution_version INT NOT NULL DEFAULT 0,
-    revision_count INT NOT NULL DEFAULT 0,
-    limits JSONB NOT NULL DEFAULT '{}',
-    version BIGINT NOT NULL DEFAULT 1,
-    created_by UUID NOT NULL REFERENCES users(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL
+        CHECK (status IN ('QUEUED', 'RUNNING', 'COMPLETED', 'DEAD')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (max_attempts > 0),
+    run_after INTEGER NOT NULL,
+    locked_by TEXT,
+    locked_at INTEGER,
+    last_error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
 );
+
+CREATE INDEX idx_jobs_claim
+    ON jobs(status, run_after, created_at);
 ```
 
-### workspaces
+Queue claim dilakukan dalam satu statement:
 
 ```sql
-CREATE TABLE workspaces (
-    id UUID PRIMARY KEY,
-    job_id UUID NOT NULL REFERENCES jobs(id),
-    kind TEXT NOT NULL,
-    location_ref TEXT NOT NULL,
-    base_commit_sha TEXT NOT NULL,
-    branch_name TEXT NOT NULL,
-    status TEXT NOT NULL,
-    lease_owner TEXT,
-    lease_expires_at TIMESTAMPTZ,
-    current_patch_checksum TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    archived_at TIMESTAMPTZ
-);
+UPDATE jobs
+SET status = 'RUNNING',
+    attempts = attempts + 1,
+    locked_by = ?,
+    locked_at = ?,
+    updated_at = ?
+WHERE id = (
+    SELECT id
+    FROM jobs
+    WHERE status = 'QUEUED' AND run_after <= ?
+    ORDER BY run_after, created_at
+    LIMIT 1
+)
+RETURNING *;
 ```
 
-### executions
+### Activity events
 
 ```sql
-CREATE TABLE executions (
-    id UUID PRIMARY KEY,
-    job_id UUID NOT NULL REFERENCES jobs(id),
-    workspace_id UUID NOT NULL REFERENCES workspaces(id),
-    agent_id UUID NOT NULL REFERENCES agents(id),
-    version INT NOT NULL,
-    status TEXT NOT NULL,
-    input_snapshot JSONB NOT NULL,
-    summary TEXT NOT NULL DEFAULT '',
-    changed_files JSONB NOT NULL DEFAULT '[]',
-    patch_artifact_id UUID,
-    patch_checksum TEXT,
-    usage JSONB NOT NULL DEFAULT '{}',
-    error_code TEXT,
-    error_message TEXT,
-    started_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ,
-    UNIQUE(job_id, version)
+CREATE TABLE activity_events (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT,
+    type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL
 );
+
+CREATE INDEX idx_activity_events_job_sequence
+    ON activity_events(job_id, sequence);
 ```
 
-### tool_runs
+`activity_events` adalah durable timeline. In-memory event bus hanya mengirim notifikasi live setelah transaction event berhasil commit.
+
+## 4. Planned Domain Tables
+
+Schema berikut ditambahkan secara bertahap:
+
+- `projects` dan `repositories`;
+- `plans` dan `plan_versions`;
+- `agent_configs` dan `tool_policies`;
+- `workflow_jobs` dan `workspaces`;
+- `executions` dan `tool_runs`;
+- `check_definitions` dan `check_runs`;
+- `reviews` dan `review_issues`;
+- `revision_requests` dan `approvals`;
+- `git_publications` dan `artifacts` metadata.
+
+Karena produk bersifat personal-local, tabel user, membership, session, refresh token, tenant, dan organization tidak termasuk MVP.
+
+## 5. Workflow Concurrency
+
+- Satu daemon lokal memproses queue.
+- Atomic claim mencegah job yang sama dijalankan dua goroutine.
+- `attempts` bertambah pada saat claim.
+- Failed job kembali ke `QUEUED` dengan `run_after` baru hingga mencapai `max_attempts`.
+- Setelah batas tercapai, status menjadi `DEAD` dan membutuhkan retry manual.
+- Job `RUNNING` dengan `locked_at` stale dikembalikan ke `QUEUED` saat startup.
+- Handler tetap wajib idempotent karena daemon dapat berhenti setelah side effect tetapi sebelum status selesai tersimpan.
+
+## 6. Workspace Lease
+
+Workspace lease nantinya disimpan sebagai:
 
 ```sql
-CREATE TABLE tool_runs (
-    id UUID PRIMARY KEY,
-    execution_id UUID NOT NULL REFERENCES executions(id),
-    sequence INT NOT NULL,
-    tool_name TEXT NOT NULL,
-    input_redacted JSONB NOT NULL,
-    status TEXT NOT NULL,
-    exit_code INT,
-    output_summary TEXT,
-    log_artifact_id UUID,
-    policy_decision JSONB NOT NULL DEFAULT '{}',
-    started_at TIMESTAMPTZ NOT NULL,
-    completed_at TIMESTAMPTZ,
-    UNIQUE(execution_id, sequence)
+CREATE TABLE workspace_leases (
+    workspace_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    acquired_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
 );
 ```
 
-### check_definitions and check_runs
+Lease tidak menggantikan filesystem permission dan path guard. Source repository tetap read-only terhadap executor.
 
-```sql
-CREATE TABLE check_definitions (
-    id UUID PRIMARY KEY,
-    project_id UUID NOT NULL REFERENCES projects(id),
-    name TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    command TEXT NOT NULL,
-    required BOOLEAN NOT NULL DEFAULT true,
-    timeout_seconds INT NOT NULL DEFAULT 600,
-    configuration JSONB NOT NULL DEFAULT '{}'
-);
+## 7. Backup and Recovery
 
-CREATE TABLE check_runs (
-    id UUID PRIMARY KEY,
-    execution_id UUID NOT NULL REFERENCES executions(id),
-    check_definition_id UUID NOT NULL REFERENCES check_definitions(id),
-    status TEXT NOT NULL,
-    exit_code INT,
-    summary TEXT,
-    log_artifact_id UUID,
-    duration_ms BIGINT,
-    started_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ
-);
+Backup lokal mencakup:
+
+```text
+.orkoda/orkoda.db
+.orkoda/orkoda.db-wal
+.orkoda/orkoda.db-shm
+.orkoda/artifacts/
 ```
 
-### reviews and review_issues
+Untuk backup konsisten saat daemon aktif, gunakan SQLite backup API atau jalankan checkpoint sebelum menyalin database. Menyalin hanya file `.db` ketika WAL aktif dapat menghasilkan backup yang tidak lengkap.
 
-```sql
-CREATE TABLE reviews (
-    id UUID PRIMARY KEY,
-    job_id UUID NOT NULL REFERENCES jobs(id),
-    execution_id UUID NOT NULL REFERENCES executions(id),
-    reviewer_agent_id UUID NOT NULL REFERENCES agents(id),
-    decision TEXT NOT NULL,
-    score INT NOT NULL,
-    summary TEXT NOT NULL,
-    residual_risks JSONB NOT NULL DEFAULT '[]',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+Workspace dapat direkonstruksi dari repository base commit dan patch artifact. Database, artifact, approval, dan publication record tidak boleh terhapus oleh cleanup workspace.
 
-CREATE TABLE review_issues (
-    id UUID PRIMARY KEY,
-    review_id UUID NOT NULL REFERENCES reviews(id),
-    severity TEXT NOT NULL,
-    category TEXT NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT NOT NULL,
-    file_path TEXT,
-    line_start INT,
-    line_end INT,
-    evidence TEXT,
-    recommendation TEXT NOT NULL,
-    is_blocking BOOLEAN NOT NULL DEFAULT false,
-    status TEXT NOT NULL DEFAULT 'OPEN'
-);
-```
+## 8. Migration Rules
 
-### revision_requests
-
-```sql
-CREATE TABLE revision_requests (
-    id UUID PRIMARY KEY,
-    job_id UUID NOT NULL REFERENCES jobs(id),
-    execution_id UUID NOT NULL REFERENCES executions(id),
-    review_id UUID REFERENCES reviews(id),
-    requested_by UUID NOT NULL REFERENCES users(id),
-    instruction TEXT NOT NULL,
-    selected_issue_ids JSONB NOT NULL DEFAULT '[]',
-    status TEXT NOT NULL DEFAULT 'PENDING',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-### approvals
-
-```sql
-CREATE TABLE approvals (
-    id UUID PRIMARY KEY,
-    job_id UUID NOT NULL REFERENCES jobs(id),
-    execution_id UUID NOT NULL REFERENCES executions(id),
-    review_id UUID NOT NULL REFERENCES reviews(id),
-    user_id UUID NOT NULL REFERENCES users(id),
-    decision TEXT NOT NULL,
-    notes TEXT,
-    override_reason TEXT,
-    base_commit_sha TEXT NOT NULL,
-    patch_checksum TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-### git_publications
-
-```sql
-CREATE TABLE git_publications (
-    id UUID PRIMARY KEY,
-    job_id UUID NOT NULL REFERENCES jobs(id),
-    approval_id UUID NOT NULL REFERENCES approvals(id),
-    kind TEXT NOT NULL,
-    provider TEXT NOT NULL,
-    branch_name TEXT NOT NULL,
-    commit_sha TEXT,
-    pull_request_ref TEXT,
-    status TEXT NOT NULL,
-    error_message TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    completed_at TIMESTAMPTZ,
-    UNIQUE(approval_id, kind, branch_name)
-);
-```
-
-### artifacts, activity_events, outbox_events, processed_messages
-
-Artifacts menyimpan patch, diff, command log, test report, coverage, dan archive. Activity events menyimpan timeline product. Outbox dan processed messages menjamin durable delivery dan idempotent consumption.
-
-## 3. Indexes
-
-```sql
-CREATE INDEX idx_jobs_project_status ON jobs(project_id, status, updated_at DESC);
-CREATE INDEX idx_workspaces_job_status ON workspaces(job_id, status);
-CREATE INDEX idx_executions_job_version ON executions(job_id, version DESC);
-CREATE INDEX idx_tool_runs_execution_sequence ON tool_runs(execution_id, sequence);
-CREATE INDEX idx_check_runs_execution ON check_runs(execution_id, status);
-CREATE INDEX idx_review_issues_review_severity ON review_issues(review_id, severity);
-CREATE INDEX idx_activity_job_sequence ON activity_events(job_id, sequence);
-CREATE INDEX idx_outbox_unpublished ON outbox_events(created_at) WHERE published_at IS NULL;
-```
-
-## 4. Integrity Rules
-
-- Executor dan Reviewer agent ID tidak boleh sama.
-- Approval harus menunjuk execution dan review terbaru.
-- Approval patch checksum harus sama dengan workspace current patch checksum.
-- Publication hanya dapat menggunakan approval berstatus approved.
-- Satu workspace hanya memiliki satu active write lease.
-- Path file dan artifact selalu project-scoped.
-- Versi execution tidak dapat diubah setelah selesai.
-
-## 5. Retention
-
-- Approval, publication, dan audit event dipertahankan permanen sesuai kebijakan.
-- Command log sensitif dapat memiliki retention lebih pendek.
-- Workspace non-final dapat dibersihkan setelah patch dan metadata tersimpan.
-- Final patch, check summary, review, dan approval harus tetap tersedia untuk audit.
+- Migration bersifat idempotent dan berjalan otomatis saat daemon startup.
+- `make migrate` tersedia untuk menjalankan migration secara eksplisit.
+- Perubahan destructive menggunakan create-copy-rename, bukan mengandalkan unsupported `ALTER TABLE` behavior.
+- Sebelum migration besar, buat backup database lokal.
+- CI menjalankan migration pada database temporary dan memverifikasi schema utama.

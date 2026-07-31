@@ -2,229 +2,178 @@
 
 ## 1. Architectural Style
 
-- OpenTUI terminal client sebagai delivery layer.
-- Golang hexagonal architecture untuk domain dan application services.
-- Event-driven workers untuk pekerjaan asynchronous.
-- Isolated Git workspace untuk setiap job.
-- Sandboxed tool execution.
-- Immutable execution, review, dan approval versions.
+Orkoda adalah aplikasi personal yang berjalan pada satu komputer developer. Arsitektur utama:
+
+- OpenTUI sebagai user interface.
+- Satu Golang local daemon untuk API, orchestration, scheduler, dan agent workers.
+- SQLite sebagai source of truth dan durable job queue.
+- In-memory event bus untuk live update ke TUI.
+- Local filesystem untuk artifact dan workspace.
+- Isolated Git worktree atau clone untuk setiap job.
+- Docker hanya digunakan oleh command sandbox bila fitur tersebut sudah tersedia.
+
+PostgreSQL, Redis, RabbitMQ, MinIO, distributed worker, dan remote control plane berada di luar scope.
 
 ## 2. High-Level Diagram
 
 ```mermaid
 flowchart LR
     U[Developer] --> TUI[OpenTUI Client]
-    TUI -->|Unix socket / HTTP| API[Golang API or Local Daemon]
-    API --> DB[(PostgreSQL)]
-    API --> REDIS[(Redis)]
-    API --> MQ[(RabbitMQ)]
-    API --> WM[Workspace Manager]
-    WM --> GIT[(Git Repository)]
-    MQ --> EW[Executor Worker]
-    MQ --> RW[Reviewer Worker]
-    EW --> LLM[LLM Gateway]
-    RW --> LLM
-    EW --> SB[Sandbox Runtime]
-    RW --> RWS[Read-only Workspace]
-    SB --> WS[(Isolated Workspace)]
-    EW --> DB
-    RW --> DB
-    REDIS --> EVT[Event Stream Gateway]
-    EVT --> TUI
-    API --> GP[Git Provider Adapter]
+    TUI -->|localhost HTTP / Unix socket| D[Orkoda Local Daemon]
+    D --> DB[(SQLite orkoda.db)]
+    D --> BUS[In-memory Event Bus]
+    BUS --> TUI
+    D --> WM[Workspace Manager]
+    WM --> GIT[(Local Git Repository)]
+    WM --> WS[(Isolated Worktree)]
+    D --> PA[Planning Worker]
+    D --> EA[Executor Worker]
+    D --> CA[Check Runner]
+    D --> RA[Reviewer Worker]
+    PA --> LLM[LLM Gateway]
+    EA --> LLM
+    RA --> LLM
+    EA --> SB[Docker Sandbox]
+    SB --> WS
+    D --> FS[(Local Artifacts)]
 ```
 
-## 3. Komponen
+## 3. Single Process Runtime
 
-### OpenTUI Client
+Satu daemon menjalankan beberapa application component sebagai goroutine:
 
-Tanggung jawab:
-
-- Repository picker dan project dashboard.
-- Requirement dan structured plan editor.
-- Job progress, tool activity, dan log viewer.
-- Changed-file tree dan diff viewer.
-- Check result dan review issue panel.
-- Approval, revision, rejection, commit, dan pull request actions.
-- Local configuration, key bindings, theme, dan diagnostics.
-
-TUI tidak menjadi sumber kebenaran workflow. Semua transition divalidasi backend.
-
-### API / Local Daemon
-
-- Menyediakan protocol untuk TUI.
-- Authentication untuk remote mode dan local profile untuk local mode.
-- CRUD project, repository, plan, agent, job, dan check configuration.
-- Memvalidasi command user.
-- Mengelola state transition dan outbox.
-- Menyediakan query timeline, diff metadata, review, dan usage.
-
-### Workflow Orchestrator
-
-- Memvalidasi current state dan aggregate version.
-- Menentukan tahap berikutnya.
-- Membuat execution, check, review, approval, dan publication records.
-- Menangani revision loop, budget, timeout, cancellation, dan policy override.
-
-### Repository Manager
-
-- Memvalidasi repository Git.
-- Membaca remote, branch, commit, dirty state, submodule, dan ignore rules.
-- Menjaga repository sumber tetap tidak berubah.
-- Menyediakan adapter untuk repository lokal dan Git provider remote.
-
-### Workspace Manager
-
-- Membuat Git worktree atau isolated clone.
-- Mengikat workspace ke `base_commit_sha`.
-- Mengatur lock, quota, cleanup, archive, dan recovery.
-- Menyimpan patch checkpoint untuk rekonstruksi.
-
-### Executor Worker
-
-- Mengonsumsi `execution.requested`.
-- Menyiapkan context repository.
-- Memanggil LLM dan menjalankan tool loop.
-- Menulis file hanya dalam workspace.
-- Menyimpan tool run, patch, summary, usage, dan status.
-- Memicu automated checks setelah execution selesai.
-
-### Check Runner
-
-- Menjalankan formatter, linter, type check, test, build, dan custom checks.
-- Menggunakan sandbox dan environment policy yang sama.
-- Menyimpan output ringkas dan log artifact.
-
-### Reviewer Worker
-
-- Mengonsumsi `review.requested`.
-- Membaca plan, base commit, final diff, tool summary, dan check results.
-- Menggunakan workspace read-only.
-- Menghasilkan structured review dan blocking policy result.
-
-### LLM Gateway
-
-```go
-type Provider interface {
-    Generate(ctx context.Context, req GenerateRequest) (GenerateResponse, error)
-    Stream(ctx context.Context, req GenerateRequest) (<-chan StreamEvent, error)
-}
+```text
+Orkoda daemon
+├── local API
+├── workflow state machine
+├── SQLite job scheduler
+├── planning worker
+├── executor worker
+├── automated check runner
+├── reviewer worker
+├── publication worker
+└── in-memory event bus
 ```
 
-Tanggung jawab:
+Setiap goroutine menerima `context.Context`, berhenti saat daemon shutdown, dan tidak menyimpan business state hanya di memory.
 
-- Provider routing dan fallback policy.
-- Timeout dan cancellation.
-- Usage normalization dan cost estimation.
-- Structured response validation.
-- Prompt redaction dan request audit metadata.
+## 4. Persistence
 
-### Sandbox Runtime
+### SQLite
 
-- Container atau microVM adapter.
-- CPU, memory, process, disk, dan wall-clock limit.
-- Workspace mount dengan path yang eksplisit.
-- Network disabled secara default.
-- Environment allowlist dan secret broker.
-- Output size limit dan process tree termination.
+SQLite menyimpan:
 
-### PostgreSQL
+- project dan repository registration;
+- plan dan acceptance criteria;
+- workflow job dan execution version;
+- durable background job queue;
+- tool run dan automated check result;
+- review, revision, dan approval;
+- publication record;
+- activity timeline dan audit metadata.
 
-Sumber kebenaran untuk project, repository, plan, job, workspace, execution, tool run, check, review, approval, publication, outbox, dan audit.
+Database default berada di `.orkoda/orkoda.db` dengan konfigurasi:
 
-### Redis
+```sql
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
+PRAGMA busy_timeout = 5000;
+PRAGMA synchronous = NORMAL;
+```
 
-- Distributed lock singkat.
-- Rate limit.
-- Event fan-out ke TUI.
-- Worker heartbeat.
-- Cache non-kritis.
+Daemon menggunakan satu pooled connection. Transaction harus pendek dan tidak boleh mencakup model call, command execution, atau operasi Git.
 
-### RabbitMQ
+### Local Filesystem
 
-Durable commands:
+File besar tidak disimpan sebagai BLOB di SQLite. Folder `.orkoda/` menyimpan:
 
-- `workspace.prepare.requested`.
-- `execution.requested`.
-- `checks.requested`.
-- `review.requested`.
-- `publication.requested`.
+- `artifacts/`: patch, log, test report, dan debug bundle;
+- `workspaces/`: isolated Git workspace;
+- `logs/`: log aplikasi lokal.
 
-### Artifact Storage
+Artifact write harus atomik dan path harus divalidasi agar tidak keluar dari root storage.
 
-- Patch dan diff besar.
-- Command log.
-- Test report.
-- Coverage report.
-- Workspace archive bila policy mengizinkan.
+## 5. Durable Job Queue
 
-## 4. Domain Boundaries
+RabbitMQ diganti dengan tabel SQLite `jobs`. Queue mendukung:
 
-- **Identity:** user, profile, token, membership.
-- **Project:** project, repository binding, project instruction, check configuration.
-- **Planning:** requirement, plan version, steps, criteria, risk.
-- **Workflow:** job, stage, transition, budget, cancellation.
-- **Workspace:** base commit, path, state, lock, patch checkpoint.
-- **Execution:** execution version, model call, tool run, file change summary.
-- **Checks:** check definition, run, result, evidence.
-- **Review:** review, issue, criteria result, residual risk.
-- **Approval:** decision, override, immutable binding.
-- **Publication:** commit, branch push, pull request.
+- scheduled execution melalui `run_after`;
+- atomic claim menggunakan `UPDATE ... RETURNING`;
+- attempt counter dan maximum attempts;
+- retry/backoff;
+- terminal status `DEAD`;
+- stale lock recovery setelah daemon crash;
+- idempotency pada application handler.
 
-## 5. Command and Event Flow
+Queue hanya diproses oleh daemon lokal. Tidak ada distributed consumer atau network broker.
+
+## 6. Event Delivery
+
+Redis Pub/Sub diganti dengan in-memory event bus.
+
+Aturan penting:
+
+1. Event penting ditulis ke `activity_events` terlebih dahulu.
+2. Setelah commit, event ringan dipublish ke subscriber TUI.
+3. Publish tidak boleh memblokir workflow.
+4. Subscriber lambat dapat kehilangan live notification tetapi mengambil ulang timeline dari SQLite.
+5. Restart daemon tidak kehilangan durable activity event.
+
+## 7. Cache and Locks
+
+- Cache non-kritis menggunakan process memory dan boleh hilang saat restart.
+- Single-instance lock menggunakan OS file lock ketika launcher tersedia.
+- Workspace write lease disimpan di SQLite.
+- In-process mutual exclusion menggunakan `sync.Mutex` hanya untuk data memory.
+- Source repository tidak pernah dijadikan writable workspace.
+
+## 8. Domain Boundaries
+
+- **Project:** project, repository binding, instruction, dan checks.
+- **Planning:** requirement, plan version, steps, criteria, dan risk.
+- **Workflow:** job, state transition, retry, timeout, dan cancellation.
+- **Workspace:** base commit, isolated path, lease, dan patch checkpoint.
+- **Execution:** model call, tool run, file changes, dan usage.
+- **Checks:** formatter, linter, type check, test, dan build evidence.
+- **Review:** issues, criteria result, dan residual risk.
+- **Approval:** immutable decision binding.
+- **Publication:** local commit, branch push, dan draft pull request.
+
+Tidak ada multi-user identity atau project membership pada MVP personal-local.
+
+## 9. Workflow Flow
 
 ```mermaid
 sequenceDiagram
     participant Dev as Developer
     participant TUI as OpenTUI
-    participant API
-    participant MQ
-    participant Exec as Executor Worker
+    participant D as Local Daemon
+    participant DB as SQLite Queue
+    participant Agent as Agent Worker
     participant SB as Sandbox
-    participant Rev as Reviewer Worker
 
-    Dev->>TUI: Start approved plan
-    TUI->>API: start job
-    API->>MQ: workspace.prepare.requested
-    MQ->>Exec: execution.requested
-    Exec->>SB: edit files and run tools
-    Exec->>MQ: checks.requested
-    Exec->>MQ: review.requested
-    MQ->>Rev: review diff and evidence
-    Rev->>API: save structured review
-    API-->>TUI: approval.required event
-    Dev->>TUI: approve or request revision
+    Dev->>TUI: Submit requirement
+    TUI->>D: Create and accept plan
+    D->>DB: Enqueue execution
+    D->>DB: Atomically claim job
+    D->>Agent: Run planning/execution/review step
+    Agent->>SB: Edit isolated workspace and run checks
+    Agent->>D: Return structured result
+    D->>DB: Persist result and activity event
+    D-->>TUI: Publish live event
+    Dev->>TUI: Approve, revise, or reject
 ```
-
-## 6. Transactional Outbox
-
-State change dan event creation terjadi dalam satu database transaction. Publisher mengirim event dari `outbox_events`; consumer menyimpan `message_id` di `processed_messages`.
-
-## 7. Concurrency and Idempotency
-
-- `jobs.version` menggunakan optimistic locking.
-- Satu active execution per job.
-- Satu publication per approved execution dan target.
-- Workspace memiliki exclusive write lease.
-- Duplicate delivery tidak menjalankan tool atau Git push dua kali.
-
-## 8. Event Streaming to TUI
-
-Worker menulis event permanen ke database dan publish event ringan ke Redis. TUI berlangganan melalui Unix socket stream pada local mode atau HTTP event stream pada remote mode. Reconnect menggunakan sequence terakhir dan mengambil event yang terlewat dari database.
-
-## 9. Scaling
-
-- TUI selalu berjalan di sisi developer.
-- API stateless kecuali local daemon mode.
-- Executor, check, dan Reviewer workers diskalakan terpisah.
-- Workspace ditempatkan pada worker pool yang memiliki storage sesuai policy.
-- Provider rate limit dikelola terpusat.
 
 ## 10. Failure Boundaries
 
-- TUI berhenti tidak membatalkan job kecuali user mengirim cancel.
-- Provider gagal tidak merusak workspace.
-- Check gagal menghasilkan evidence, bukan kehilangan execution.
-- Reviewer gagal tidak menghapus diff.
-- Event stream gagal tidak menghilangkan timeline.
-- Publication gagal dapat di-retry secara idempotent.
+- TUI exit tidak merusak atau membatalkan durable job.
+- Daemon restart memulihkan job `RUNNING` yang stale.
+- Provider failure tidak merusak workspace.
+- Check failure menjadi evidence, bukan kehilangan execution.
+- Event bus overflow tidak menghilangkan timeline database.
+- Artifact write menggunakan temporary file dan atomic rename.
+- Publication dapat diulang secara idempotent dari approval yang sama.
+
+## 11. Future Extension Boundary
+
+NATS, PostgreSQL, distributed workers, remote execution, dan object storage hanya dipertimbangkan bila scope berubah menjadi multi-machine. Mereka tidak disiapkan secara default dan tidak boleh menambah kompleksitas MVP lokal.

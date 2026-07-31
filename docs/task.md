@@ -1,244 +1,132 @@
 # Development Tasks
 
-Backlog ini khusus untuk AI software development workflow berbasis OpenTUI.
+Backlog Orkoda untuk penggunaan personal pada satu komputer.
 
-## Epic 1 — Repository and Tooling
+## Epic 1 — Foundation
 
-- [ ] Buat repository utama.
-- [ ] Setup Go workspace.
-- [ ] Setup TypeScript OpenTUI application.
-- [ ] Pilih `@opentui/core` atau `@opentui/react` dan dokumentasikan keputusan.
-- [ ] Setup shared protocol schema.
-- [ ] Tambahkan Docker Compose untuk PostgreSQL, Redis, RabbitMQ, dan MinIO.
-- [ ] Tambahkan Makefile dan task runner.
-- [ ] Tambahkan `.env.example` tanpa secret.
-- [ ] Tambahkan formatter, linter, test, dan CI dasar.
+- [x] Setup Go module dan OpenTUI React workspace.
+- [x] Setup shared protocol schema, Makefile, test, lint, dan CI.
+- [x] Tambahkan `.orkoda/` sebagai local runtime root.
+- [x] Tambahkan filesystem artifact storage.
+- [x] Ganti PostgreSQL dengan embedded SQLite tanpa CGO.
+- [x] Hapus Redis, RabbitMQ, MinIO, dan Docker Compose.
+- [x] Tambahkan SQLite WAL configuration dan migration bootstrap.
+- [x] Tambahkan durable SQLite job queue.
+- [x] Tambahkan retry, dead status, dan stale-job recovery API.
+- [x] Tambahkan in-memory event bus.
 
-## Epic 2 — OpenTUI Foundation
+## Epic 2 — Local Runtime Completion
 
-- [ ] Buat app shell dan route/state navigation.
+- [ ] Jalankan queue scheduler sebagai goroutine daemon.
+- [ ] Tambahkan activity event repository dan replay berdasarkan sequence.
+- [ ] Tambahkan coordinated goroutine shutdown.
+- [ ] Tambahkan OS single-instance lock.
+- [ ] Tambahkan SQLite checkpoint, backup, dan integrity diagnostics.
+- [ ] Tambahkan migration version tracking dan upgrade tests.
+
+## Epic 3 — OpenTUI Foundation
+
 - [ ] Buat keyboard map dan command palette.
-- [ ] Buat focus management.
-- [ ] Buat modal, confirmation, toast, loading, empty, dan error components.
-- [ ] Buat resizable panels.
-- [ ] Buat log viewer dengan pagination.
-- [ ] Buat diff viewer prototype.
-- [ ] Buat diagnostics screen.
-- [ ] Tambahkan terminal resize dan small-screen handling.
-- [ ] Tambahkan component and snapshot tests.
+- [ ] Buat focus management, modal, confirmation, dan toast.
+- [ ] Buat loading, empty, error, dan cancellation states.
+- [ ] Buat resizable panels, log viewer, dan diff prototype.
+- [ ] Tambahkan terminal resize handling dan component tests.
 
-## Epic 3 — API and Local Daemon
+## Epic 4 — Local Daemon Protocol
 
-- [ ] Buat Golang API/local daemon.
 - [ ] Implementasikan Unix socket transport.
-- [ ] Implementasikan HTTP transport untuk remote mode.
-- [ ] Definisikan versioned protocol envelope.
 - [ ] Generate TypeScript client types dari schema.
-- [ ] Implementasikan request/correlation IDs.
-- [ ] Implementasikan event stream dan reconnect.
-- [ ] Implementasikan graceful shutdown.
+- [ ] Implementasikan request dan correlation IDs.
+- [ ] Implementasikan event stream, reconnect, dan timeline replay.
+- [ ] Hubungkan TUI status screen dengan daemon dan SQLite diagnostics.
 
-## Epic 4 — Database Foundation
+## Epic 5 — Domain Persistence
 
-- [ ] Migration users, projects, repositories, and memberships.
-- [ ] Migration plans and plan_versions.
-- [ ] Migration agents and tool policies.
-- [ ] Migration jobs and workspaces.
-- [ ] Migration executions and tool_runs.
-- [ ] Migration check_definitions and check_runs.
-- [ ] Migration reviews and review_issues.
-- [ ] Migration revision_requests and approvals.
-- [ ] Migration git_publications and artifacts.
-- [ ] Migration activity_events, outbox_events, and processed_messages.
-- [ ] Tambahkan indexes and integrity constraints.
-- [ ] Tambahkan migration integration test.
+- [ ] Migration projects dan repositories.
+- [ ] Migration plans dan plan versions.
+- [ ] Migration agent configuration dan tool policy.
+- [ ] Migration workflow jobs dan workspaces.
+- [ ] Migration executions, tool runs, dan checks.
+- [ ] Migration reviews, revisions, dan approvals.
+- [ ] Migration Git publications dan artifact metadata.
+- [ ] Tambahkan indexes, foreign keys, dan integrity rules.
 
-## Epic 5 — Identity and Authorization
+User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 
-- [ ] Implementasikan local profile.
-- [ ] Implementasikan remote device login.
-- [ ] Implementasikan access and refresh tokens.
-- [ ] Simpan credential melalui keychain adapter.
-- [ ] Implementasikan project membership.
-- [ ] Implementasikan permissions: view, execute, approve, credentials, publish.
-- [ ] Tambahkan audit events dan auth integration tests.
+## Epic 6 — Repository and Workspace
 
-## Epic 6 — Repository Management
-
-- [ ] Buat Repository entity and adapter interfaces.
 - [ ] Implementasikan local Git repository inspection.
-- [ ] Baca remote, branches, HEAD, dirty state, and submodules.
-- [ ] Implementasikan repository trust levels.
-- [ ] Buat repository picker and detail screens.
-- [ ] Buat branch selector.
-- [ ] Tambahkan ignore and secret path policy.
-- [ ] Tambahkan repository fixture tests.
+- [ ] Baca remote, branch, HEAD, dirty state, dan submodule.
+- [ ] Buat repository picker, detail screen, dan branch selector.
+- [ ] Implementasikan trust level dan ignore policy.
+- [ ] Implementasikan local Git worktree adapter.
+- [ ] Tambahkan SQLite-backed workspace lease.
+- [ ] Tambahkan path guard, patch checkpoint, cleanup, dan recovery.
 
-## Epic 7 — Workspace Manager
+## Epic 7 — Planning and LLM Gateway
 
-- [ ] Buat Workspace entity and lifecycle.
-- [ ] Implementasikan Git worktree adapter.
-- [ ] Implementasikan isolated clone adapter.
-- [ ] Tambahkan write lease.
-- [ ] Tambahkan path and symlink guards.
-- [ ] Simpan base commit SHA and patch checksum.
-- [ ] Implementasikan patch checkpoint.
-- [ ] Implementasikan archive, cleanup, and orphan recovery.
-- [ ] Tambahkan concurrency and recovery tests.
+- [ ] Buat requirement editor dan structured plan schema.
+- [ ] Implementasikan repository summary dan plan normalization.
+- [ ] Buat Planning Agent dan open-question flow.
+- [ ] Definisikan provider-neutral request, response, usage, dan error.
+- [ ] Implementasikan provider adapter pertama dan fake provider.
+- [ ] Tambahkan timeout, cancellation, retry, fallback, dan budget.
+- [ ] Tambahkan structured output validation dan prompt redaction.
 
-## Epic 8 — Planning
+## Epic 8 — Workflow and Scheduler
 
-- [ ] Buat requirement editor di OpenTUI.
-- [ ] Definisikan structured plan JSON Schema.
-- [ ] Buat Planning Agent prompt.
-- [ ] Implementasikan repository summary builder.
-- [ ] Implementasikan plan normalization.
-- [ ] Buat affected-area and test-strategy panels.
-- [ ] Buat open-question flow.
-- [ ] Implementasikan plan version and accept action.
+- [ ] Definisikan job aggregate dan transition table.
+- [ ] Hubungkan workflow ke SQLite queue.
+- [ ] Tambahkan handler idempotency.
+- [ ] Implementasikan polling, backoff, cancellation, dan manual retry.
+- [ ] Pulihkan stale running job saat daemon startup.
+- [ ] Tambahkan revision, attempt, dan wall-clock guards.
+- [ ] Tambahkan crash-recovery dan duplicate-processing tests.
 
-## Epic 9 — LLM Gateway
+## Epic 9 — Tools and Sandbox
 
-- [ ] Definisikan canonical request, response, usage, and errors.
-- [ ] Implementasikan provider interface.
-- [ ] Implementasikan provider adapter pertama.
-- [ ] Implementasikan fake provider.
-- [ ] Implementasikan timeout, cancellation, retry, and fallback policy.
-- [ ] Implementasikan structured output validation.
-- [ ] Implementasikan token/cost accounting.
-- [ ] Implementasikan prompt redaction and source delimiters.
+- [ ] Implementasikan file read, search, patch, create, dan delete.
+- [ ] Implementasikan Git status dan diff.
+- [ ] Validasi canonical path, symlink, dan file size.
+- [ ] Buat Docker sandbox adapter.
+- [ ] Tambahkan command profiles dan argument validation.
+- [ ] Tambahkan CPU, memory, process, disk, timeout, dan output limits.
+- [ ] Disable network secara default.
+- [ ] Implementasikan process-tree cancellation dan environment allowlist.
 
-## Epic 10 — Workflow and Messaging
+## Epic 10 — Executor, Checks, and Reviewer
 
-- [ ] Definisikan Job aggregate and status enums.
-- [ ] Implementasikan transition table and optimistic locking.
-- [ ] Implementasikan transactional outbox.
-- [ ] Setup RabbitMQ exchanges and queues.
-- [ ] Implementasikan processed message store.
-- [ ] Implementasikan retry, backoff, manual ack, and DLQ.
-- [ ] Implementasikan budget, revision, and wall-clock guards.
-- [ ] Tambahkan table-driven and duplicate-delivery tests.
+- [ ] Buat execution snapshot, context selector, dan Executor loop.
+- [ ] Simpan tool runs, checkpoints, changed files, patch, dan usage.
+- [ ] Implementasikan formatter, linter, type check, test, dan build runner.
+- [ ] Simpan check summary dan log artifact.
+- [ ] Buat Reviewer prompt dan structured review schema.
+- [ ] Validasi file reference, severity, blocking flag, dan criteria.
+- [ ] Publish live progress setelah durable event tersimpan.
 
-## Epic 11 — File Tools
+## Epic 11 — Approval and Git Publication
 
-- [ ] Implementasikan file read.
-- [ ] Implementasikan glob and semantic/text search abstraction.
-- [ ] Implementasikan file patch.
-- [ ] Implementasikan file create and delete.
-- [ ] Implementasikan Git status and diff.
-- [ ] Validasi canonical path and file size.
-- [ ] Simpan tool input redacted and result summary.
-- [ ] Tambahkan malicious path tests.
+- [ ] Buat changed-file tree dan unified diff viewer.
+- [ ] Buat check matrix dan review issue panel.
+- [ ] Implementasikan approve, revision, reject, dan take over.
+- [ ] Bind approval ke execution version, base SHA, dan patch checksum.
+- [ ] Implementasikan local commit dan commit message editor.
+- [ ] Buat optional GitHub adapter untuk branch push dan draft PR.
+- [ ] Tambahkan publication idempotency dan conflict handling.
 
-## Epic 12 — Sandbox and Command Runner
+## Epic 12 — Local Release
 
-- [ ] Buat Sandbox interface.
-- [ ] Implementasikan Docker sandbox adapter.
-- [ ] Buat command profiles per language/toolchain.
-- [ ] Implementasikan executable and argument validation.
-- [ ] Tambahkan CPU, memory, PID, disk, timeout, and output limits.
-- [ ] Disable network by default.
-- [ ] Implementasikan process tree cancellation.
-- [ ] Tambahkan environment allowlist and secret broker.
-- [ ] Jalankan sandbox security test suite.
+- [ ] Implementasikan local credential storage melalui OS keychain.
+- [ ] Tambahkan repository, workspace, command, dan artifact security tests.
+- [ ] Tambahkan structured logs, local metrics, dan diagnostics bundle.
+- [ ] Tambahkan SQLite backup, restore, dan recovery drill.
+- [ ] Build daemon binary, TUI artifact, dan optional sandbox image.
+- [ ] Jalankan end-to-end dan security tests.
+- [ ] Release local MVP.
 
-## Epic 13 — Executor Worker
+## Outside Current Scope
 
-- [ ] Buat execution input snapshot.
-- [ ] Buat context file selector.
-- [ ] Buat Executor prompt builder.
-- [ ] Implementasikan model/tool loop.
-- [ ] Simpan tool runs and checkpoints.
-- [ ] Simpan changed files, patch, summary, and usage.
-- [ ] Publish live progress events.
-- [ ] Tangani timeout, cancellation, provider failure, and policy violation.
-- [ ] Tambahkan worker restart test.
-
-## Epic 14 — Automated Checks
-
-- [ ] Buat check definition management.
-- [ ] Implementasikan formatter runner.
-- [ ] Implementasikan linter runner.
-- [ ] Implementasikan type check runner.
-- [ ] Implementasikan unit/integration test runner.
-- [ ] Implementasikan build runner.
-- [ ] Simpan exit code, duration, summary, and log artifact.
-- [ ] Buat check result screen.
-- [ ] Implementasikan required-check policy and retry.
-
-## Epic 15 — Reviewer Worker
-
-- [ ] Definisikan code review schema.
-- [ ] Buat Reviewer prompt builder.
-- [ ] Siapkan read-only workspace snapshot.
-- [ ] Validasi file and line references.
-- [ ] Validasi severity, category, blocking flag, and criterion IDs.
-- [ ] Simpan review and issues.
-- [ ] Implementasikan review retry and schema repair.
-- [ ] Tambahkan prompt regression suite.
-
-## Epic 16 — Diff and Review TUI
-
-- [ ] Buat changed-file tree.
-- [ ] Buat unified diff viewer.
-- [ ] Buat file and hunk navigation.
-- [ ] Buat check matrix.
-- [ ] Buat review issue panel.
-- [ ] Jump dari issue ke diff location.
-- [ ] Buat execution version comparison.
-- [ ] Tambahkan large-diff pagination.
-
-## Epic 17 — Human Approval and Revision
-
-- [ ] Implementasikan approve.
-- [ ] Implementasikan approve with override reason.
-- [ ] Implementasikan request revision.
-- [ ] Implementasikan reject and take over.
-- [ ] Bind approval to execution version, base SHA, and patch checksum.
-- [ ] Buat selected-issue revision input.
-- [ ] Buat approval confirmation dialog.
-- [ ] Tambahkan concurrent approval and checksum mismatch tests.
-
-## Epic 18 — Git Publication
-
-- [ ] Implementasikan local commit.
-- [ ] Implementasikan commit message editor.
-- [ ] Buat Git provider interface.
-- [ ] Implementasikan provider adapter pertama.
-- [ ] Implementasikan branch push.
-- [ ] Implementasikan draft pull request.
-- [ ] Block protected branch and force push.
-- [ ] Implementasikan publication idempotency and conflict handling.
-- [ ] Buat publication result screen.
-
-## Epic 19 — Security Hardening
-
-- [ ] Implementasikan secret scanning and redaction.
-- [ ] Implementasikan repository trust policy.
-- [ ] Audit path, symlink, and workspace isolation.
-- [ ] Audit command profiles and network policy.
-- [ ] Encrypt provider and Git credentials.
-- [ ] Tambahkan rate, concurrency, and cost limits.
-- [ ] Tambahkan malicious repository fixtures.
-- [ ] Tambahkan approval integrity audit.
-
-## Epic 20 — Observability and Release
-
-- [ ] Tambahkan structured logs and OpenTelemetry.
-- [ ] Tambahkan workflow, queue, tool, sandbox, provider, and Git metrics.
-- [ ] Buat OpenTUI diagnostics and redacted debug bundle.
-- [ ] Setup staging remote environment.
-- [ ] Setup backups and recovery drill.
-- [ ] Build/sign Go binaries, TUI artifacts, and container images.
-- [ ] Jalankan end-to-end, load, and security tests.
-- [ ] Siapkan incident runbook.
-- [ ] Release MVP.
-
-## Post-MVP
-
-- [ ] Language Server Protocol integration.
-- [ ] Symbol and dependency graph.
-- [ ] Test impact analysis.
-- [ ] Multi-agent specialist teams.
-- [ ] IDE companion extension.
-- [ ] Self-hosted enterprise control plane.
+- Hosted SaaS dan multi-user control plane.
+- Remote execution dan distributed workers.
+- PostgreSQL, Redis, RabbitMQ, NATS, dan object storage.
+- Multi-machine synchronization.

@@ -3,56 +3,60 @@
 ## 1. Prinsip Implementasi
 
 - Produk hanya melayani workflow software development.
+- Produk digunakan secara personal dan berjalan pada satu komputer.
 - OpenTUI adalah interface utama; domain tidak bergantung pada UI.
+- Satu Golang daemon menjalankan API, scheduler, dan agent workers.
+- SQLite menjadi source of truth sekaligus durable job queue.
+- Cache dan live event bersifat in-memory; durable timeline tetap di SQLite.
 - Repository tidak pernah diedit langsung tanpa isolated workspace.
-- State machine, audit trail, dan immutable execution version dibuat sejak awal.
 - File write dan command execution hanya aktif setelah sandbox policy tersedia.
-- Executor, automated checks, Reviewer, dan Human Approval merupakan tahap terpisah.
+- Executor, automated checks, Reviewer, dan Human Approval tetap menjadi tahap terpisah secara domain.
 - Publish ke Git hanya dilakukan dari execution version yang approved.
 
 ## 2. Strategi Delivery
 
-1. Foundation dan OpenTUI shell.
-2. Repository dan workspace manager.
-3. Workflow state machine dan durable jobs.
-4. LLM gateway dan Planning Agent.
-5. Executor tools dan sandbox.
-6. Automated checks dan Reviewer.
-7. Human approval, revision, commit, dan pull request.
-8. Reliability, security, observability, dan distribution.
+1. Foundation OpenTUI, daemon, SQLite, artifact storage, dan local queue.
+2. Repository inspection dan isolated workspace.
+3. Workflow state machine dan Planning Agent.
+4. Executor tools dan Docker sandbox.
+5. Automated checks dan Reviewer.
+6. Human approval, revision, commit, dan pull request.
+7. Reliability, security, observability, dan local distribution.
 
-## 3. Phase 1 — Foundation and OpenTUI
+## 3. Phase 1 — Local Foundation and OpenTUI
 
 ### Hasil
 
 - TUI dapat dijalankan dan terhubung ke local daemon.
-- Project/repository dapat didaftarkan.
-- Navigation, command palette, config, dan logging tersedia.
+- SQLite dibuat dan dimigrasikan otomatis.
+- Durable queue, live event bus, local artifact storage, config, logging, dan quality gates tersedia.
 
 ### Pekerjaan
 
-- Setup TypeScript workspace untuk `@opentui/core` atau `@opentui/react`.
+- Setup TypeScript workspace untuk `@opentui/react` dan Bun.
 - Buat app shell, keyboard map, focus management, modal, toast, dan error boundary.
-- Setup Golang API/local daemon.
-- Setup PostgreSQL, Redis, RabbitMQ, dan migration.
-- Definisikan protocol antara TUI dan API.
-- Implementasikan token/profile storage yang aman untuk remote mode.
+- Setup Golang local daemon dengan graceful shutdown.
+- Setup SQLite WAL, migration, durable jobs, dan activity timeline.
+- Setup local filesystem artifact storage.
+- Definisikan versioned protocol antara TUI dan daemon.
 - Buat repository list, project detail, settings, dan job list screens.
+
+Tidak ada PostgreSQL, Redis, RabbitMQ, MinIO, Docker Compose, remote authentication, atau distributed worker pada fase ini.
 
 ## 4. Phase 2 — Repository and Workspace
 
 ### Hasil
 
-- Repository dapat diinspeksi tanpa diubah.
-- Setiap job memperoleh workspace terisolasi dari base commit tertentu.
+- Repository lokal dapat diinspeksi tanpa diubah.
+- Setiap job memperoleh Git worktree terisolasi dari base commit tertentu.
 
 ### Pekerjaan
 
 - Repository discovery dan validation.
 - Git remote, branch, commit, dirty state, dan submodule detection.
-- Git worktree adapter untuk local mode.
-- Isolated clone adapter untuk remote mode.
+- Git worktree adapter.
 - Workspace lifecycle: prepare, ready, locked, archived, cleanup.
+- SQLite-backed workspace lease.
 - File index dan ignore policy.
 - Patch snapshot dan workspace recovery.
 - Restricted mode untuk repository yang belum dipercaya.
@@ -61,17 +65,18 @@
 
 ### Hasil
 
-- Requirement dapat dinormalisasi dan job dapat berjalan melalui durable queue.
+- Requirement dapat dinormalisasi dan workflow berjalan melalui SQLite queue.
 
 ### Pekerjaan
 
 - Implementasikan Job aggregate dan transition table.
-- Implementasikan transactional outbox dan idempotent consumer.
+- Tambahkan optimistic version dan idempotency key pada side effect penting.
 - Definisikan canonical LLM request/response.
 - Implementasikan provider adapter pertama dan fake provider.
 - Buat Planning Agent untuk menghasilkan affected areas, steps, tests, dan criteria.
 - Tambahkan token/cost budget, cancellation, retry, dan timeout.
-- Stream event job ke TUI melalui local IPC atau HTTP event stream.
+- Jalankan queue polling dan stale-job recovery sebagai goroutine daemon.
+- Stream live event ke TUI dan replay timeline dari SQLite.
 
 ## 6. Phase 4 — Executor and Tool Runtime
 
@@ -83,7 +88,7 @@
 
 - File read, glob, search, patch, create, dan delete tools.
 - Git status dan diff tools.
-- Sandboxed command runner.
+- Docker sandboxed command runner.
 - Per-command timeout, output limit, env allowlist, network policy, dan working directory guard.
 - Tool result schema dan audit record.
 - Executor loop dengan maximum iteration.
@@ -111,7 +116,7 @@
 
 ### Hasil
 
-- User dapat mengontrol hasil akhir dari terminal.
+- User mengontrol hasil akhir dari terminal.
 
 ### Pekerjaan
 
@@ -121,47 +126,53 @@
 - Bind approval ke execution version, base SHA, dan diff checksum.
 - Revision context builder.
 - Commit message generator dan local commit.
-- Git provider adapter pertama.
-- Push branch dan create draft pull request.
+- Optional GitHub provider adapter untuk branch push dan draft pull request.
 - Publication idempotency dan conflict detection.
 
-## 9. Phase 7 — Production Readiness
+## 9. Phase 7 — Local Release Readiness
 
 ### Reliability
 
-- Graceful shutdown.
-- Worker recovery.
-- Queue retry dan DLQ.
+- Graceful shutdown seluruh goroutine.
+- Queue retry, dead job, dan stale lock recovery.
 - Workspace orphan recovery.
-- Database backup dan restore drill.
+- SQLite checkpoint, backup, restore, dan integrity check.
 
 ### Security
 
 - Secret scanning sebelum model input dan publication.
 - Symlink/path traversal defense.
 - Sandbox hardening.
-- Signed Git provider credentials.
 - Repository trust policy.
+- Local credential storage melalui OS keychain bila tersedia.
 
 ### Observability
 
 - Structured logs dan correlation IDs.
-- OpenTelemetry traces.
-- Workflow, queue, provider, sandbox, dan Git metrics.
-- TUI diagnostics screen dan exportable debug bundle.
+- Local workflow, queue, provider, sandbox, dan Git metrics.
+- TUI diagnostics screen dan redacted debug bundle.
+
+### Distribution
+
+- Satu Go daemon binary.
+- OpenTUI Bun application atau bundled executable.
+- Optional Docker sandbox image.
+- Tidak ada server deployment atau external service bundle.
 
 ## 10. Struktur Repository
 
 ```text
-ai-dev-agent/
+orkoda-tui/
 ├── apps/
 │   └── tui/                    # OpenTUI + TypeScript
 ├── cmd/
-│   ├── api/                    # Golang API / local daemon
-│   ├── worker/                 # Executor and reviewer workers
-│   └── migrate/
+│   ├── api/                    # Local daemon
+│   └── migrate/                # Explicit SQLite migration command
 ├── internal/
-│   ├── identity/
+│   ├── artifact/
+│   ├── database/
+│   ├── eventbus/
+│   ├── jobqueue/
 │   ├── project/
 │   ├── repository/
 │   ├── planning/
@@ -176,12 +187,9 @@ ai-dev-agent/
 │   ├── sandbox/
 │   └── observability/
 ├── packages/
-│   ├── protocol/               # Shared JSON schema / generated types
+│   ├── protocol/
 │   └── prompts/
-├── migrations/
-├── deployments/
 ├── docs/
-├── docker-compose.yml
 ├── Makefile
 └── README.md
 ```
@@ -190,11 +198,11 @@ ai-dev-agent/
 
 Sebuah feature selesai bila:
 
-- Domain rule dan authorization sudah diterapkan.
+- Domain rule sudah diterapkan.
 - TUI state mencakup loading, success, empty, error, dan cancellation.
 - Unit dan integration test tersedia.
-- Workflow retry dan idempotency dipertimbangkan.
+- Workflow retry, stale recovery, dan idempotency dipertimbangkan.
 - Tool atau command baru memiliki security policy.
-- Audit event dan metrics tersedia.
-- Dokumentasi protocol dan config diperbarui.
+- Durable activity event dan diagnostic log tersedia.
+- Dokumentasi protocol, schema, dan config diperbarui.
 - Tidak ada secret atau host path yang bocor ke log.
