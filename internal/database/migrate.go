@@ -27,6 +27,31 @@ var foundationStatements = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_repositories_project
 		ON repositories(project_id, created_at)`,
+	`CREATE TABLE IF NOT EXISTS plans (
+		id TEXT PRIMARY KEY,
+		project_id TEXT NOT NULL,
+		title TEXT NOT NULL,
+		status TEXT NOT NULL CHECK (status IN ('DRAFT', 'READY', 'PLANNING', 'NEEDS_INPUT', 'APPROVED', 'ARCHIVED')),
+		current_version INTEGER NOT NULL DEFAULT 1 CHECK (current_version > 0),
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_plans_project_updated
+		ON plans(project_id, updated_at DESC)`,
+	`CREATE TABLE IF NOT EXISTS plan_versions (
+		id TEXT PRIMARY KEY,
+		plan_id TEXT NOT NULL,
+		version INTEGER NOT NULL CHECK (version > 0),
+		requirement TEXT NOT NULL,
+		acceptance_criteria_json TEXT NOT NULL DEFAULT '[]',
+		constraints_json TEXT NOT NULL DEFAULT '[]',
+		created_at INTEGER NOT NULL,
+		FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+		UNIQUE (plan_id, version)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_plan_versions_plan_version
+		ON plan_versions(plan_id, version DESC)`,
 	`CREATE TABLE IF NOT EXISTS jobs (
 		id TEXT PRIMARY KEY,
 		type TEXT NOT NULL,

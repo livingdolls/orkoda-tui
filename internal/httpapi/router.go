@@ -39,7 +39,12 @@ type replayMeta struct {
 	Protocol     string `json:"protocol_version"`
 }
 
-func NewRouter(environment string, events EventReader, projectRegistry ProjectRegistry) *gin.Engine {
+func NewRouter(
+	environment string,
+	events EventReader,
+	projectRegistry ProjectRegistry,
+	planRegistries ...PlanRegistry,
+) *gin.Engine {
 	if environment != "development" {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -75,6 +80,12 @@ func NewRouter(environment string, events EventReader, projectRegistry ProjectRe
 		replayEvents(c, events, c.Param("jobID"))
 	})
 	registerProjectRoutes(api, projectRegistry)
+
+	var planRegistry PlanRegistry
+	if len(planRegistries) > 0 {
+		planRegistry = planRegistries[0]
+	}
+	registerPlanRoutes(api, planRegistry)
 
 	return router
 }

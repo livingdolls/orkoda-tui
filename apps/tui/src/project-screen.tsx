@@ -11,6 +11,8 @@ import {
   listDirectories,
   visibleDirectoryItems,
 } from "./directory-picker"
+import { PlanEditor } from "./plan-editor"
+import { listPlans, type Plan } from "./plans"
 import {
   createProject,
   deleteProject,
@@ -19,7 +21,7 @@ import {
   refreshProject,
 } from "./projects"
 
-type ProjectMode = "list" | "name" | "picker" | "delete"
+type ProjectMode = "list" | "name" | "picker" | "delete" | "plan"
 type ProjectLoadState = "idle" | "loading" | "ready" | "error"
 
 export function ProjectScreen({
@@ -39,6 +41,8 @@ export function ProjectScreen({
   const [pickerLoading, setPickerLoading] = useState(false)
   const [pickerListing, setPickerListing] = useState<DirectoryListing | null>(null)
   const [pickerIndex, setPickerIndex] = useState(0)
+  const [planList, setPlanList] = useState<Plan[]>([])
+  const [planLoading, setPlanLoading] = useState(false)
 
   const selectedProject = projectList[selectedIndex] ?? null
   const pickerItems = pickerListing ? buildDirectoryPickerItems(pickerListing) : []
@@ -128,6 +132,7 @@ export function ProjectScreen({
       await deleteProject(selectedProject.id)
       setProjectList((current) => current.filter((project) => project.id !== selectedProject.id))
       setSelectedIndex((current) => Math.max(current - 1, 0))
+      setPlanList([])
       setMode("list")
       setMessage("Project deleted. Repository files were not changed.")
     } catch (error) {
@@ -157,6 +162,10 @@ export function ProjectScreen({
   }
 
   useKeyboard((key) => {
+    if (mode === "plan") {
+      return
+    }
+
     if (mode === "name") {
       if (key.name === "escape") {
         setMode("list")
@@ -222,6 +231,11 @@ export function ProjectScreen({
       setMessage("")
       return
     }
+    if (key.name === "p" && selectedProject) {
+      setMode("plan")
+      setMessage("")
+      return
+    }
     if (key.name === "d" && selectedProject) {
       setMode("delete")
       setMessage("")
@@ -276,6 +290,56 @@ export function ProjectScreen({
       disposed = true
     }
   }, [connection.state])
+
+  useEffect(() => {
+    let disposed = false
+    if (connection.state !== "connected" || !selectedProject) {
+      setPlanList([])
+      setPlanLoading(false)
+      return
+    }
+
+    setPlanLoading(true)
+    void listPlans(selectedProject.id)
+      .then((plans) => {
+        if (!disposed) {
+          setPlanList(plans)
+        }
+      })
+      .catch((error) => {
+        if (!disposed) {
+          setPlanList([])
+          setMessage(error instanceof Error ? error.message : "Failed to load plans")
+        }
+      })
+      .finally(() => {
+        if (!disposed) {
+          setPlanLoading(false)
+        }
+      })
+
+    return () => {
+      disposed = true
+    }
+  }, [connection.state, selectedProject])
+
+  if (mode === "plan" && selectedProject) {
+    return (
+      <PlanEditor
+        projectID={selectedProject.id}
+        projectName={selectedProject.name}
+        onSaved={(plan) => {
+          setPlanList((current) => [plan, ...current])
+          setMode("list")
+          setMessage("Plan draft created.")
+        }}
+        onCancel={() => {
+          setMode("list")
+          setMessage("Plan creation cancelled.")
+        }}
+      />
+    )
+  }
 
   if (mode === "name") {
     return (
@@ -384,7 +448,7 @@ export function ProjectScreen({
   const repository = selectedProject?.repositories[0]
   return (
     <box flexDirection="row" flexGrow={1} gap={2}>
-      <box width="42%" flexDirection="column" gap={1}>
+      <box width="35%" flexDirection="column" gap={1}>
         {projectList.map((project, index) => (
           <text key={project.id} fg={index === selectedIndex ? "#7DD3FC" : "#94A3B8"}>
             {index === selectedIndex ? `› ${project.name}` : `  ${project.name}`}
@@ -399,6 +463,22 @@ export function ProjectScreen({
         </text>
         <text fg="#64748B">{`HEAD ${repository?.head_sha.slice(0, 12) ?? "unknown"}`}</text>
         {repository?.remote_url ? <text fg="#64748B">{repository.remote_url}</text> : null}
+
+        <box marginTop={1} flexDirection="row" justifyContent="space-between">
+          <text fg="#E2E8F0">Plans</text>
+          <text fg="#7DD3FC">p new plan</text>
+        </box>
+        {planLoading ? <text fg="#FACC15">Loading plans...</text> : null}
+        {!planLoading && planList.length === 0 ? (
+          <text fg="#64748B">No plan draft yet.</text>
+        ) : null}
+        {!planLoading
+          ? planList.slice(0, 5).map((plan) => (
+              <text key={plan.id} fg="#94A3B8">
+                {`${plan.status} • v${plan.current_version} • ${plan.title}`}
+              </text>
+            ))
+          : null}
         {message ? <text fg={busy ? "#FACC15" : "#4ADE80"}>{message}</text> : null}
       </box>
     </box>
