@@ -1,0 +1,20 @@
+{
+  "name": "orkoda",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "bun@1.3.14",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:tui": "bun --cwd apps/tui run dev",
+    "typecheck": "bun --cwd apps/tui run typecheck",
+    "test:ts": "bun --cwd apps/tui run test",
+    "lint:ts": "biome check apps packages",
+    "format:ts": "biome format --write apps packages"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.6"
+  }
+}
