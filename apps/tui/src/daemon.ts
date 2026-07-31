@@ -11,9 +11,10 @@ type HealthResponse = {
   protocol_version?: unknown
 }
 
-export const daemonBaseURL = (
-  process.env.ORKODA_DAEMON_URL ?? "http://127.0.0.1:8181"
-).replace(/\/$/, "")
+export const daemonBaseURL = (process.env.ORKODA_DAEMON_URL ?? "http://127.0.0.1:8181").replace(
+  /\/$/,
+  "",
+)
 
 export const initialDaemonConnection: DaemonConnection = {
   state: "checking",
