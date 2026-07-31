@@ -28,13 +28,13 @@ func (f *fakeRunner) Run(_ context.Context, _ string, arguments ...string) (stri
 
 func TestInspectReturnsRepositoryMetadata(t *testing.T) {
 	root := t.TempDir()
-	runner := &fakeRunner{responses: map[string]string{
-		commandKey("rev-parse", "--show-toplevel"):                    root,
-		commandKey("rev-parse", "HEAD"):                               "abc123",
-		commandKey("branch", "--show-current"):                        "main",
-		commandKey("status", "--porcelain", "--untracked-files=normal"): " M README.md",
-		commandKey("remote", "get-url", "origin"):                     "git@github.com:livingdolls/example.git",
-	}}
+	responses := map[string]string{}
+	responses[commandKey("rev-parse", "--show-toplevel")] = root
+	responses[commandKey("rev-parse", "HEAD")] = "abc123"
+	responses[commandKey("branch", "--show-current")] = "main"
+	responses[commandKey("status", "--porcelain", "--untracked-files=normal")] = " M README.md"
+	responses[commandKey("remote", "get-url", "origin")] = "git@github.com:livingdolls/example.git"
+	runner := &fakeRunner{responses: responses}
 
 	snapshot, err := newInspector(runner).Inspect(context.Background(), root)
 	if err != nil {
@@ -53,13 +53,13 @@ func TestInspectReturnsRepositoryMetadata(t *testing.T) {
 
 func TestInspectAllowsRepositoryWithoutOrigin(t *testing.T) {
 	root := t.TempDir()
+	responses := map[string]string{}
+	responses[commandKey("rev-parse", "--show-toplevel")] = root
+	responses[commandKey("rev-parse", "HEAD")] = "abc123"
+	responses[commandKey("branch", "--show-current")] = ""
+	responses[commandKey("status", "--porcelain", "--untracked-files=normal")] = ""
 	runner := &fakeRunner{
-		responses: map[string]string{
-			commandKey("rev-parse", "--show-toplevel"):                    root,
-			commandKey("rev-parse", "HEAD"):                               "abc123",
-			commandKey("branch", "--show-current"):                        "",
-			commandKey("status", "--porcelain", "--untracked-files=normal"): "",
-		},
+		responses: responses,
 		errors: map[string]error{
 			commandKey("remote", "get-url", "origin"): errors.New("missing remote"),
 		},
