@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 
 import type { DaemonConnection } from "./daemon"
 import { daemonBaseURL } from "./daemon"
-import { listLLMProviders, type LLMProviderInfo } from "./llm-providers"
+import { type LLMProviderInfo, listLLMProviders } from "./llm-providers"
 
 export function SettingsScreen({ connection }: { connection: DaemonConnection }) {
   const [providers, setProviders] = useState<LLMProviderInfo[]>([])
@@ -68,8 +68,8 @@ export function SettingsScreen({ connection }: { connection: DaemonConnection })
       ))}
       {message ? <text fg="#FACC15">{message}</text> : null}
       <text fg="#64748B">
-        Configure ORKODA_LLM_PROVIDER, ORKODA_LLM_BASE_URL, ORKODA_LLM_MODEL, and
-        ORKODA_LLM_API_KEY before starting the daemon.
+        Configure ORKODA_LLM_PROVIDER, ORKODA_LLM_BASE_URL, ORKODA_LLM_MODEL, and ORKODA_LLM_API_KEY
+        before starting the daemon.
       </text>
     </box>
   )
