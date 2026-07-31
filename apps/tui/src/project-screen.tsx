@@ -12,6 +12,14 @@ import {
   visibleDirectoryItems,
 } from "./directory-picker"
 import { PlanEditor } from "./plan-editor"
+import {
+  generateRepositorySummary,
+  getCurrentRepositorySummary,
+  getPlanningContext,
+  normalizePlan,
+  type PlanningContext,
+  type RepositorySummary,
+} from "./planning"
 import { listPlans, type Plan } from "./plans"
 import {
   createProject,
@@ -43,8 +51,12 @@ export function ProjectScreen({
   const [pickerIndex, setPickerIndex] = useState(0)
   const [planList, setPlanList] = useState<Plan[]>([])
   const [planLoading, setPlanLoading] = useState(false)
+  const [repositorySummary, setRepositorySummary] = useState<RepositorySummary | null>(null)
+  const [planningContext, setPlanningContext] = useState<PlanningContext | null>(null)
 
   const selectedProject = projectList[selectedIndex] ?? null
+  const selectedRepository = selectedProject?.repositories[0] ?? null
+  const latestPlan = planList[0] ?? null
   const pickerItems = pickerListing ? buildDirectoryPickerItems(pickerListing) : []
 
   const reloadProjects = async () => {
@@ -113,6 +125,8 @@ export function ProjectScreen({
       setDraftName("")
       setPickerListing(null)
       setPickerIndex(0)
+      setRepositorySummary(null)
+      setPlanningContext(null)
       setMessage("Project created.")
       setLoadState("ready")
     } catch (error) {
@@ -133,6 +147,8 @@ export function ProjectScreen({
       setProjectList((current) => current.filter((project) => project.id !== selectedProject.id))
       setSelectedIndex((current) => Math.max(current - 1, 0))
       setPlanList([])
+      setRepositorySummary(null)
+      setPlanningContext(null)
       setMode("list")
       setMessage("Project deleted. Repository files were not changed.")
     } catch (error) {
@@ -153,9 +169,46 @@ export function ProjectScreen({
       setProjectList((current) =>
         current.map((project) => (project.id === refreshed.id ? refreshed : project)),
       )
-      setMessage("Repository metadata refreshed.")
+      setRepositorySummary(null)
+      setPlanningContext(null)
+      setMessage("Repository metadata refreshed. Scan the current HEAD before normalization.")
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to refresh project")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const scanSelectedRepository = async () => {
+    if (!selectedRepository || busy) {
+      return
+    }
+    setBusy(true)
+    setMessage("Scanning repository metadata safely...")
+    try {
+      const summary = await generateRepositorySummary(selectedRepository.id)
+      setRepositorySummary(summary)
+      setPlanningContext(null)
+      setMessage(`Repository summary ready for HEAD ${summary.head_sha.slice(0, 12)}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to scan repository")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const normalizeSelectedPlan = async () => {
+    if (!latestPlan || busy) {
+      return
+    }
+    setBusy(true)
+    setMessage("Normalizing the latest plan version...")
+    try {
+      const context = await normalizePlan(latestPlan.id)
+      setPlanningContext(context)
+      setMessage(`Planning context created for plan version ${context.plan_version}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to normalize plan")
     } finally {
       setBusy(false)
     }
@@ -234,6 +287,14 @@ export function ProjectScreen({
     if (key.name === "p" && selectedProject) {
       setMode("plan")
       setMessage("")
+      return
+    }
+    if (key.name === "s" && selectedRepository) {
+      void scanSelectedRepository()
+      return
+    }
+    if (key.name === "o" && latestPlan) {
+      void normalizeSelectedPlan()
       return
     }
     if (key.name === "d" && selectedProject) {
@@ -323,6 +384,55 @@ export function ProjectScreen({
     }
   }, [connection.state, selectedProject])
 
+  useEffect(() => {
+    let disposed = false
+    setRepositorySummary(null)
+    setPlanningContext(null)
+    if (connection.state !== "connected" || !selectedRepository) {
+      return
+    }
+
+    void getCurrentRepositorySummary(selectedRepository.id)
+      .then((summary) => {
+        if (!disposed) {
+          setRepositorySummary(summary)
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setRepositorySummary(null)
+        }
+      })
+
+    return () => {
+      disposed = true
+    }
+  }, [connection.state, selectedRepository?.id, selectedRepository?.head_sha])
+
+  useEffect(() => {
+    let disposed = false
+    setPlanningContext(null)
+    if (connection.state !== "connected" || !latestPlan || !repositorySummary) {
+      return
+    }
+
+    void getPlanningContext(latestPlan.id)
+      .then((context) => {
+        if (!disposed) {
+          setPlanningContext(context)
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setPlanningContext(null)
+        }
+      })
+
+    return () => {
+      disposed = true
+    }
+  }, [connection.state, latestPlan?.id, latestPlan?.current_version, repositorySummary?.id])
+
   if (mode === "plan" && selectedProject) {
     return (
       <PlanEditor
@@ -330,6 +440,7 @@ export function ProjectScreen({
         projectName={selectedProject.name}
         onSaved={(plan) => {
           setPlanList((current) => [plan, ...current])
+          setPlanningContext(null)
           setMode("list")
           setMessage("Plan draft created.")
         }}
@@ -445,10 +556,9 @@ export function ProjectScreen({
     )
   }
 
-  const repository = selectedProject?.repositories[0]
   return (
     <box flexDirection="row" flexGrow={1} gap={2}>
-      <box width="35%" flexDirection="column" gap={1}>
+      <box width="30%" flexDirection="column" gap={1}>
         {projectList.map((project, index) => (
           <text key={project.id} fg={index === selectedIndex ? "#7DD3FC" : "#94A3B8"}>
             {index === selectedIndex ? `› ${project.name}` : `  ${project.name}`}
@@ -457,28 +567,66 @@ export function ProjectScreen({
       </box>
       <box flexGrow={1} flexDirection="column" gap={1}>
         <text fg="#E2E8F0">{selectedProject?.name}</text>
-        <text fg="#94A3B8">{repository?.local_path ?? "No repository"}</text>
+        <text fg="#94A3B8">{selectedRepository?.local_path ?? "No repository"}</text>
         <text fg="#94A3B8">
-          {`branch: ${repository?.current_branch || "detached"} • ${repository?.dirty ? "dirty" : "clean"}`}
+          {`branch: ${selectedRepository?.current_branch || "detached"} • ${selectedRepository?.dirty ? "dirty" : "clean"}`}
         </text>
-        <text fg="#64748B">{`HEAD ${repository?.head_sha.slice(0, 12) ?? "unknown"}`}</text>
-        {repository?.remote_url ? <text fg="#64748B">{repository.remote_url}</text> : null}
+        <text fg="#64748B">
+          {`HEAD ${selectedRepository?.head_sha.slice(0, 12) ?? "unknown"}`}
+        </text>
+
+        <box marginTop={1} flexDirection="row" justifyContent="space-between">
+          <text fg="#E2E8F0">Repository context</text>
+          <text fg="#7DD3FC">s scan</text>
+        </box>
+        {repositorySummary ? (
+          <box flexDirection="column">
+            <text fg="#4ADE80">
+              {`✓ ${repositorySummary.summary.languages.join(" + ") || "stack unknown"}`}
+            </text>
+            <text fg="#94A3B8">
+              {repositorySummary.summary.frameworks.join(" + ") || "No framework detected"}
+            </text>
+            <text fg="#64748B">
+              {`${repositorySummary.summary.file_count} files • ${repositorySummary.summary.package_managers.join(", ") || "package manager unknown"}`}
+            </text>
+          </box>
+        ) : (
+          <text fg="#64748B">No summary for the current HEAD.</text>
+        )}
 
         <box marginTop={1} flexDirection="row" justifyContent="space-between">
           <text fg="#E2E8F0">Plans</text>
-          <text fg="#7DD3FC">p new plan</text>
+          <text fg="#7DD3FC">p new • o normalize latest</text>
         </box>
         {planLoading ? <text fg="#FACC15">Loading plans...</text> : null}
         {!planLoading && planList.length === 0 ? (
           <text fg="#64748B">No plan draft yet.</text>
         ) : null}
         {!planLoading
-          ? planList.slice(0, 5).map((plan) => (
+          ? planList.slice(0, 3).map((plan) => (
               <text key={plan.id} fg="#94A3B8">
                 {`${plan.status} • v${plan.current_version} • ${plan.title}`}
               </text>
             ))
           : null}
+
+        {planningContext ? (
+          <box marginTop={1} flexDirection="column">
+            <text fg="#4ADE80">
+              {`✓ Goal: ${planningContext.normalized_plan.goal}`}
+            </text>
+            <text fg="#94A3B8">
+              {`Scope ${planningContext.normalized_plan.scope.length} • areas ${planningContext.normalized_plan.affected_areas.join(", ") || "unknown"}`}
+            </text>
+            <text fg="#64748B">
+              {`Risks ${planningContext.normalized_plan.risks.length} • open questions ${planningContext.normalized_plan.open_questions.length}`}
+            </text>
+          </box>
+        ) : latestPlan ? (
+          <text fg="#64748B">Latest plan is not normalized for the current repository HEAD.</text>
+        ) : null}
+
         {message ? <text fg={busy ? "#FACC15" : "#4ADE80"}>{message}</text> : null}
       </box>
     </box>
