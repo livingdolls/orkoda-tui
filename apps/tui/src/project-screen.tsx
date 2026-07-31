@@ -58,6 +58,11 @@ export function ProjectScreen({
   const selectedRepository = selectedProject?.repositories[0] ?? null
   const latestPlan = planList[0] ?? null
   const pickerItems = pickerListing ? buildDirectoryPickerItems(pickerListing) : []
+  const selectedRepositoryID = selectedRepository?.id ?? ""
+  const selectedRepositoryHead = selectedRepository?.head_sha ?? ""
+  const latestPlanID = latestPlan?.id ?? ""
+  const latestPlanVersion = latestPlan?.current_version ?? 0
+  const repositorySummaryID = repositorySummary?.id ?? ""
 
   const reloadProjects = async () => {
     if (connection.state !== "connected") {
@@ -388,11 +393,11 @@ export function ProjectScreen({
     let disposed = false
     setRepositorySummary(null)
     setPlanningContext(null)
-    if (connection.state !== "connected" || !selectedRepository) {
+    if (connection.state !== "connected" || selectedRepositoryID === "") {
       return
     }
 
-    void getCurrentRepositorySummary(selectedRepository.id)
+    void getCurrentRepositorySummary(selectedRepositoryID)
       .then((summary) => {
         if (!disposed) {
           setRepositorySummary(summary)
@@ -407,16 +412,20 @@ export function ProjectScreen({
     return () => {
       disposed = true
     }
-  }, [connection.state, selectedRepository?.id, selectedRepository?.head_sha])
+  }, [connection.state, selectedRepositoryID, selectedRepositoryHead])
 
   useEffect(() => {
     let disposed = false
     setPlanningContext(null)
-    if (connection.state !== "connected" || !latestPlan || !repositorySummary) {
+    if (
+      connection.state !== "connected" ||
+      latestPlanID === "" ||
+      repositorySummaryID === ""
+    ) {
       return
     }
 
-    void getPlanningContext(latestPlan.id)
+    void getPlanningContext(latestPlanID)
       .then((context) => {
         if (!disposed) {
           setPlanningContext(context)
@@ -431,7 +440,7 @@ export function ProjectScreen({
     return () => {
       disposed = true
     }
-  }, [connection.state, latestPlan?.id, latestPlan?.current_version, repositorySummary?.id])
+  }, [connection.state, latestPlanID, latestPlanVersion, repositorySummaryID])
 
   if (mode === "plan" && selectedProject) {
     return (
@@ -488,7 +497,7 @@ export function ProjectScreen({
         {pickerLoading ? <text fg="#FACC15">Reading directories...</text> : null}
         {!pickerLoading && pickerListing ? (
           <box flexDirection="column" borderStyle="rounded" borderColor="#334155" padding={1}>
-            {visibleItems.map(({ item, index }) => {
+            {visibleDirectoryItems(pickerItems, pickerIndex).map(({ item, index }) => {
               let label = item.label
               if (item.kind === "select") {
                 label = `[ ${item.label} ]`
@@ -571,9 +580,7 @@ export function ProjectScreen({
         <text fg="#94A3B8">
           {`branch: ${selectedRepository?.current_branch || "detached"} • ${selectedRepository?.dirty ? "dirty" : "clean"}`}
         </text>
-        <text fg="#64748B">
-          {`HEAD ${selectedRepository?.head_sha.slice(0, 12) ?? "unknown"}`}
-        </text>
+        <text fg="#64748B">{`HEAD ${selectedRepository?.head_sha.slice(0, 12) ?? "unknown"}`}</text>
 
         <box marginTop={1} flexDirection="row" justifyContent="space-between">
           <text fg="#E2E8F0">Repository context</text>
@@ -613,9 +620,7 @@ export function ProjectScreen({
 
         {planningContext ? (
           <box marginTop={1} flexDirection="column">
-            <text fg="#4ADE80">
-              {`✓ Goal: ${planningContext.normalized_plan.goal}`}
-            </text>
+            <text fg="#4ADE80">{`✓ Goal: ${planningContext.normalized_plan.goal}`}</text>
             <text fg="#94A3B8">
               {`Scope ${planningContext.normalized_plan.scope.length} • areas ${planningContext.normalized_plan.affected_areas.join(", ") || "unknown"}`}
             </text>
