@@ -1,8 +1,75 @@
 /** @jsxImportSource @opentui/react */
 
-const navigation = ["Projects", "Jobs", "Settings", "Diagnostics"]
+import { useKeyboard } from "@opentui/react"
+import { useEffect, useState } from "react"
+
+import {
+  daemonBaseURL,
+  initialDaemonConnection,
+  probeDaemon,
+  type DaemonConnection,
+} from "./daemon"
+import {
+  moveScreen,
+  screenDefinitions,
+  screenFromShortcut,
+  screenLabel,
+  type Screen,
+} from "./navigation"
+
+const connectionColors: Record<DaemonConnection["state"], string> = {
+  checking: "#FACC15",
+  connected: "#4ADE80",
+  disconnected: "#F87171",
+}
 
 export function App() {
+  const [activeScreen, setActiveScreen] = useState<Screen>("projects")
+  const [connection, setConnection] = useState<DaemonConnection>(initialDaemonConnection)
+  const [refreshVersion, setRefreshVersion] = useState(0)
+
+  useKeyboard((key) => {
+    const shortcut = screenFromShortcut(key.name)
+    if (shortcut) {
+      setActiveScreen(shortcut)
+      return
+    }
+
+    if (key.name === "down" || key.name === "right" || key.name === "j" || key.name === "l") {
+      setActiveScreen((current) => moveScreen(current, 1))
+      return
+    }
+
+    if (key.name === "up" || key.name === "left" || key.name === "k" || key.name === "h") {
+      setActiveScreen((current) => moveScreen(current, -1))
+      return
+    }
+
+    if (key.name === "r") {
+      setConnection(initialDaemonConnection)
+      setRefreshVersion((version) => version + 1)
+    }
+  })
+
+  useEffect(() => {
+    let disposed = false
+
+    const refresh = async () => {
+      const nextConnection = await probeDaemon()
+      if (!disposed) {
+        setConnection(nextConnection)
+      }
+    }
+
+    void refresh()
+    const interval = setInterval(() => void refresh(), 2000)
+
+    return () => {
+      disposed = true
+      clearInterval(interval)
+    }
+  }, [refreshVersion])
+
   return (
     <box flexDirection="column" width="100%" height="100%" backgroundColor="#0B1020">
       <box
@@ -16,7 +83,7 @@ export function App() {
       >
         <text fg="#7DD3FC">ORKODA</text>
         <text fg="#94A3B8">AI software development orchestrator</text>
-        <text fg="#4ADE80">local</text>
+        <text fg={connectionColors[connection.state]}>{connection.state}</text>
       </box>
 
       <box flexGrow={1} flexDirection="row" padding={1} gap={1}>
@@ -29,11 +96,14 @@ export function App() {
           gap={1}
           title="Navigation"
         >
-          {navigation.map((item, index) => (
-            <text key={item} fg={index === 0 ? "#7DD3FC" : "#94A3B8"}>
-              {index === 0 ? `› ${item}` : `  ${item}`}
-            </text>
-          ))}
+          {screenDefinitions.map((item, index) => {
+            const selected = item.id === activeScreen
+            return (
+              <text key={item.id} fg={selected ? "#7DD3FC" : "#94A3B8"}>
+                {selected ? `› ${index + 1}. ${item.label}` : `  ${index + 1}. ${item.label}`}
+              </text>
+            )
+          })}
         </box>
 
         <box
@@ -43,12 +113,9 @@ export function App() {
           borderColor="#334155"
           padding={1}
           gap={1}
-          title="Projects"
+          title={screenLabel(activeScreen)}
         >
-          <text fg="#E2E8F0">No project registered yet.</text>
-          <text fg="#94A3B8">
-            The next milestone connects this shell to the local Go daemon and repository registry.
-          </text>
+          <ScreenContent screen={activeScreen} connection={connection} />
         </box>
       </box>
 
@@ -59,9 +126,59 @@ export function App() {
         flexDirection="row"
         justifyContent="space-between"
       >
-        <text fg="#64748B">Ctrl+C quit</text>
-        <text fg="#64748B">protocol v1 • daemon disconnected</text>
+        <text fg="#64748B">↑↓/jk navigate • 1-4 jump • r reconnect • Ctrl+C quit</text>
+        <text fg={connectionColors[connection.state]}>
+          {`${connection.protocolVersion} • daemon ${connection.state}`}
+        </text>
       </box>
+    </box>
+  )
+}
+
+function ScreenContent({
+  screen,
+  connection,
+}: {
+  screen: Screen
+  connection: DaemonConnection
+}) {
+  if (screen === "projects") {
+    return (
+      <box flexDirection="column" gap={1}>
+        <text fg="#E2E8F0">No project registered yet.</text>
+        <text fg="#94A3B8">Repository registration will be added after the local runtime milestones.</text>
+      </box>
+    )
+  }
+
+  if (screen === "jobs") {
+    return (
+      <box flexDirection="column" gap={1}>
+        <text fg="#E2E8F0">No workflow job has been submitted.</text>
+        <text fg="#94A3B8">Durable jobs are stored in the local SQLite database.</text>
+      </box>
+    )
+  }
+
+  if (screen === "settings") {
+    return (
+      <box flexDirection="column" gap={1}>
+        <text fg="#E2E8F0">Local daemon endpoint</text>
+        <text fg="#7DD3FC">{daemonBaseURL}</text>
+        <text fg="#94A3B8">Override with ORKODA_DAEMON_URL before running the TUI.</text>
+      </box>
+    )
+  }
+
+  return (
+    <box flexDirection="column" gap={1}>
+      <text fg="#E2E8F0">Daemon connection</text>
+      <text fg={connectionColors[connection.state]}>{connection.state}</text>
+      <text fg="#94A3B8">{connection.message}</text>
+      {connection.state === "disconnected" ? (
+        <text fg="#FACC15">Start it in another terminal with: make api</text>
+      ) : null}
+      <text fg="#64748B">Navigation remains available while the daemon is offline.</text>
     </box>
   )
 }
