@@ -61,9 +61,12 @@ describe("plan API client", () => {
 
   test("surfaces daemon errors", async () => {
     const fetcher: PlanFetch = async () =>
-      new Response(JSON.stringify({ error: { message: "invalid plan: requirement is required" } }), {
-        status: 400,
-      })
+      new Response(
+        JSON.stringify({ error: { message: "invalid plan: requirement is required" } }),
+        {
+          status: 400,
+        },
+      )
 
     await expect(
       createPlan(
