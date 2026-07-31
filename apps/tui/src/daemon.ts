@@ -6,6 +6,8 @@ export type DaemonConnection = {
   message: string
 }
 
+export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
+
 type HealthResponse = {
   status?: unknown
   protocol_version?: unknown
@@ -24,7 +26,7 @@ export const initialDaemonConnection: DaemonConnection = {
 
 export async function probeDaemon(
   baseURL = daemonBaseURL,
-  fetcher: typeof fetch = fetch,
+  fetcher: Fetcher = fetch,
 ): Promise<DaemonConnection> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 1500)
