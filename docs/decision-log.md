@@ -4,15 +4,7 @@
 
 **Status:** Accepted
 
-### Decision
-
 Gunakan OpenTUI dengan TypeScript sebagai interface utama. Tidak ada Next.js atau browser frontend pada product scope awal.
-
-### Consequences
-
-- Workflow dapat digunakan langsung dari terminal developer.
-- UI harus menangani keyboard, focus, resize, streaming log, dan diff dengan baik.
-- Dibutuhkan protocol versioning antara TUI dan Golang API/local daemon.
 
 ---
 
@@ -20,46 +12,59 @@ Gunakan OpenTUI dengan TypeScript sebagai interface utama. Tidak ada Next.js ata
 
 **Status:** Accepted
 
-### Decision
-
 Platform hanya menangani planning, implementation, checks, review, approval, dan Git publication untuk source code repository.
+
+---
+
+## ADR-003 — Golang for the Local Daemon
+
+**Status:** Accepted
+
+Golang digunakan untuk protocol, state machine, workspace management, scheduler, agent workers, sandbox orchestration, Git adapters, dan persistence access.
+
+---
+
+## ADR-004 — SQLite as Source of Truth
+
+**Status:** Accepted
+
+Workflow state, repository metadata, plan, execution, tool run, check, review, approval, publication, queue state, dan activity timeline disimpan di SQLite.
 
 ### Consequences
 
-- Agent prompts, database, metrics, dan UI dapat dioptimalkan untuk repository, diff, test, dan Git.
-- Use case content writing, generic document analysis, dan non-software project planning dikeluarkan.
+- Tidak ada PostgreSQL service atau database credential.
+- Database dapat didistribusikan sebagai satu file lokal.
+- WAL, foreign key, busy timeout, migration, backup, dan stale-job recovery harus ditangani application layer.
+- Transaction harus singkat karena SQLite hanya memiliki satu writer pada satu waktu.
 
 ---
 
-## ADR-003 — Golang for API, Orchestrator, and Workers
+## ADR-005 — SQLite-Backed Durable Queue
 
 **Status:** Accepted
 
-Golang digunakan untuk state machine, queue consumers, workspace management, sandbox orchestration, Git adapters, dan backend protocol.
+RabbitMQ dan transactional outbox tidak digunakan. Durable command disimpan di tabel `jobs` dan diklaim secara atomik menggunakan SQLite `UPDATE ... RETURNING`.
+
+### Consequences
+
+- Retry, backoff, attempts, dead status, cancellation, dan stale lock recovery diimplementasikan dalam domain queue.
+- Handler wajib idempotent.
+- Queue hanya untuk satu local daemon dan tidak dirancang sebagai distributed broker.
 
 ---
 
-## ADR-004 — PostgreSQL as Source of Truth
+## ADR-006 — Personal Local-Only Runtime
 
 **Status:** Accepted
 
-Workflow state, base commit, workspace metadata, execution, tool run, check, review, approval, publication, dan audit disimpan di PostgreSQL. Redis dan RabbitMQ bukan sumber kebenaran bisnis.
+Orkoda berjalan pada satu komputer developer. OpenTUI berkomunikasi dengan local daemon melalui localhost HTTP atau Unix socket. Remote API, multi-user authentication, tenant, server deployment, dan distributed worker berada di luar MVP.
 
----
+### Consequences
 
-## ADR-005 — RabbitMQ and Transactional Outbox
-
-**Status:** Accepted
-
-Gunakan RabbitMQ untuk durable work queue dan transactional outbox untuk menghindari dual-write inconsistency. Semua consumer idempotent.
-
----
-
-## ADR-006 — Local and Remote Modes Share One Protocol
-
-**Status:** Accepted
-
-OpenTUI berkomunikasi dengan local daemon melalui Unix socket/localhost dan dengan remote API melalui HTTPS. Keduanya menggunakan versioned command, query, dan event schemas yang sama.
+- Tidak ada Redis, service discovery, remote session, atau centralized credential store.
+- Cache non-kritis berada di process memory.
+- Event fan-out menggunakan in-memory event bus.
+- Docker hanya digunakan untuk sandbox command bila diperlukan.
 
 ---
 
@@ -69,11 +74,6 @@ OpenTUI berkomunikasi dengan local daemon melalui Unix socket/localhost dan deng
 
 Executor tidak pernah menulis langsung ke source repository. Setiap job menggunakan Git worktree atau isolated clone yang terikat pada base commit SHA.
 
-### Consequences
-
-- Source repository tetap aman dan mudah dipulihkan.
-- Diperlukan workspace lifecycle, lease, quota, cleanup, dan patch recovery.
-
 ---
 
 ## ADR-008 — Repository Tools Are Core MVP
@@ -82,18 +82,13 @@ Executor tidak pernah menulis langsung ke source repository. Setiap job mengguna
 
 File read/search/patch, Git diff, sandboxed command runner, dan automated checks merupakan bagian MVP karena produk khusus software development.
 
-### Consequences
-
-- MVP lebih kompleks daripada text-only workflow.
-- Security hardening sandbox harus dilakukan sebelum release.
-
 ---
 
-## ADR-009 — Separate Executor and Reviewer
+## ADR-009 — Separate Executor and Reviewer Roles
 
 **Status:** Accepted
 
-Executor dan Reviewer menggunakan agent configuration dan role terpisah. Reviewer bersifat read-only pada MVP.
+Executor dan Reviewer menggunakan agent configuration dan role terpisah. Mereka dapat berjalan sebagai goroutine dalam daemon yang sama, tetapi Reviewer tetap read-only pada MVP.
 
 ---
 
@@ -113,11 +108,11 @@ Approval menyimpan execution version, base commit SHA, dan patch checksum. Perub
 
 ---
 
-## ADR-012 — Event Stream Instead of Browser-Specific Realtime
+## ADR-012 — Durable Timeline with In-Memory Live Events
 
 **Status:** Accepted
 
-TUI menerima event melalui local IPC stream atau HTTP event stream. Event permanen tetap tersimpan di database dan dapat di-replay berdasarkan sequence.
+Event permanen disimpan di tabel `activity_events`. Setelah commit, event dipublish ke in-memory subscriber untuk update OpenTUI. Reconnect membaca sequence terakhir dari SQLite.
 
 ---
 
@@ -134,3 +129,19 @@ Domain tidak memanggil provider SDK secara langsung. Provider adapter menormalis
 **Status:** Accepted
 
 Command agent tidak memiliki network access kecuali project policy memberikan scope eksplisit untuk registry atau host tertentu.
+
+---
+
+## ADR-015 — OpenTUI React Renderer and Bun Runtime
+
+**Status:** Accepted
+
+Gunakan `@opentui/react` dan Bun untuk shell terminal. React renderer dipilih agar navigation, state, focus, modal, toast, log, dan diff component dapat disusun secara deklaratif.
+
+---
+
+## ADR-016 — Local Filesystem Artifact Storage
+
+**Status:** Accepted
+
+Patch, command log, test report, dan debug bundle disimpan di bawah `.orkoda/artifacts`. Write dilakukan melalui temporary file dan atomic rename; path traversal keluar dari root storage ditolak.
