@@ -2,6 +2,7 @@ package llm
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -70,18 +71,10 @@ func (r *Registry) Names() []string {
 		names = append(names, name)
 	}
 	r.mu.RUnlock()
-	sortStrings(names)
+	sort.Strings(names)
 	return names
 }
 
 func normalizeProviderName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
-}
-
-func sortStrings(values []string) {
-	for i := 1; i < len(values); i++ {
-		for j := i; j > 0 && values[j] < values[j-1]; j-- {
-			values[j], values[j-1] = values[j-1], values[j]
-		}
-	}
 }
