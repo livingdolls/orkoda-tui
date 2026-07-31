@@ -10,7 +10,7 @@ describe("probeDaemon", () => {
         headers: { "content-type": "application/json" },
       })
 
-    const result = await probeDaemon("http://127.0.0.1:8181", fetcher as typeof fetch)
+    const result = await probeDaemon("http://127.0.0.1:8181", fetcher)
 
     expect(result.state).toBe("connected")
     expect(result.protocolVersion).toBe("v1")
@@ -19,7 +19,7 @@ describe("probeDaemon", () => {
   test("reports non-success responses as disconnected", async () => {
     const fetcher = async () => new Response("unavailable", { status: 503 })
 
-    const result = await probeDaemon("http://127.0.0.1:8181", fetcher as typeof fetch)
+    const result = await probeDaemon("http://127.0.0.1:8181", fetcher)
 
     expect(result.state).toBe("disconnected")
     expect(result.message).toContain("503")
@@ -30,7 +30,7 @@ describe("probeDaemon", () => {
       throw new Error("connection refused")
     }
 
-    const result = await probeDaemon("http://127.0.0.1:8181", fetcher as typeof fetch)
+    const result = await probeDaemon("http://127.0.0.1:8181", fetcher)
 
     expect(result.state).toBe("disconnected")
     expect(result.message).toBe("Daemon is not running")
