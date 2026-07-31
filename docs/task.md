@@ -72,8 +72,9 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Buat requirement editor dan structured plan schema.
 - [x] Implementasikan repository summary dan plan normalization.
 - [ ] Buat Planning Agent dan open-question flow.
-- [ ] Definisikan provider-neutral request, response, usage, dan error.
-- [ ] Implementasikan provider adapter pertama dan fake provider.
+- [x] Definisikan provider-neutral request, response, usage, dan error.
+- [x] Implementasikan provider registry, gateway, dan fake provider deterministik.
+- [ ] Implementasikan provider adapter nyata pertama.
 - [ ] Tambahkan timeout, cancellation, retry, fallback, dan budget.
 - [ ] Tambahkan structured output validation dan prompt redaction.
 
