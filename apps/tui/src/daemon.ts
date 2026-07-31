@@ -11,7 +11,9 @@ type HealthResponse = {
   protocol_version?: unknown
 }
 
-export const daemonBaseURL = (process.env.ORKODA_DAEMON_URL ?? "http://127.0.0.1:8181").replace(/\/$/, "")
+export const daemonBaseURL = (
+  process.env.ORKODA_DAEMON_URL ?? "http://127.0.0.1:8181"
+).replace(/\/$/, "")
 
 export const initialDaemonConnection: DaemonConnection = {
   state: "checking",
@@ -51,11 +53,15 @@ export async function probeDaemon(
 
     return {
       state: "connected",
-      protocolVersion: typeof payload.protocol_version === "string" ? payload.protocol_version : "v1",
+      protocolVersion:
+        typeof payload.protocol_version === "string" ? payload.protocol_version : "v1",
       message: `Connected to ${baseURL}`,
     }
   } catch (error) {
-    const message = error instanceof Error && error.name === "AbortError" ? "Daemon health check timed out" : "Daemon is not running"
+    const message =
+      error instanceof Error && error.name === "AbortError"
+        ? "Daemon health check timed out"
+        : "Daemon is not running"
 
     return {
       state: "disconnected",
