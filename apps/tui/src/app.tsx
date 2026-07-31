@@ -92,7 +92,7 @@ export function App() {
   if (activeScreen === "projects") {
     footerHelp = projectInteractionActive
       ? "Project dialog active • use the controls shown in the panel"
-      : "n new • ↑↓/jk select • g refresh Git • d delete • r reload • h/l switch screen"
+      : "n new project • p new plan • ↑↓/jk select • g refresh • d delete • h/l screen"
   }
 
   return (
