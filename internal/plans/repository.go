@@ -121,15 +121,15 @@ func (r *Repository) Create(ctx context.Context, projectID, title string, input 
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO plans (id, project_id, title, status, current_version, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, plan.ID, plan.ProjectID, plan.Title, plan.Status, plan.CurrentVersion, now.UnixMilli(), now.UnixMilli()); err != nil {
+		VALUES (?, ?, ?, ?, 1, ?, ?)
+	`, plan.ID, projectID, title, plan.Status, now.UnixMilli(), now.UnixMilli()); err != nil {
 		return Plan{}, fmt.Errorf("insert plan: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO plan_versions (
 			id, plan_id, version, requirement, acceptance_criteria_json, constraints_json, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, version.ID, version.PlanID, version.Version, version.Requirement, criteriaJSON, constraintsJSON, now.UnixMilli()); err != nil {
+		) VALUES (?, ?, 1, ?, ?, ?, ?)
+	`, version.ID, plan.ID, version.Requirement, criteriaJSON, constraintsJSON, now.UnixMilli()); err != nil {
 		return Plan{}, fmt.Errorf("insert plan version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -170,16 +170,7 @@ func (r *Repository) AddVersion(ctx context.Context, planID string, input Versio
 
 	now := time.Now().UTC()
 	nextVersion := currentVersion + 1
-	version := Version{
-		ID:                 newID(),
-		PlanID:             planID,
-		Version:            nextVersion,
-		Requirement:        input.Requirement,
-		AcceptanceCriteria: input.AcceptanceCriteria,
-		Constraints:        input.Constraints,
-		CreatedAt:          now,
-	}
-	criteriaJSON, constraintsJSON, err := marshalLists(version.AcceptanceCriteria, version.Constraints)
+	criteriaJSON, constraintsJSON, err := marshalLists(input.AcceptanceCriteria, input.Constraints)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -187,7 +178,7 @@ func (r *Repository) AddVersion(ctx context.Context, planID string, input Versio
 		INSERT INTO plan_versions (
 			id, plan_id, version, requirement, acceptance_criteria_json, constraints_json, created_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, version.ID, version.PlanID, version.Version, version.Requirement, criteriaJSON, constraintsJSON, now.UnixMilli()); err != nil {
+	`, newID(), planID, nextVersion, input.Requirement, criteriaJSON, constraintsJSON, now.UnixMilli()); err != nil {
 		return Plan{}, fmt.Errorf("insert plan version: %w", err)
 	}
 	result, err := tx.ExecContext(ctx, `
@@ -216,8 +207,14 @@ func (r *Repository) AddVersion(ctx context.Context, planID string, input Versio
 
 func (r *Repository) ListProject(ctx context.Context, projectID string) ([]Plan, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, project_id, title, status, current_version, created_at, updated_at
-		FROM plans WHERE project_id = ? ORDER BY updated_at DESC
+		SELECT
+			p.id, p.project_id, p.title, p.status, p.current_version, p.created_at, p.updated_at,
+			v.id, v.plan_id, v.version, v.requirement,
+			v.acceptance_criteria_json, v.constraints_json, v.created_at
+		FROM plans p
+		JOIN plan_versions v ON v.plan_id = p.id AND v.version = p.current_version
+		WHERE p.project_id = ?
+		ORDER BY p.updated_at DESC
 	`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list plans: %w", err)
@@ -226,13 +223,9 @@ func (r *Repository) ListProject(ctx context.Context, projectID string) ([]Plan,
 
 	result := make([]Plan, 0)
 	for rows.Next() {
-		plan, err := scanPlan(rows)
+		plan, version, err := scanPlanWithVersion(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan plan: %w", err)
-		}
-		version, err := r.getVersion(ctx, plan.ID, plan.CurrentVersion)
-		if err != nil {
-			return nil, err
 		}
 		plan.Versions = []Version{version}
 		result = append(result, plan)
@@ -318,17 +311,6 @@ func (r *Repository) Delete(ctx context.Context, planID string) error {
 	return nil
 }
 
-func (r *Repository) getVersion(ctx context.Context, planID string, versionNumber int) (Version, error) {
-	version, err := scanVersion(r.db.QueryRowContext(ctx, `
-		SELECT id, plan_id, version, requirement, acceptance_criteria_json, constraints_json, created_at
-		FROM plan_versions WHERE plan_id = ? AND version = ?
-	`, planID, versionNumber))
-	if err != nil {
-		return Version{}, fmt.Errorf("get plan version: %w", err)
-	}
-	return version, nil
-}
-
 func (r *Repository) record(ctx context.Context, eventType string, payload any, createdAt time.Time) {
 	if r.recorder == nil {
 		return
@@ -352,6 +334,28 @@ func scanPlan(row interface{ Scan(...any) error }) (Plan, error) {
 	return plan, nil
 }
 
+func scanPlanWithVersion(row interface{ Scan(...any) error }) (Plan, Version, error) {
+	var plan Plan
+	var version Version
+	var planCreatedAt, planUpdatedAt, versionCreatedAt int64
+	var criteriaJSON, constraintsJSON string
+	if err := row.Scan(
+		&plan.ID, &plan.ProjectID, &plan.Title, &plan.Status,
+		&plan.CurrentVersion, &planCreatedAt, &planUpdatedAt,
+		&version.ID, &version.PlanID, &version.Version, &version.Requirement,
+		&criteriaJSON, &constraintsJSON, &versionCreatedAt,
+	); err != nil {
+		return Plan{}, Version{}, err
+	}
+	if err := decodeLists(criteriaJSON, constraintsJSON, &version); err != nil {
+		return Plan{}, Version{}, err
+	}
+	plan.CreatedAt = time.UnixMilli(planCreatedAt).UTC()
+	plan.UpdatedAt = time.UnixMilli(planUpdatedAt).UTC()
+	version.CreatedAt = time.UnixMilli(versionCreatedAt).UTC()
+	return plan, version, nil
+}
+
 func scanVersion(row interface{ Scan(...any) error }) (Version, error) {
 	var version Version
 	var criteriaJSON, constraintsJSON string
@@ -362,14 +366,21 @@ func scanVersion(row interface{ Scan(...any) error }) (Version, error) {
 	); err != nil {
 		return Version{}, err
 	}
-	if err := json.Unmarshal([]byte(criteriaJSON), &version.AcceptanceCriteria); err != nil {
-		return Version{}, fmt.Errorf("decode acceptance criteria: %w", err)
-	}
-	if err := json.Unmarshal([]byte(constraintsJSON), &version.Constraints); err != nil {
-		return Version{}, fmt.Errorf("decode constraints: %w", err)
+	if err := decodeLists(criteriaJSON, constraintsJSON, &version); err != nil {
+		return Version{}, err
 	}
 	version.CreatedAt = time.UnixMilli(createdAt).UTC()
 	return version, nil
+}
+
+func decodeLists(criteriaJSON, constraintsJSON string, version *Version) error {
+	if err := json.Unmarshal([]byte(criteriaJSON), &version.AcceptanceCriteria); err != nil {
+		return fmt.Errorf("decode acceptance criteria: %w", err)
+	}
+	if err := json.Unmarshal([]byte(constraintsJSON), &version.Constraints); err != nil {
+		return fmt.Errorf("decode constraints: %w", err)
+	}
+	return nil
 }
 
 func normalizeVersionInput(input VersionInput) VersionInput {
