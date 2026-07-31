@@ -9,11 +9,17 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
 )
 
+const persistenceTimeout = 5 * time.Second
+
 type Queue interface {
 	Claim(context.Context, string, time.Time) (*jobqueue.Job, error)
 	Complete(context.Context, string, time.Time) error
 	Fail(context.Context, string, string, time.Time, time.Time) (string, error)
-	RecoverStale(context.Context, time.Time, time.Time) (int64, error)
+	RecoverStale(context.Context, time.Time, time.Time) ([]string, error)
+}
+
+type ActivityRecorder interface {
+	Record(context.Context, string, string, any, time.Time) error
 }
 
 type Handler func(context.Context, jobqueue.Job) error
@@ -27,14 +33,21 @@ type Config struct {
 }
 
 type Scheduler struct {
-	queue    Queue
-	config   Config
-	handlers map[string]Handler
-	logger   *slog.Logger
-	now      func() time.Time
+	queue      Queue
+	config     Config
+	handlers   map[string]Handler
+	activities ActivityRecorder
+	logger     *slog.Logger
+	now        func() time.Time
 }
 
-func New(queue Queue, config Config, handlers map[string]Handler, logger *slog.Logger) (*Scheduler, error) {
+func New(
+	queue Queue,
+	config Config,
+	handlers map[string]Handler,
+	activities ActivityRecorder,
+	logger *slog.Logger,
+) (*Scheduler, error) {
 	if queue == nil {
 		return nil, fmt.Errorf("queue is required")
 	}
@@ -56,6 +69,9 @@ func New(queue Queue, config Config, handlers map[string]Handler, logger *slog.L
 	if logger == nil {
 		logger = slog.Default()
 	}
+	if activities == nil {
+		activities = discardActivityRecorder{}
+	}
 
 	registered := make(map[string]Handler, len(handlers))
 	for jobType, handler := range handlers {
@@ -65,11 +81,12 @@ func New(queue Queue, config Config, handlers map[string]Handler, logger *slog.L
 	}
 
 	return &Scheduler{
-		queue:    queue,
-		config:   config,
-		handlers: registered,
-		logger:   logger,
-		now:      time.Now,
+		queue:      queue,
+		config:     config,
+		handlers:   registered,
+		activities: activities,
+		logger:     logger,
+		now:        time.Now,
 	}, nil
 }
 
@@ -79,12 +96,20 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 
 	now := s.now().UTC()
-	recovered, err := s.queue.RecoverStale(ctx, now.Add(-s.config.StaleAfter), now)
+	recoveredIDs, err := s.queue.RecoverStale(ctx, now.Add(-s.config.StaleAfter), now)
 	if err != nil {
 		return fmt.Errorf("recover stale jobs: %w", err)
 	}
-	if recovered > 0 {
-		s.logger.Info("recovered stale jobs", "count", recovered)
+	for _, jobID := range recoveredIDs {
+		if err := s.record(ctx, jobID, "job.recovered", map[string]any{
+			"worker_id":    s.config.WorkerID,
+			"recovered_at": now.Format(time.RFC3339Nano),
+		}, now); err != nil {
+			return fmt.Errorf("record recovered job %s: %w", jobID, err)
+		}
+	}
+	if len(recoveredIDs) > 0 {
+		s.logger.Info("recovered stale jobs", "count", len(recoveredIDs))
 	}
 
 	for {
@@ -105,6 +130,15 @@ func (s *Scheduler) Run(ctx context.Context) error {
 				return nil
 			}
 			continue
+		}
+
+		if err := s.record(ctx, job.ID, "job.started", map[string]any{
+			"job_type":     job.Type,
+			"attempt":      job.Attempts,
+			"max_attempts": job.MaxAttempts,
+			"worker_id":    s.config.WorkerID,
+		}, now); err != nil {
+			return fmt.Errorf("record started job %s: %w", job.ID, err)
 		}
 
 		if err := s.process(ctx, *job); err != nil {
@@ -129,19 +163,45 @@ func (s *Scheduler) process(ctx context.Context, job jobqueue.Job) error {
 	}
 
 	now := s.now().UTC()
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), persistenceTimeout)
+	defer cancel()
+
 	if handlerErr == nil {
-		if err := s.queue.Complete(ctx, job.ID, now); err != nil {
+		if err := s.queue.Complete(persistCtx, job.ID, now); err != nil {
 			return fmt.Errorf("complete job %s: %w", job.ID, err)
+		}
+		if err := s.activities.Record(persistCtx, job.ID, "job.completed", map[string]any{
+			"job_type": job.Type,
+			"attempt":  job.Attempts,
+		}, now); err != nil {
+			return fmt.Errorf("record completed job %s: %w", job.ID, err)
 		}
 		s.logger.Info("job completed", "job_id", job.ID, "job_type", job.Type, "attempt", job.Attempts)
 		return nil
 	}
 
 	retryAt := now.Add(s.retryDelay(job.Attempts))
-	status, err := s.queue.Fail(ctx, job.ID, handlerErr.Error(), retryAt, now)
+	status, err := s.queue.Fail(persistCtx, job.ID, handlerErr.Error(), retryAt, now)
 	if err != nil {
 		return fmt.Errorf("fail job %s: %w", job.ID, err)
 	}
+
+	eventType := "job.retry_scheduled"
+	payload := map[string]any{
+		"job_type":     job.Type,
+		"attempt":      job.Attempts,
+		"max_attempts": job.MaxAttempts,
+		"error":        handlerErr.Error(),
+	}
+	if status == "DEAD" {
+		eventType = "job.dead"
+	} else {
+		payload["retry_at"] = retryAt.Format(time.RFC3339Nano)
+	}
+	if err := s.activities.Record(persistCtx, job.ID, eventType, payload, now); err != nil {
+		return fmt.Errorf("record failed job %s: %w", job.ID, err)
+	}
+
 	s.logger.Warn(
 		"job failed",
 		"job_id", job.ID,
@@ -152,6 +212,12 @@ func (s *Scheduler) process(ctx context.Context, job jobqueue.Job) error {
 		"error", handlerErr,
 	)
 	return nil
+}
+
+func (s *Scheduler) record(ctx context.Context, jobID, eventType string, payload any, createdAt time.Time) error {
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), persistenceTimeout)
+	defer cancel()
+	return s.activities.Record(persistCtx, jobID, eventType, payload, createdAt)
 }
 
 func (s *Scheduler) retryDelay(attempt int) time.Duration {
@@ -182,4 +248,10 @@ func wait(ctx context.Context, duration time.Duration) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+type discardActivityRecorder struct{}
+
+func (discardActivityRecorder) Record(context.Context, string, string, any, time.Time) error {
+	return nil
 }
