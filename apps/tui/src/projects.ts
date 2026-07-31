@@ -30,10 +30,7 @@ type ErrorResponse = {
   }
 }
 
-export type ProjectFetch = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>
+export type ProjectFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
 async function request<T>(path: string, init: RequestInit, fetcher: ProjectFetch): Promise<T> {
   const controller = new AbortController()
@@ -101,9 +98,5 @@ export function deleteProject(projectID: string, fetcher: ProjectFetch = fetch):
 }
 
 export function refreshProject(projectID: string, fetcher: ProjectFetch = fetch): Promise<Project> {
-  return request<Project>(
-    `/api/v1/projects/${projectID}/refresh`,
-    { method: "POST" },
-    fetcher,
-  )
+  return request<Project>(`/api/v1/projects/${projectID}/refresh`, { method: "POST" }, fetcher)
 }
