@@ -3,14 +3,7 @@ package config
 import "testing"
 
 func TestLoadUsesDefaults(t *testing.T) {
-	t.Setenv("ORKODA_ENV", "")
-	t.Setenv("ORKODA_LOG_LEVEL", "")
-	t.Setenv("ORKODA_API_HOST", "")
-	t.Setenv("ORKODA_API_PORT", "")
-	t.Setenv("ORKODA_SHUTDOWN_TIMEOUT", "")
-	t.Setenv("ORKODA_DATA_DIR", "")
-	t.Setenv("ORKODA_DATABASE_PATH", "")
-	t.Setenv("ORKODA_ARTIFACT_DIR", "")
+	clearConfigEnvironment(t)
 
 	cfg, err := Load()
 	if err != nil {
@@ -29,12 +22,75 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.ArtifactDir != ".orkoda/artifacts" {
 		t.Fatalf("ArtifactDir = %q", cfg.ArtifactDir)
 	}
+	if cfg.LLM.Provider != "local-fake" || cfg.LLM.Timeout.String() != "1m0s" {
+		t.Fatalf("unexpected default LLM config %#v", cfg.LLM)
+	}
+}
+
+func TestLoadReadsOpenAICompatibleConfig(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("ORKODA_LLM_PROVIDER", "OpenRouter")
+	t.Setenv("ORKODA_LLM_BASE_URL", "https://example.com/v1")
+	t.Setenv("ORKODA_LLM_API_KEY", "secret")
+	t.Setenv("ORKODA_LLM_MODEL", "example/model")
+	t.Setenv("ORKODA_LLM_JSON_MODE", "json_object")
+	t.Setenv("ORKODA_LLM_TIMEOUT", "45s")
+	t.Setenv("ORKODA_LLM_HEADERS_JSON", `{"HTTP-Referer":"https://orkoda.local","X-Title":"Orkoda"}`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LLM.Provider != "openrouter" || cfg.LLM.Model != "example/model" || cfg.LLM.Timeout.String() != "45s" {
+		t.Fatalf("unexpected LLM config %#v", cfg.LLM)
+	}
+	if cfg.LLM.Headers["X-Title"] != "Orkoda" {
+		t.Fatalf("unexpected headers %#v", cfg.LLM.Headers)
+	}
+}
+
+func TestLoadRejectsIncompleteLLMConfig(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("ORKODA_LLM_PROVIDER", "openrouter")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() expected an incomplete LLM config error")
+	}
+
+	clearConfigEnvironment(t)
+	t.Setenv("ORKODA_LLM_HEADERS_JSON", `{invalid`)
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() expected an invalid header JSON error")
+	}
 }
 
 func TestLoadRejectsInvalidPort(t *testing.T) {
+	clearConfigEnvironment(t)
 	t.Setenv("ORKODA_API_PORT", "70000")
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() expected an error")
+	}
+}
+
+func clearConfigEnvironment(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"ORKODA_ENV",
+		"ORKODA_LOG_LEVEL",
+		"ORKODA_API_HOST",
+		"ORKODA_API_PORT",
+		"ORKODA_SHUTDOWN_TIMEOUT",
+		"ORKODA_DATA_DIR",
+		"ORKODA_DATABASE_PATH",
+		"ORKODA_ARTIFACT_DIR",
+		"ORKODA_LLM_PROVIDER",
+		"ORKODA_LLM_BASE_URL",
+		"ORKODA_LLM_API_KEY",
+		"ORKODA_LLM_MODEL",
+		"ORKODA_LLM_JSON_MODE",
+		"ORKODA_LLM_TIMEOUT",
+		"ORKODA_LLM_HEADERS_JSON",
+	} {
+		t.Setenv(key, "")
 	}
 }
