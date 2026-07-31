@@ -19,6 +19,12 @@ type EventReader interface {
 	ListJobAfter(context.Context, string, int64, int) ([]activity.Event, error)
 }
 
+type RouterServices struct {
+	Plans               PlanRegistry
+	RepositorySummaries RepositorySummaryRegistry
+	PlanningContexts    PlanningContextRegistry
+}
+
 type healthResponse struct {
 	Status          string `json:"status"`
 	ProtocolVersion string `json:"protocol_version"`
@@ -44,6 +50,19 @@ func NewRouter(
 	events EventReader,
 	projectRegistry ProjectRegistry,
 	planRegistries ...PlanRegistry,
+) *gin.Engine {
+	var planRegistry PlanRegistry
+	if len(planRegistries) > 0 {
+		planRegistry = planRegistries[0]
+	}
+	return NewRouterWithServices(environment, events, projectRegistry, RouterServices{Plans: planRegistry})
+}
+
+func NewRouterWithServices(
+	environment string,
+	events EventReader,
+	projectRegistry ProjectRegistry,
+	services RouterServices,
 ) *gin.Engine {
 	if environment != "development" {
 		gin.SetMode(gin.ReleaseMode)
@@ -80,12 +99,8 @@ func NewRouter(
 		replayEvents(c, events, c.Param("jobID"))
 	})
 	registerProjectRoutes(api, projectRegistry)
-
-	var planRegistry PlanRegistry
-	if len(planRegistries) > 0 {
-		planRegistry = planRegistries[0]
-	}
-	registerPlanRoutes(api, planRegistry)
+	registerPlanRoutes(api, services.Plans)
+	registerPlanningRoutes(api, services.RepositorySummaries, services.PlanningContexts)
 
 	return router
 }
