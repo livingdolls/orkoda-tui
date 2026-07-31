@@ -24,6 +24,9 @@ type RouterServices struct {
 	RepositorySummaries RepositorySummaryRegistry
 	PlanningContexts    PlanningContextRegistry
 	PlanningAgent       PlanningAgentRegistry
+	LLMProviders        LLMProviderCatalog
+	DefaultLLMProvider  string
+	DefaultLLMModel     string
 }
 
 type healthResponse struct {
@@ -102,7 +105,8 @@ func NewRouterWithServices(
 	registerProjectRoutes(api, projectRegistry)
 	registerPlanRoutes(api, services.Plans)
 	registerPlanningRoutes(api, services.RepositorySummaries, services.PlanningContexts)
-	registerPlanningAgentRoutes(api, services.PlanningAgent)
+	registerPlanningAgentRoutes(api, services.PlanningAgent, services.DefaultLLMProvider, services.DefaultLLMModel)
+	registerLLMRoutes(api, services.LLMProviders)
 
 	return router
 }
