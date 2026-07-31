@@ -43,7 +43,7 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 
 ## Epic 5 — Domain Persistence
 
-- [ ] Migration projects dan repositories.
+- [x] Migration projects dan repositories.
 - [ ] Migration plans dan plan versions.
 - [ ] Migration agent configuration dan tool policy.
 - [ ] Migration workflow jobs dan workspaces.
@@ -56,9 +56,11 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 
 ## Epic 6 — Repository and Workspace
 
-- [ ] Implementasikan local Git repository inspection.
-- [ ] Baca remote, branch, HEAD, dirty state, dan submodule.
-- [ ] Buat repository picker, detail screen, dan branch selector.
+- [x] Implementasikan local Git repository inspection.
+- [x] Baca remote, branch, HEAD, dan dirty state.
+- [ ] Tambahkan pembacaan submodule.
+- [x] Buat repository registration form dan detail screen.
+- [ ] Buat filesystem picker dan branch selector.
 - [ ] Implementasikan trust level dan ignore policy.
 - [ ] Implementasikan local Git worktree adapter.
 - [ ] Tambahkan SQLite-backed workspace lease.

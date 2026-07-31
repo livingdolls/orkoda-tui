@@ -16,6 +16,7 @@ import {
   screenFromShortcut,
   screenLabel,
 } from "./navigation"
+import { ProjectScreen } from "./project-screen"
 
 const connectionColors: Record<DaemonConnection["state"], string> = {
   checking: "#FACC15",
@@ -26,24 +27,42 @@ const connectionColors: Record<DaemonConnection["state"], string> = {
 export function App() {
   const [activeScreen, setActiveScreen] = useState<Screen>("projects")
   const [connection, setConnection] = useState<DaemonConnection>(initialDaemonConnection)
+  const [projectInteractionActive, setProjectInteractionActive] = useState(false)
 
   useKeyboard((key) => {
+    if (activeScreen === "projects") {
+      if (projectInteractionActive) {
+        return
+      }
+
+      const shortcut = screenFromShortcut(key.name)
+      if (shortcut) {
+        setActiveScreen(shortcut)
+        return
+      }
+      if (key.name === "right" || key.name === "l") {
+        setActiveScreen((current) => moveScreen(current, 1))
+        return
+      }
+      if (key.name === "left" || key.name === "h") {
+        setActiveScreen((current) => moveScreen(current, -1))
+      }
+      return
+    }
+
     const shortcut = screenFromShortcut(key.name)
     if (shortcut) {
       setActiveScreen(shortcut)
       return
     }
-
-    if (key.name === "down" || key.name === "right" || key.name === "j" || key.name === "l") {
+    if (key.name === "right" || key.name === "down" || key.name === "j" || key.name === "l") {
       setActiveScreen((current) => moveScreen(current, 1))
       return
     }
-
-    if (key.name === "up" || key.name === "left" || key.name === "k" || key.name === "h") {
+    if (key.name === "left" || key.name === "up" || key.name === "h" || key.name === "k") {
       setActiveScreen((current) => moveScreen(current, -1))
       return
     }
-
     if (key.name === "r") {
       setConnection(initialDaemonConnection)
       void probeDaemon().then(setConnection)
@@ -68,6 +87,13 @@ export function App() {
       clearInterval(interval)
     }
   }, [])
+
+  let footerHelp = "↑↓/hjkl navigate • 1-4 jump • r reconnect • Ctrl+C quit"
+  if (activeScreen === "projects") {
+    footerHelp = projectInteractionActive
+      ? "Project dialog active • use the controls shown in the panel"
+      : "n new • ↑↓/jk select • g refresh Git • d delete • r reload • h/l switch screen"
+  }
 
   return (
     <box flexDirection="column" width="100%" height="100%" backgroundColor="#0B1020">
@@ -114,7 +140,14 @@ export function App() {
           gap={1}
           title={screenLabel(activeScreen)}
         >
-          <ScreenContent screen={activeScreen} connection={connection} />
+          {activeScreen === "projects" ? (
+            <ProjectScreen
+              connection={connection}
+              onInteractionChange={setProjectInteractionActive}
+            />
+          ) : (
+            <ScreenContent screen={activeScreen} connection={connection} />
+          )}
         </box>
       </box>
 
@@ -125,7 +158,7 @@ export function App() {
         flexDirection="row"
         justifyContent="space-between"
       >
-        <text fg="#64748B">↑↓/jk navigate • 1-4 jump • r reconnect • Ctrl+C quit</text>
+        <text fg="#64748B">{footerHelp}</text>
         <text fg={connectionColors[connection.state]}>
           {`${connection.protocolVersion} • daemon ${connection.state}`}
         </text>
@@ -135,17 +168,6 @@ export function App() {
 }
 
 function ScreenContent({ screen, connection }: { screen: Screen; connection: DaemonConnection }) {
-  if (screen === "projects") {
-    return (
-      <box flexDirection="column" gap={1}>
-        <text fg="#E2E8F0">No project registered yet.</text>
-        <text fg="#94A3B8">
-          Repository registration will be added after the local runtime milestones.
-        </text>
-      </box>
-    )
-  }
-
   if (screen === "jobs") {
     return (
       <box flexDirection="column" gap={1}>

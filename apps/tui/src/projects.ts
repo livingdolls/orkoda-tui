@@ -1,0 +1,102 @@
+import { daemonBaseURL } from "./daemon"
+
+export type ProjectRepository = {
+  id: string
+  project_id: string
+  local_path: string
+  current_branch: string
+  head_sha: string
+  remote_url?: string
+  dirty: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type Project = {
+  id: string
+  name: string
+  repositories: ProjectRepository[]
+  created_at: string
+  updated_at: string
+}
+
+type DataResponse<T> = {
+  data: T
+}
+
+type ErrorResponse = {
+  error?: {
+    message?: string
+  }
+}
+
+export type ProjectFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+
+async function request<T>(path: string, init: RequestInit, fetcher: ProjectFetch): Promise<T> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+  const headers = new Headers(init.headers)
+  headers.set("accept", "application/json")
+  if (init.body) {
+    headers.set("content-type", "application/json")
+  }
+
+  try {
+    const response = await fetcher(`${daemonBaseURL}${path}`, {
+      ...init,
+      headers,
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      let message = `Daemon returned HTTP ${response.status}`
+      try {
+        const payload = (await response.json()) as ErrorResponse
+        if (payload.error?.message) {
+          message = payload.error.message
+        }
+      } catch {
+        // Keep the status-based message for non-JSON failures.
+      }
+      throw new Error(message)
+    }
+    if (response.status === 204) {
+      return undefined as T
+    }
+    const payload = (await response.json()) as DataResponse<T>
+    return payload.data
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Project request timed out")
+    }
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+export function listProjects(fetcher: ProjectFetch = fetch): Promise<Project[]> {
+  return request<Project[]>("/api/v1/projects", { method: "GET" }, fetcher)
+}
+
+export function createProject(
+  name: string,
+  repositoryPath: string,
+  fetcher: ProjectFetch = fetch,
+): Promise<Project> {
+  return request<Project>(
+    "/api/v1/projects",
+    {
+      method: "POST",
+      body: JSON.stringify({ name, repository_path: repositoryPath }),
+    },
+    fetcher,
+  )
+}
+
+export function deleteProject(projectID: string, fetcher: ProjectFetch = fetch): Promise<void> {
+  return request<void>(`/api/v1/projects/${projectID}`, { method: "DELETE" }, fetcher)
+}
+
+export function refreshProject(projectID: string, fetcher: ProjectFetch = fetch): Promise<Project> {
+  return request<Project>(`/api/v1/projects/${projectID}/refresh`, { method: "POST" }, fetcher)
+}

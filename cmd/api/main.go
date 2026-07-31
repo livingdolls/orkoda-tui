@@ -14,8 +14,10 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/config"
 	"github.com/livingdolls/orkoda-tui/internal/database"
 	"github.com/livingdolls/orkoda-tui/internal/eventbus"
+	"github.com/livingdolls/orkoda-tui/internal/gitrepo"
 	"github.com/livingdolls/orkoda-tui/internal/httpapi"
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
+	"github.com/livingdolls/orkoda-tui/internal/projects"
 	"github.com/livingdolls/orkoda-tui/internal/scheduler"
 )
 
@@ -63,6 +65,11 @@ func run() error {
 		return err
 	}
 
+	projectRepository, err := projects.NewRepository(db, gitrepo.NewInspector())
+	if err != nil {
+		return err
+	}
+
 	queue := jobqueue.New(db)
 	queueScheduler, err := scheduler.New(
 		queue,
@@ -82,7 +89,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              cfg.APIAddress(),
-		Handler:           httpapi.NewRouter(cfg.Environment, activityRepository),
+		Handler:           httpapi.NewRouter(cfg.Environment, activityRepository, projectRepository),
 		ReadHeaderTimeout: 5 * cfg.ShutdownTimeout / 10,
 	}
 
