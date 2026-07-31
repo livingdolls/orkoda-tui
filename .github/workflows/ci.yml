@@ -17,8 +17,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
-          cache: true
-      - run: go mod download
+          cache: false
+      - run: go mod tidy
+      - run: cat go.sum
       - run: test -z "$(gofmt -l cmd internal)"
       - run: go vet ./...
       - run: go test -race -coverprofile=coverage.out ./...
