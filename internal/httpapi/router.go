@@ -23,6 +23,7 @@ type RouterServices struct {
 	Plans               PlanRegistry
 	RepositorySummaries RepositorySummaryRegistry
 	PlanningContexts    PlanningContextRegistry
+	PlanningAgent       PlanningAgentRegistry
 }
 
 type healthResponse struct {
@@ -101,6 +102,7 @@ func NewRouterWithServices(
 	registerProjectRoutes(api, projectRegistry)
 	registerPlanRoutes(api, services.Plans)
 	registerPlanningRoutes(api, services.RepositorySummaries, services.PlanningContexts)
+	registerPlanningAgentRoutes(api, services.PlanningAgent)
 
 	return router
 }

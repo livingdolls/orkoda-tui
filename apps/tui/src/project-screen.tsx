@@ -20,6 +20,8 @@ import {
   type PlanningContext,
   type RepositorySummary,
 } from "./planning"
+import { getCurrentPlanningRun, type PlanningRun, startPlanningRun } from "./planning-agent"
+import { PlanningQuestionEditor } from "./planning-question-editor"
 import { listPlans, type Plan } from "./plans"
 import {
   createProject,
@@ -29,7 +31,7 @@ import {
   refreshProject,
 } from "./projects"
 
-type ProjectMode = "list" | "name" | "picker" | "delete" | "plan"
+type ProjectMode = "list" | "name" | "picker" | "delete" | "plan" | "questions"
 type ProjectLoadState = "idle" | "loading" | "ready" | "error"
 
 export function ProjectScreen({
@@ -53,6 +55,7 @@ export function ProjectScreen({
   const [planLoading, setPlanLoading] = useState(false)
   const [repositorySummary, setRepositorySummary] = useState<RepositorySummary | null>(null)
   const [planningContext, setPlanningContext] = useState<PlanningContext | null>(null)
+  const [planningRun, setPlanningRun] = useState<PlanningRun | null>(null)
 
   const selectedProject = projectList[selectedIndex] ?? null
   const selectedRepository = selectedProject?.repositories[0] ?? null
@@ -61,6 +64,26 @@ export function ProjectScreen({
   const selectedRepositoryID = selectedRepository?.id ?? ""
   const latestPlanID = latestPlan?.id ?? ""
   const repositorySummaryID = repositorySummary?.id ?? ""
+  const planningContextID = planningContext?.id ?? ""
+
+  const applyPlanningRun = (run: PlanningRun) => {
+    setPlanningRun(run)
+    let status: Plan["status"] | null = null
+    if (run.status === "NEEDS_INPUT") {
+      status = "NEEDS_INPUT"
+    } else if (run.status === "COMPLETED") {
+      status = "READY"
+    } else if (run.status === "RUNNING") {
+      status = "PLANNING"
+    } else if (run.status === "FAILED" || run.status === "CANCELLED") {
+      status = "DRAFT"
+    }
+    if (status && latestPlanID) {
+      setPlanList((current) =>
+        current.map((plan) => (plan.id === latestPlanID ? { ...plan, status } : plan)),
+      )
+    }
+  }
 
   const reloadProjects = async () => {
     if (connection.state !== "connected") {
@@ -130,6 +153,7 @@ export function ProjectScreen({
       setPickerIndex(0)
       setRepositorySummary(null)
       setPlanningContext(null)
+      setPlanningRun(null)
       setMessage("Project created.")
       setLoadState("ready")
     } catch (error) {
@@ -152,6 +176,7 @@ export function ProjectScreen({
       setPlanList([])
       setRepositorySummary(null)
       setPlanningContext(null)
+      setPlanningRun(null)
       setMode("list")
       setMessage("Project deleted. Repository files were not changed.")
     } catch (error) {
@@ -174,6 +199,7 @@ export function ProjectScreen({
       )
       setRepositorySummary(null)
       setPlanningContext(null)
+      setPlanningRun(null)
       setMessage("Repository metadata refreshed. Scan the current HEAD before normalization.")
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to refresh project")
@@ -192,6 +218,7 @@ export function ProjectScreen({
       const summary = await generateRepositorySummary(selectedRepository.id)
       setRepositorySummary(summary)
       setPlanningContext(null)
+      setPlanningRun(null)
       setMessage(`Repository summary ready for HEAD ${summary.head_sha.slice(0, 12)}.`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to scan repository")
@@ -209,6 +236,7 @@ export function ProjectScreen({
     try {
       const context = await normalizePlan(latestPlan.id)
       setPlanningContext(context)
+      setPlanningRun(null)
       setMessage(`Planning context created for plan version ${context.plan_version}.`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to normalize plan")
@@ -217,8 +245,31 @@ export function ProjectScreen({
     }
   }
 
+  const runSelectedPlanningAgent = async () => {
+    if (!latestPlan || !planningContext || busy) {
+      return
+    }
+    setBusy(true)
+    setMessage("Running the local planning agent...")
+    try {
+      const run = await startPlanningRun(latestPlan.id)
+      applyPlanningRun(run)
+      if (run.status === "NEEDS_INPUT") {
+        setMessage(`Planning needs ${run.questions.length} answer(s). Press q to continue.`)
+      } else if (run.status === "COMPLETED") {
+        setMessage(`Planning completed with ${run.result?.steps.length ?? 0} step(s).`)
+      } else {
+        setMessage(`Planning run finished with status ${run.status}.`)
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to run planning agent")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   useKeyboard((key) => {
-    if (mode === "plan") {
+    if (mode === "plan" || mode === "questions") {
       return
     }
 
@@ -298,6 +349,15 @@ export function ProjectScreen({
     }
     if (key.name === "o" && latestPlan) {
       void normalizeSelectedPlan()
+      return
+    }
+    if (key.name === "a" && latestPlan && planningContext) {
+      void runSelectedPlanningAgent()
+      return
+    }
+    if (key.name === "q" && planningRun?.status === "NEEDS_INPUT") {
+      setMode("questions")
+      setMessage("")
       return
     }
     if (key.name === "d" && selectedProject) {
@@ -391,6 +451,7 @@ export function ProjectScreen({
     let disposed = false
     setRepositorySummary(null)
     setPlanningContext(null)
+    setPlanningRun(null)
     if (connection.state !== "connected" || selectedRepositoryID === "") {
       return
     }
@@ -415,6 +476,7 @@ export function ProjectScreen({
   useEffect(() => {
     let disposed = false
     setPlanningContext(null)
+    setPlanningRun(null)
     if (connection.state !== "connected" || latestPlanID === "" || repositorySummaryID === "") {
       return
     }
@@ -436,6 +498,30 @@ export function ProjectScreen({
     }
   }, [connection.state, latestPlanID, repositorySummaryID])
 
+  useEffect(() => {
+    let disposed = false
+    setPlanningRun(null)
+    if (connection.state !== "connected" || latestPlanID === "" || planningContextID === "") {
+      return
+    }
+
+    void getCurrentPlanningRun(latestPlanID)
+      .then((run) => {
+        if (!disposed) {
+          setPlanningRun(run)
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setPlanningRun(null)
+        }
+      })
+
+    return () => {
+      disposed = true
+    }
+  }, [connection.state, latestPlanID, planningContextID])
+
   if (mode === "plan" && selectedProject) {
     return (
       <PlanEditor
@@ -444,12 +530,34 @@ export function ProjectScreen({
         onSaved={(plan) => {
           setPlanList((current) => [plan, ...current])
           setPlanningContext(null)
+          setPlanningRun(null)
           setMode("list")
           setMessage("Plan draft created.")
         }}
         onCancel={() => {
           setMode("list")
           setMessage("Plan creation cancelled.")
+        }}
+      />
+    )
+  }
+
+  if (mode === "questions" && planningRun) {
+    return (
+      <PlanningQuestionEditor
+        run={planningRun}
+        onSubmitted={(run) => {
+          applyPlanningRun(run)
+          setMode("list")
+          if (run.status === "COMPLETED") {
+            setMessage(`Planning completed with ${run.result?.steps.length ?? 0} step(s).`)
+          } else {
+            setMessage(`Planning returned status ${run.status}.`)
+          }
+        }}
+        onCancel={() => {
+          setMode("list")
+          setMessage("Planning answers were not submitted.")
         }}
       />
     )
@@ -598,7 +706,7 @@ export function ProjectScreen({
 
         <box marginTop={1} flexDirection="row" justifyContent="space-between">
           <text fg="#E2E8F0">Plans</text>
-          <text fg="#7DD3FC">p new • o normalize latest</text>
+          <text fg="#7DD3FC">p new • o normalize • a run • q answer</text>
         </box>
         {planLoading ? <text fg="#FACC15">Loading plans...</text> : null}
         {!planLoading && planList.length === 0 ? (
@@ -624,6 +732,35 @@ export function ProjectScreen({
           </box>
         ) : latestPlan ? (
           <text fg="#64748B">Latest plan is not normalized for the current repository HEAD.</text>
+        ) : null}
+
+        {planningRun ? (
+          <box marginTop={1} flexDirection="column">
+            <text fg={planningRun.status === "COMPLETED" ? "#4ADE80" : "#FACC15"}>
+              {`Agent ${planningRun.status} • ${planningRun.provider}/${planningRun.model}`}
+            </text>
+            {planningRun.status === "NEEDS_INPUT" ? (
+              <text fg="#FACC15">
+                {`${planningRun.questions.filter((question) => question.status === "OPEN").length} open question(s) • press q`}
+              </text>
+            ) : null}
+            {planningRun.result ? (
+              <box flexDirection="column">
+                <text fg="#94A3B8">{planningRun.result.summary}</text>
+                {planningRun.result.steps.slice(0, 3).map((step) => (
+                  <text key={step.id} fg="#64748B">{`• ${step.title}`}</text>
+                ))}
+              </box>
+            ) : null}
+            {planningRun.error_message ? (
+              <text fg="#F87171">{planningRun.error_message}</text>
+            ) : null}
+            <text fg="#64748B">
+              {`tokens ${planningRun.usage.input_tokens + planningRun.usage.output_tokens}`}
+            </text>
+          </box>
+        ) : planningContext ? (
+          <text fg="#64748B">No planning agent run for this context.</text>
         ) : null}
 
         {message ? <text fg={busy ? "#FACC15" : "#4ADE80"}>{message}</text> : null}

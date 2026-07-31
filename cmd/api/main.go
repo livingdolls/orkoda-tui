@@ -17,6 +17,8 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/gitrepo"
 	"github.com/livingdolls/orkoda-tui/internal/httpapi"
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
+	"github.com/livingdolls/orkoda-tui/internal/llm"
+	"github.com/livingdolls/orkoda-tui/internal/planningagent"
 	"github.com/livingdolls/orkoda-tui/internal/planningcontext"
 	"github.com/livingdolls/orkoda-tui/internal/plans"
 	"github.com/livingdolls/orkoda-tui/internal/projects"
@@ -93,6 +95,26 @@ func run() error {
 		return err
 	}
 
+	localPlanningProvider := planningagent.NewLocalFakeProvider()
+	providerRegistry, err := llm.NewRegistry(localPlanningProvider)
+	if err != nil {
+		return err
+	}
+	llmGateway, err := llm.NewGateway(providerRegistry, activityRecorder)
+	if err != nil {
+		return err
+	}
+	planningAgentService, err := planningagent.NewService(
+		db,
+		planningContextRepository,
+		planRepository,
+		llmGateway,
+		activityRecorder,
+	)
+	if err != nil {
+		return err
+	}
+
 	queue := jobqueue.New(db)
 	queueScheduler, err := scheduler.New(
 		queue,
@@ -120,6 +142,7 @@ func run() error {
 				Plans:               planRepository,
 				RepositorySummaries: summaryRepository,
 				PlanningContexts:    planningContextRepository,
+				PlanningAgent:       planningAgentService,
 			},
 		),
 		ReadHeaderTimeout: 5 * cfg.ShutdownTimeout / 10,

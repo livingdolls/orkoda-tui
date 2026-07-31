@@ -45,6 +45,7 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 
 - [x] Migration projects dan repositories.
 - [x] Migration plans dan plan versions.
+- [x] Migration planning runs dan open questions.
 - [ ] Migration agent configuration dan tool policy.
 - [ ] Migration workflow jobs dan workspaces.
 - [ ] Migration executions, tool runs, dan checks.
@@ -71,7 +72,7 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 
 - [x] Buat requirement editor dan structured plan schema.
 - [x] Implementasikan repository summary dan plan normalization.
-- [ ] Buat Planning Agent dan open-question flow.
+- [x] Buat Planning Agent dan open-question flow.
 - [x] Definisikan provider-neutral request, response, usage, dan error.
 - [x] Implementasikan provider registry, gateway, dan fake provider deterministik.
 - [ ] Implementasikan provider adapter nyata pertama.

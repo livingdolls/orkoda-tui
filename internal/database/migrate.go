@@ -77,6 +77,45 @@ var foundationStatements = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_planning_contexts_plan_created
 		ON planning_contexts(plan_id, created_at DESC)`,
+	`CREATE TABLE IF NOT EXISTS planning_runs (
+		id TEXT PRIMARY KEY,
+		plan_id TEXT NOT NULL,
+		plan_version_id TEXT NOT NULL,
+		planning_context_id TEXT NOT NULL,
+		parent_run_id TEXT,
+		provider TEXT NOT NULL,
+		model TEXT NOT NULL,
+		status TEXT NOT NULL CHECK (status IN ('RUNNING', 'NEEDS_INPUT', 'COMPLETED', 'FAILED', 'CANCELLED', 'SUPERSEDED')),
+		response_json TEXT,
+		usage_json TEXT NOT NULL DEFAULT '{}',
+		error_code TEXT,
+		error_message TEXT,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE,
+		FOREIGN KEY (plan_version_id) REFERENCES plan_versions(id) ON DELETE CASCADE,
+		FOREIGN KEY (planning_context_id) REFERENCES planning_contexts(id) ON DELETE CASCADE,
+		FOREIGN KEY (parent_run_id) REFERENCES planning_runs(id) ON DELETE SET NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_planning_runs_plan_created
+		ON planning_runs(plan_id, created_at DESC)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_planning_runs_active_plan
+		ON planning_runs(plan_id)
+		WHERE status IN ('RUNNING', 'NEEDS_INPUT')`,
+	`CREATE TABLE IF NOT EXISTS planning_questions (
+		id TEXT PRIMARY KEY,
+		run_id TEXT NOT NULL,
+		position INTEGER NOT NULL CHECK (position >= 0),
+		question TEXT NOT NULL,
+		answer TEXT,
+		status TEXT NOT NULL CHECK (status IN ('OPEN', 'ANSWERED')),
+		created_at INTEGER NOT NULL,
+		answered_at INTEGER,
+		FOREIGN KEY (run_id) REFERENCES planning_runs(id) ON DELETE CASCADE,
+		UNIQUE (run_id, position)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_planning_questions_run_position
+		ON planning_questions(run_id, position)`,
 	`CREATE TABLE IF NOT EXISTS jobs (
 		id TEXT PRIMARY KEY,
 		type TEXT NOT NULL,

@@ -3,6 +3,7 @@ package planningagent
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/livingdolls/orkoda-tui/internal/llm"
@@ -35,7 +36,20 @@ var ResponseSchema = json.RawMessage(`{
   }
 }`)
 
+type ResolvedQuestion struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+}
+
 func BuildRequest(planningContext planningcontext.Context, model string) (llm.Request, error) {
+	return BuildRequestWithAnswers(planningContext, model, nil)
+}
+
+func BuildRequestWithAnswers(
+	planningContext planningcontext.Context,
+	model string,
+	answers []ResolvedQuestion,
+) (llm.Request, error) {
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return llm.Request{}, fmt.Errorf("planning model is required")
@@ -52,6 +66,24 @@ func BuildRequest(planningContext planningcontext.Context, model string) (llm.Re
 		return llm.Request{}, fmt.Errorf("marshal normalized planning context: %w", err)
 	}
 
+	userContent := "Create a safe, testable implementation plan for this context:\n" + string(contextJSON)
+	normalizedAnswers := make([]ResolvedQuestion, 0, len(answers))
+	for _, answer := range answers {
+		answer.Question = strings.TrimSpace(answer.Question)
+		answer.Answer = strings.TrimSpace(answer.Answer)
+		if answer.Question == "" || answer.Answer == "" {
+			continue
+		}
+		normalizedAnswers = append(normalizedAnswers, answer)
+	}
+	if len(normalizedAnswers) > 0 {
+		answersJSON, err := json.MarshalIndent(normalizedAnswers, "", "  ")
+		if err != nil {
+			return llm.Request{}, fmt.Errorf("marshal resolved planning questions: %w", err)
+		}
+		userContent += "\n\nResolved questions supplied by the user:\n" + string(answersJSON)
+	}
+
 	return llm.Request{
 		Model: model,
 		Messages: []llm.Message{
@@ -61,11 +93,12 @@ func BuildRequest(planningContext planningcontext.Context, model string) (llm.Re
 Create an implementation plan grounded only in the supplied normalized context.
 Return one JSON object matching the response schema exactly.
 Do not include Markdown fences, prose outside JSON, or invented repository files.
-Use open_questions when essential information is missing instead of guessing.`),
+Use open_questions when essential information is missing instead of guessing.
+Treat resolved questions as authoritative user input.`),
 			},
 			{
 				Role:    llm.RoleUser,
-				Content: "Create a safe, testable implementation plan for this context:\n" + string(contextJSON),
+				Content: userContent,
 			},
 		},
 		ResponseSchema:  append(json.RawMessage(nil), ResponseSchema...),
@@ -76,6 +109,7 @@ Use open_questions when essential information is missing instead of guessing.`),
 			"plan_version":          fmt.Sprintf("%d", planningContext.PlanVersion),
 			"planning_context_id":   planningContext.ID,
 			"repository_summary_id": planningContext.RepositorySummaryID,
+			"answered_questions":    strconv.Itoa(len(normalizedAnswers)),
 		},
 	}, nil
 }
