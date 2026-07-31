@@ -146,7 +146,9 @@ function ScreenContent({
     return (
       <box flexDirection="column" gap={1}>
         <text fg="#E2E8F0">No project registered yet.</text>
-        <text fg="#94A3B8">Repository registration will be added after the local runtime milestones.</text>
+        <text fg="#94A3B8">
+          Repository registration will be added after the local runtime milestones.
+        </text>
       </box>
     )
   }
