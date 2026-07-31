@@ -59,10 +59,7 @@ export type PlanningContext = {
   created_at: string
 }
 
-export type PlanningFetch = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>
+export type PlanningFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
 type DataResponse<T> = { data: T }
 type ErrorResponse = { error?: { message?: string } }
@@ -129,20 +126,12 @@ export function normalizePlan(
   planID: string,
   fetcher: PlanningFetch = fetch,
 ): Promise<PlanningContext> {
-  return request<PlanningContext>(
-    `/api/v1/plans/${planID}/normalize`,
-    { method: "POST" },
-    fetcher,
-  )
+  return request<PlanningContext>(`/api/v1/plans/${planID}/normalize`, { method: "POST" }, fetcher)
 }
 
 export function getPlanningContext(
   planID: string,
   fetcher: PlanningFetch = fetch,
 ): Promise<PlanningContext> {
-  return request<PlanningContext>(
-    `/api/v1/plans/${planID}/context`,
-    { method: "GET" },
-    fetcher,
-  )
+  return request<PlanningContext>(`/api/v1/plans/${planID}/context`, { method: "GET" }, fetcher)
 }
