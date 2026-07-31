@@ -16,6 +16,7 @@ const (
 	LocalFakeModelName    = "local-fake-planner-v1"
 )
 
+// LocalFakeProvider keeps the complete planning flow usable without credentials or network access.
 type LocalFakeProvider struct{}
 
 func NewLocalFakeProvider() *LocalFakeProvider {
