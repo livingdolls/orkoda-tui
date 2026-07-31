@@ -38,15 +38,16 @@ export type ProjectFetch = (
 async function request<T>(path: string, init: RequestInit, fetcher: ProjectFetch): Promise<T> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 5000)
+  const headers = new Headers(init.headers)
+  headers.set("accept", "application/json")
+  if (init.body) {
+    headers.set("content-type", "application/json")
+  }
 
   try {
     const response = await fetcher(`${daemonBaseURL}${path}`, {
       ...init,
-      headers: {
-        accept: "application/json",
-        ...(init.body ? { "content-type": "application/json" } : {}),
-        ...init.headers,
-      },
+      headers,
       signal: controller.signal,
     })
     if (!response.ok) {
