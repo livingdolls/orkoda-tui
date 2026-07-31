@@ -40,7 +40,7 @@ Run the local daemon:
 make api
 ```
 
-The daemon also applies idempotent SQLite migrations automatically during startup.
+The daemon also applies idempotent SQLite migrations automatically during startup. Planning, execution, checks, and review will run as background goroutines inside this same process as their workflow handlers are implemented.
 
 In another terminal, run the TUI:
 
