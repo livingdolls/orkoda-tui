@@ -17,16 +17,17 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 
 ## Epic 2 — Local Runtime Completion
 
-- [ ] Jalankan queue scheduler sebagai goroutine daemon.
-- [ ] Tambahkan activity event repository dan replay berdasarkan sequence.
-- [ ] Tambahkan coordinated goroutine shutdown.
+- [x] Jalankan queue scheduler sebagai goroutine daemon.
+- [x] Tambahkan activity event repository dan replay berdasarkan sequence.
+- [x] Tambahkan coordinated goroutine shutdown.
 - [ ] Tambahkan OS single-instance lock.
 - [ ] Tambahkan SQLite checkpoint, backup, dan integrity diagnostics.
 - [ ] Tambahkan migration version tracking dan upgrade tests.
 
 ## Epic 3 — OpenTUI Foundation
 
-- [ ] Buat keyboard map dan command palette.
+- [x] Buat keyboard map dan navigasi dasar.
+- [ ] Buat command palette.
 - [ ] Buat focus management, modal, confirmation, dan toast.
 - [ ] Buat loading, empty, error, dan cancellation states.
 - [ ] Buat resizable panels, log viewer, dan diff prototype.
@@ -79,7 +80,7 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [ ] Hubungkan workflow ke SQLite queue.
 - [ ] Tambahkan handler idempotency.
 - [ ] Implementasikan polling, backoff, cancellation, dan manual retry.
-- [ ] Pulihkan stale running job saat daemon startup.
+- [x] Pulihkan stale running job saat daemon startup.
 - [ ] Tambahkan revision, attempt, dan wall-clock guards.
 - [ ] Tambahkan crash-recovery dan duplicate-processing tests.
 

@@ -135,16 +135,30 @@ func (q *Queue) Fail(ctx context.Context, id, failure string, retryAt time.Time,
 	return status, nil
 }
 
-func (q *Queue) RecoverStale(ctx context.Context, lockedBefore time.Time, now time.Time) (int64, error) {
-	result, err := q.db.ExecContext(ctx, `
+func (q *Queue) RecoverStale(ctx context.Context, lockedBefore time.Time, now time.Time) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, `
 		UPDATE jobs
 		SET status = 'QUEUED', locked_by = NULL, locked_at = NULL, updated_at = ?
 		WHERE status = 'RUNNING' AND locked_at < ?
+		RETURNING id
 	`, now.UTC().UnixMilli(), lockedBefore.UTC().UnixMilli())
 	if err != nil {
-		return 0, fmt.Errorf("recover stale jobs: %w", err)
+		return nil, fmt.Errorf("recover stale jobs: %w", err)
 	}
-	return result.RowsAffected()
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan recovered stale job: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate recovered stale jobs: %w", err)
+	}
+	return ids, nil
 }
 
 func scanJob(row interface{ Scan(...any) error }) (Job, error) {
