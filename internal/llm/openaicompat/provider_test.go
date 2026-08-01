@@ -202,7 +202,11 @@ func TestProviderRejectsInvalidResponses(t *testing.T) {
 
 func TestProviderHonorsCancellationAndTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		<-request.Context().Done()
+		select {
+		case <-request.Context().Done():
+		case <-time.After(250 * time.Millisecond):
+			writer.WriteHeader(http.StatusGatewayTimeout)
+		}
 	}))
 	defer server.Close()
 	provider, err := New(Config{
@@ -263,7 +267,8 @@ func TestProviderBlocksCrossOriginRedirect(t *testing.T) {
 	}))
 	defer target.Close()
 	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		http.Redirect(writer, &http.Request{}, target.URL, http.StatusTemporaryRedirect)
+		writer.Header().Set("Location", target.URL)
+		writer.WriteHeader(http.StatusTemporaryRedirect)
 	}))
 	defer source.Close()
 	provider := newTestProvider(t, source.URL)
