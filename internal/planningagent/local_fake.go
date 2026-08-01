@@ -27,6 +27,15 @@ func (p *LocalFakeProvider) Name() string {
 	return LocalFakeProviderName
 }
 
+func (p *LocalFakeProvider) Info() llm.ProviderInfo {
+	return llm.ProviderInfo{
+		Name:             LocalFakeProviderName,
+		DefaultModel:     LocalFakeModelName,
+		Configured:       true,
+		StructuredOutput: true,
+	}
+}
+
 func (p *LocalFakeProvider) Complete(ctx context.Context, request llm.Request) (llm.Response, error) {
 	select {
 	case <-ctx.Done():

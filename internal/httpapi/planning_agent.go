@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/livingdolls/orkoda-tui/internal/llm"
@@ -28,7 +29,12 @@ type answerPlanningRunRequest struct {
 	Answers []planningagent.AnswerInput `json:"answers"`
 }
 
-func registerPlanningAgentRoutes(api *gin.RouterGroup, service PlanningAgentRegistry) {
+func registerPlanningAgentRoutes(
+	api *gin.RouterGroup,
+	service PlanningAgentRegistry,
+	defaultProvider string,
+	defaultModel string,
+) {
 	api.POST("/plans/:planID/planning-runs", func(c *gin.Context) {
 		if service == nil {
 			writeError(c, http.StatusServiceUnavailable, "planning agent service is unavailable")
@@ -40,6 +46,12 @@ func registerPlanningAgentRoutes(api *gin.RouterGroup, service PlanningAgentRegi
 				writeError(c, http.StatusBadRequest, "invalid planning run request")
 				return
 			}
+		}
+		if strings.TrimSpace(request.Provider) == "" {
+			request.Provider = defaultProvider
+		}
+		if strings.TrimSpace(request.Model) == "" {
+			request.Model = defaultModel
 		}
 		run, err := service.Start(
 			c.Request.Context(),
@@ -118,11 +130,14 @@ func writePlanningAgentError(c *gin.Context, err error) {
 	default:
 		if providerError, ok := llm.AsProviderError(err); ok {
 			status := http.StatusBadGateway
-			if providerError.Code == llm.ErrorRateLimited {
+			switch providerError.Code {
+			case llm.ErrorAuthentication:
+				status = http.StatusUnauthorized
+			case llm.ErrorRateLimited:
 				status = http.StatusTooManyRequests
-			} else if providerError.Code == llm.ErrorCancelled {
+			case llm.ErrorCancelled, llm.ErrorTimeout:
 				status = http.StatusRequestTimeout
-			} else if providerError.Code == llm.ErrorInvalidRequest || providerError.Code == llm.ErrorInvalidResponse {
+			case llm.ErrorInvalidRequest, llm.ErrorInvalidResponse, llm.ErrorContextLength:
 				status = http.StatusUnprocessableEntity
 			}
 			writeError(c, status, providerError.Message)

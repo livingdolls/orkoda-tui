@@ -55,9 +55,21 @@ type Response struct {
 	Metadata     map[string]string `json:"metadata,omitempty"`
 }
 
+type ProviderInfo struct {
+	Name             string `json:"name"`
+	DefaultModel     string `json:"default_model"`
+	Configured       bool   `json:"configured"`
+	StructuredOutput bool   `json:"structured_output"`
+	Default          bool   `json:"default"`
+}
+
 type Provider interface {
 	Name() string
 	Complete(context.Context, Request) (Response, error)
+}
+
+type ProviderDescriber interface {
+	Info() ProviderInfo
 }
 
 type Gateway interface {

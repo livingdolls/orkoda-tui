@@ -28,6 +28,7 @@ type Config struct {
 	DataDir         string
 	DatabasePath    string
 	ArtifactDir     string
+	LLM             LLMConfig
 }
 
 // Load reads environment variables and applies safe local-development defaults.
@@ -41,6 +42,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	llmConfig, err := loadLLMConfig()
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
 		Environment:     stringFromEnv("ORKODA_ENV", defaultEnvironment),
@@ -51,6 +56,7 @@ func Load() (Config, error) {
 		DataDir:         stringFromEnv("ORKODA_DATA_DIR", defaultDataDir),
 		DatabasePath:    stringFromEnv("ORKODA_DATABASE_PATH", defaultDatabasePath),
 		ArtifactDir:     stringFromEnv("ORKODA_ARTIFACT_DIR", defaultArtifactDir),
+		LLM:             llmConfig,
 	}, nil
 }
 

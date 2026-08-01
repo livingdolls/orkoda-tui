@@ -13,6 +13,7 @@ The repository currently contains the Phase 1 foundation:
 - An in-memory event bus for live TUI updates.
 - Local filesystem artifact storage under `.orkoda/artifacts`.
 - Shared versioned JSON protocol schema.
+- A provider-neutral LLM gateway with local fake and configurable OpenAI-compatible providers.
 - Formatting, linting, tests, Make targets, and GitHub Actions CI.
 
 Orkoda does not require PostgreSQL, Redis, RabbitMQ, MinIO, or Docker Compose.
@@ -53,7 +54,28 @@ The API exposes:
 ```text
 GET /health/live
 GET /api/v1/status
+GET /api/v1/llm/providers
 ```
+
+## LLM providers
+
+Orkoda uses `local-fake` by default, so the complete planning and open-question flow works without credentials or network access.
+
+To use an OpenAI-compatible endpoint, configure the daemon environment before startup:
+
+```text
+ORKODA_LLM_PROVIDER=openrouter
+ORKODA_LLM_BASE_URL=https://provider.example/v1
+ORKODA_LLM_API_KEY=your-secret
+ORKODA_LLM_MODEL=provider/model-name
+ORKODA_LLM_JSON_MODE=json_schema
+ORKODA_LLM_TIMEOUT=60s
+ORKODA_LLM_HEADERS_JSON={"X-Title":"Orkoda"}
+```
+
+`ORKODA_LLM_JSON_MODE` accepts `json_schema`, `json_object`, or `prompt_only`. HTTPS is required except for loopback development endpoints such as `http://127.0.0.1:11434/v1`. Credentials remain in process memory and are never returned by the provider status API or stored in SQLite.
+
+The Settings screen lists registered providers, their default model, structured-output capability, and the active default provider.
 
 ## Local data
 
@@ -97,6 +119,7 @@ internal/artifact/     Local filesystem artifact storage
 internal/database/     SQLite bootstrap and migrations
 internal/eventbus/     In-process live event delivery
 internal/jobqueue/     Durable SQLite job queue
+internal/llm/          Provider-neutral gateway and provider adapters
 internal/              Remaining Go application packages
 packages/protocol/     Shared versioned JSON schemas
 docs/                  Product, architecture, and implementation docs
