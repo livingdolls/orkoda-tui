@@ -26,6 +26,7 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/projects"
 	"github.com/livingdolls/orkoda-tui/internal/repositorysummary"
 	"github.com/livingdolls/orkoda-tui/internal/scheduler"
+	"github.com/livingdolls/orkoda-tui/internal/workflowjob"
 )
 
 type componentResult struct {
@@ -199,6 +200,10 @@ func run() error {
 	}
 
 	queue := jobqueue.New(db)
+	workflowJobRepository, err := workflowjob.NewRepository(db, queue, activityRecorder)
+	if err != nil {
+		return err
+	}
 	queueScheduler, err := scheduler.New(
 		queue,
 		scheduler.DefaultConfig(fmt.Sprintf("local-daemon-%d", os.Getpid())),
@@ -227,6 +232,7 @@ func run() error {
 				PlanningContexts:    planningContextRepository,
 				PlanningAgent:       planningAgentService,
 				AgentSettings:       agentSettingsRepository,
+				WorkflowJobs:        workflowJobRepository,
 				LLMProviders:        providerCatalog,
 				LLMPolicy:           llmGateway,
 				DefaultLLMProvider:  defaultProvider,

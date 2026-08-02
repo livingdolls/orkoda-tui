@@ -5,6 +5,7 @@ import { useEffect, useState } from "react"
 
 import { AgentSettingsScreen } from "./agent-settings-screen"
 import { type DaemonConnection, initialDaemonConnection, probeDaemon } from "./daemon"
+import { JobsScreen } from "./jobs-screen"
 import {
   moveScreen,
   type Screen,
@@ -109,6 +110,8 @@ export function App() {
   } else if (activeScreen === "agents") {
     footerHelp =
       "↑↓/jk project • Tab role • e enabled • n network • f filesystem • s save • h/l screen"
+  } else if (activeScreen === "jobs") {
+    footerHelp = "Workflow jobs refresh when the daemon connection changes • h/l screen"
   }
 
   return (
@@ -189,12 +192,7 @@ function ScreenContent({ screen, connection }: { screen: Screen; connection: Dae
   }
 
   if (screen === "jobs") {
-    return (
-      <box flexDirection="column" gap={1}>
-        <text fg="#E2E8F0">No workflow job has been submitted.</text>
-        <text fg="#94A3B8">Durable jobs are stored in the local SQLite database.</text>
-      </box>
-    )
+    return <JobsScreen connection={connection} />
   }
 
   if (screen === "settings") {
