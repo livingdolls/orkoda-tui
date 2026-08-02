@@ -107,7 +107,8 @@ export function App() {
       ? "Project dialog active • use the controls shown in the panel"
       : "n project • p plan • s scan • o normalize • a agent • q answer • ↑↓/jk select • h/l screen"
   } else if (activeScreen === "agents") {
-    footerHelp = "↑↓/jk project • Tab role • e enabled • n network • f filesystem • s save • h/l screen"
+    footerHelp =
+      "↑↓/jk project • Tab role • e enabled • n network • f filesystem • s save • h/l screen"
   }
 
   return (
