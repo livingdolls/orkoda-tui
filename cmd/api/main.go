@@ -145,10 +145,25 @@ func run() error {
 			MaxTotalTokens:  cfg.LLM.MaxTotalTokens,
 		},
 	}
-	llmGateway, err := llm.NewPolicyGateway(
+	policyGateway, err := llm.NewPolicyGateway(
 		providerRegistry,
 		activityRecorder,
 		policy,
+		llm.ConservativeTokenEstimator{},
+	)
+	if err != nil {
+		return err
+	}
+	llmGateway, err := llm.NewSafetyGateway(
+		policyGateway,
+		activityRecorder,
+		llm.SafetyPolicy{
+			RedactionMode:              llm.RedactionMode(cfg.LLM.RedactionMode),
+			MaxRepairAttempts:          cfg.LLM.MaxRepairAttempts,
+			MaxStructuredResponseBytes: cfg.LLM.MaxStructuredResponseBytes,
+		},
+		llm.NewStandardRedactor(),
+		llm.JSONSchemaValidator{},
 		llm.ConservativeTokenEstimator{},
 	)
 	if err != nil {
@@ -162,6 +177,9 @@ func run() error {
 		"max_attempts", policy.MaxAttempts,
 		"fallback_count", len(policy.Fallbacks),
 		"max_total_tokens", policy.Budget.MaxTotalTokens,
+		"redaction_mode", cfg.LLM.RedactionMode,
+		"max_repair_attempts", cfg.LLM.MaxRepairAttempts,
+		"max_structured_response_bytes", cfg.LLM.MaxStructuredResponseBytes,
 	)
 
 	planningAgentService, err := planningagent.NewService(

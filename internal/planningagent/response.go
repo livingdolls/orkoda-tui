@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"strings"
 
 	"github.com/livingdolls/orkoda-tui/internal/llm"
@@ -55,9 +56,19 @@ func validatePlan(plan Plan) error {
 	if strings.TrimSpace(plan.Summary) == "" {
 		return fmt.Errorf("planning response summary is required")
 	}
+	if len(plan.Steps) > 100 {
+		return fmt.Errorf("planning response cannot contain more than 100 steps")
+	}
 	if len(plan.Steps) == 0 && len(nonEmpty(plan.OpenQuestions)) == 0 {
 		return fmt.Errorf("planning response requires steps or open questions")
 	}
+	if err := validateNonEmptyList("open question", plan.OpenQuestions); err != nil {
+		return err
+	}
+	if err := validateNonEmptyList("risk", plan.Risks); err != nil {
+		return err
+	}
+
 	seen := map[string]struct{}{}
 	for index, step := range plan.Steps {
 		stepID := strings.TrimSpace(step.ID)
@@ -74,6 +85,44 @@ func validatePlan(plan Plan) error {
 		if strings.TrimSpace(step.Description) == "" {
 			return fmt.Errorf("planning step %q description is required", stepID)
 		}
+		if len(step.AcceptanceCriteria) == 0 {
+			return fmt.Errorf("planning step %q requires at least one acceptance criterion", stepID)
+		}
+		if err := validateNonEmptyList(fmt.Sprintf("planning step %q acceptance criterion", stepID), step.AcceptanceCriteria); err != nil {
+			return err
+		}
+		for fileIndex, fileName := range step.AffectedFiles {
+			if err := validateAffectedFile(fileName); err != nil {
+				return fmt.Errorf("planning step %q affected file %d: %w", stepID, fileIndex, err)
+			}
+		}
+	}
+	return nil
+}
+
+func validateNonEmptyList(label string, values []string) error {
+	for index, value := range values {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("%s %d cannot be empty", label, index)
+		}
+	}
+	return nil
+}
+
+func validateAffectedFile(value string) error {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
+	if value == "" {
+		return fmt.Errorf("path is required")
+	}
+	if strings.ContainsRune(value, '\x00') {
+		return fmt.Errorf("path contains a null byte")
+	}
+	if strings.HasPrefix(value, "/") {
+		return fmt.Errorf("path must be repository-relative")
+	}
+	cleaned := path.Clean(value)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return fmt.Errorf("path escapes the repository root")
 	}
 	return nil
 }
@@ -86,10 +135,18 @@ func normalizePlan(plan Plan) Plan {
 		plan.Steps[index].ID = strings.TrimSpace(plan.Steps[index].ID)
 		plan.Steps[index].Title = strings.TrimSpace(plan.Steps[index].Title)
 		plan.Steps[index].Description = strings.TrimSpace(plan.Steps[index].Description)
-		plan.Steps[index].AffectedFiles = nonEmpty(plan.Steps[index].AffectedFiles)
+		plan.Steps[index].AffectedFiles = normalizePaths(plan.Steps[index].AffectedFiles)
 		plan.Steps[index].AcceptanceCriteria = nonEmpty(plan.Steps[index].AcceptanceCriteria)
 	}
 	return plan
+}
+
+func normalizePaths(values []string) []string {
+	result := nonEmpty(values)
+	for index := range result {
+		result[index] = path.Clean(strings.ReplaceAll(result[index], "\\", "/"))
+	}
+	return result
 }
 
 func nonEmpty(values []string) []string {

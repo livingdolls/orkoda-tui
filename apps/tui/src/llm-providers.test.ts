@@ -38,7 +38,7 @@ describe("LLM provider API client", () => {
     expect(JSON.stringify(providers)).not.toContain("api_key")
   })
 
-  test("loads the read-only execution policy", async () => {
+  test("loads the read-only execution and safety policy", async () => {
     let requestedURL = ""
     const fetcher: LLMProviderFetch = async (input) => {
       requestedURL = String(input)
@@ -57,6 +57,10 @@ describe("LLM provider API client", () => {
               max_output_tokens: 8000,
               max_total_tokens: 60000,
             },
+            redaction_mode: "strict",
+            structured_validation: true,
+            max_repair_attempts: 1,
+            max_structured_response_bytes: 1048576,
           },
         }),
         { status: 200 },
@@ -68,6 +72,10 @@ describe("LLM provider API client", () => {
     expect(policy.max_attempts).toBe(3)
     expect(policy.fallbacks[0]?.provider).toBe("local-fake")
     expect(policy.budget.max_total_tokens).toBe(60000)
+    expect(policy.redaction_mode).toBe("strict")
+    expect(policy.structured_validation).toBe(true)
+    expect(policy.max_repair_attempts).toBe(1)
+    expect(policy.max_structured_response_bytes).toBe(1048576)
   })
 
   test("surfaces daemon errors", async () => {

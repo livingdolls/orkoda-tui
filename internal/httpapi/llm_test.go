@@ -36,11 +36,15 @@ func TestLLMProviderRoutes(t *testing.T) {
 			Default:          true,
 		}}},
 		policyReaderStub{info: llm.PolicyInfo{
-			AttemptTimeoutMS: 45000,
-			MaxWallClockMS:   120000,
-			MaxAttempts:      3,
-			Fallbacks:        []llm.FallbackTarget{{Provider: "local-fake", Model: "local-fake-planner-v1"}},
-			Budget:           llm.TokenBudget{MaxTotalTokens: 60000},
+			AttemptTimeoutMS:           45000,
+			MaxWallClockMS:             120000,
+			MaxAttempts:                3,
+			Fallbacks:                  []llm.FallbackTarget{{Provider: "local-fake", Model: "local-fake-planner-v1"}},
+			Budget:                     llm.TokenBudget{MaxTotalTokens: 60000},
+			RedactionMode:              "strict",
+			StructuredValidation:       true,
+			MaxRepairAttempts:          1,
+			MaxStructuredResponseBytes: 1 << 20,
 		}},
 	)
 
@@ -73,5 +77,11 @@ func TestLLMProviderRoutes(t *testing.T) {
 	}
 	if len(policyPayload.Data.Fallbacks) != 1 || policyPayload.Data.Fallbacks[0].Provider != "local-fake" {
 		t.Fatalf("unexpected policy fallbacks %#v", policyPayload.Data.Fallbacks)
+	}
+	if policyPayload.Data.RedactionMode != "strict" || !policyPayload.Data.StructuredValidation {
+		t.Fatalf("unexpected safety policy %#v", policyPayload.Data)
+	}
+	if policyPayload.Data.MaxRepairAttempts != 1 || policyPayload.Data.MaxStructuredResponseBytes != 1<<20 {
+		t.Fatalf("unexpected safety limits %#v", policyPayload.Data)
 	}
 }

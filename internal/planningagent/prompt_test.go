@@ -94,7 +94,7 @@ func TestParseResponseValidatesAndNormalizesPlan(t *testing.T) {
 			"id":" step-1 ",
 			"title":" Add loader ",
 			"description":" Read Markdown files ",
-			"affected_files":[" internal/blog/loader.go ", ""],
+			"affected_files":[" internal/blog/loader.go "],
 			"acceptance_criteria":[" Articles load "]
 		}],
 		"open_questions":[],

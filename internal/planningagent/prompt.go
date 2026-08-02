@@ -15,24 +15,42 @@ var ResponseSchema = json.RawMessage(`{
   "additionalProperties": false,
   "required": ["summary", "steps", "open_questions", "risks"],
   "properties": {
-    "summary": {"type": "string", "minLength": 1},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 4000},
     "steps": {
       "type": "array",
+      "maxItems": 100,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["id", "title", "description", "affected_files", "acceptance_criteria"],
         "properties": {
-          "id": {"type": "string", "minLength": 1},
-          "title": {"type": "string", "minLength": 1},
-          "description": {"type": "string", "minLength": 1},
-          "affected_files": {"type": "array", "items": {"type": "string"}},
-          "acceptance_criteria": {"type": "array", "items": {"type": "string"}}
+          "id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "title": {"type": "string", "minLength": 1, "maxLength": 500},
+          "description": {"type": "string", "minLength": 1, "maxLength": 8000},
+          "affected_files": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {"type": "string", "minLength": 1, "maxLength": 1024}
+          },
+          "acceptance_criteria": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {"type": "string", "minLength": 1, "maxLength": 2000}
+          }
         }
       }
     },
-    "open_questions": {"type": "array", "items": {"type": "string"}},
-    "risks": {"type": "array", "items": {"type": "string"}}
+    "open_questions": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {"type": "string", "minLength": 1, "maxLength": 2000}
+    },
+    "risks": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {"type": "string", "minLength": 1, "maxLength": 2000}
+    }
   }
 }`)
 
