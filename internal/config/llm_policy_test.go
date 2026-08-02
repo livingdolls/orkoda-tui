@@ -25,6 +25,9 @@ func clearLLMPolicyEnvironment(t *testing.T) {
 		"ORKODA_LLM_MAX_OUTPUT_TOKENS",
 		"ORKODA_LLM_MAX_TOTAL_TOKENS",
 		"ORKODA_LLM_FALLBACKS_JSON",
+		"ORKODA_LLM_REDACTION_MODE",
+		"ORKODA_LLM_MAX_REPAIR_ATTEMPTS",
+		"ORKODA_LLM_MAX_STRUCTURED_RESPONSE_BYTES",
 	} {
 		t.Setenv(key, "")
 	}
@@ -45,6 +48,9 @@ func TestLoadLLMPolicyDefaults(t *testing.T) {
 	if config.MaxInputTokens != 50000 || config.MaxOutputTokens != 8000 || config.MaxTotalTokens != 60000 {
 		t.Fatalf("unexpected budget defaults: %#v", config)
 	}
+	if config.RedactionMode != "strict" || config.MaxRepairAttempts != 1 || config.MaxStructuredResponseBytes != 1<<20 {
+		t.Fatalf("unexpected safety defaults: %#v", config)
+	}
 }
 
 func TestLoadLLMPolicyOverrides(t *testing.T) {
@@ -63,6 +69,9 @@ func TestLoadLLMPolicyOverrides(t *testing.T) {
 	t.Setenv("ORKODA_LLM_MAX_OUTPUT_TOKENS", "200")
 	t.Setenv("ORKODA_LLM_MAX_TOTAL_TOKENS", "1400")
 	t.Setenv("ORKODA_LLM_FALLBACKS_JSON", `[{"provider":"local-fake","model":"local-fake-planner-v1"}]`)
+	t.Setenv("ORKODA_LLM_REDACTION_MODE", "report")
+	t.Setenv("ORKODA_LLM_MAX_REPAIR_ATTEMPTS", "2")
+	t.Setenv("ORKODA_LLM_MAX_STRUCTURED_RESPONSE_BYTES", "2048")
 	config, err := loadLLMConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -72,6 +81,9 @@ func TestLoadLLMPolicyOverrides(t *testing.T) {
 	}
 	if len(config.Fallbacks) != 1 || config.Fallbacks[0].Provider != "local-fake" {
 		t.Fatalf("unexpected fallback config: %#v", config.Fallbacks)
+	}
+	if config.RedactionMode != "report" || config.MaxRepairAttempts != 2 || config.MaxStructuredResponseBytes != 2048 {
+		t.Fatalf("unexpected safety overrides: %#v", config)
 	}
 }
 
@@ -85,6 +97,9 @@ func TestLoadLLMPolicyRejectsInvalidValues(t *testing.T) {
 		{name: "jitter", key: "ORKODA_LLM_BACKOFF_JITTER", value: "1.1"},
 		{name: "budget", key: "ORKODA_LLM_MAX_TOTAL_TOKENS", value: "-1"},
 		{name: "fallback JSON", key: "ORKODA_LLM_FALLBACKS_JSON", value: "{"},
+		{name: "redaction mode", key: "ORKODA_LLM_REDACTION_MODE", value: "unsafe"},
+		{name: "repair attempts", key: "ORKODA_LLM_MAX_REPAIR_ATTEMPTS", value: "-1"},
+		{name: "response size", key: "ORKODA_LLM_MAX_STRUCTURED_RESPONSE_BYTES", value: "0"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
