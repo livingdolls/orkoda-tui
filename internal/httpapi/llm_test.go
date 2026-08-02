@@ -34,7 +34,7 @@ func TestLLMProviderRoutes(t *testing.T) {
 			Configured:       true,
 			StructuredOutput: true,
 			Default:          true,
-		}},
+		}}},
 		policyReaderStub{info: llm.PolicyInfo{
 			AttemptTimeoutMS: 45000,
 			MaxWallClockMS:   120000,
