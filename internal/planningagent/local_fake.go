@@ -68,7 +68,7 @@ func (p *LocalFakeProvider) Complete(ctx context.Context, request llm.Request) (
 
 func localExecutorResponse(request llm.Request) (llm.Response, error) {
 	content, err := json.Marshal(map[string]any{
-		"type": "finish",
+		"type":    "finish",
 		"summary": "Local fake executor completed the deterministic no-op execution after the workspace foundation was verified.",
 	})
 	if err != nil {

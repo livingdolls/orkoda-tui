@@ -75,11 +75,11 @@ func (r *LLMRunner) Run(ctx context.Context, run RunContext) error {
 			return err
 		}
 		response, err := r.gateway.Complete(ctx, run.Execution.Provider, llm.Request{
-			Model: run.Execution.Model,
-			Messages: messages,
-			ResponseSchema: json.RawMessage(executorActionSchema),
+			Model:           run.Execution.Model,
+			Messages:        messages,
+			ResponseSchema:  json.RawMessage(executorActionSchema),
 			MaxOutputTokens: 4096,
-			Temperature: 0.1,
+			Temperature:     0.1,
 			Metadata: map[string]string{
 				"agent_role": "executor", "execution_id": run.Execution.ID,
 				"executor_iteration": fmt.Sprintf("%d", index+1),
@@ -100,12 +100,12 @@ func (r *LLMRunner) Run(ctx context.Context, run RunContext) error {
 		}
 
 		iteration, err := r.repository.BeginIteration(ctx, run.Execution.ID, IterationInput{
-			Provider: response.Usage.FinalProvider,
-			Model: response.Usage.FinalModel,
-			ActionType: action.Type,
-			Tool: action.Tool,
+			Provider:      response.Usage.FinalProvider,
+			Model:         response.Usage.FinalModel,
+			ActionType:    action.Type,
+			Tool:          action.Tool,
 			ActionSummary: safeActionSummary(action),
-			Usage: response.Usage,
+			Usage:         response.Usage,
 		})
 		if err != nil {
 			return err
