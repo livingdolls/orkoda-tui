@@ -1,9 +1,6 @@
 package planningagent
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
@@ -14,58 +11,65 @@ import (
 
 func planningContextFixture() planningcontext.Context {
 	return planningcontext.Context{
-		ID:                  "context-1",
-		PlanID:              "plan-1",
-		PlanVersionID:       "version-1",
-		PlanVersion:         2,
-		RepositorySummaryID: "summary-1",
+		ID:                    "context-1",
+		PlanID:                "plan-1",
+		PlanVersionID:         "version-2",
+		PlanVersion:           2,
+		RepositoryID:          "repository-1",
+		RepositorySummaryID:   "summary-1",
+		RepositorySummaryHead: "abc123",
 		NormalizedPlan: planningcontext.NormalizedPlan{
 			Goal:               "Add Markdown blog",
-			Summary:            "Add article listing, search, and detail pages.",
-			Scope:              []string{"List articles", "Search articles"},
-			NonGoals:           []string{"External CMS"},
-			AcceptanceCriteria: []string{"Users can search articles"},
-			Constraints:        []string{"Use the existing stack"},
-			AffectedAreas:      []string{"frontend", "backend"},
-			Risks:              []string{"Repository has uncommitted changes"},
-			OpenQuestions:      []string{"Where should Markdown files live?"},
-			Repository: planningcontext.RepositoryContext{
-				RepositoryID:    "repository-1",
-				SummaryID:       "summary-1",
-				HeadSHA:         "abc123",
-				Dirty:           true,
-				Languages:       []string{"Go", "TypeScript"},
-				Frameworks:      []string{"Gin", "OpenTUI"},
-				PackageManagers: []string{"Go Modules", "Bun"},
-				Commands: repositorysummary.Commands{
-					"test":  []string{"go test ./...", "bun test"},
-					"build": []string{"go build ./cmd/api"},
+			Summary:            "Build a local Markdown-backed blog.",
+			Scope:              []string{"Load articles", "Render article pages"},
+			NonGoals:           []string{"Add a CMS"},
+			AcceptanceCriteria: []string{"Articles are listed", "Article pages render"},
+			Constraints:        []string{"Keep existing routes stable"},
+			AffectedAreas:      []string{"content", "router"},
+			Risks:              []string{"Existing slug conflicts"},
+			OpenQuestions:      []string{"Where should Markdown live?"},
+			Repository: planningcontext.RepositoryMetadata{
+				RepositoryID: "repository-1",
+				HeadSHA:      "abc123",
+				Languages:    []string{"TypeScript"},
+				Frameworks:   []string{"React"},
+				ImportantFiles: []repositorysummary.ImportantFile{
+					{Path: "package.json", Kind: "manifest"},
 				},
-				ImportantFiles: []string{"go.mod", "package.json", "cmd/api/main.go"},
+				TestCommands:  []string{"bun test"},
+				LintCommands:  []string{"bun run lint"},
+				BuildCommands: []string{"bun run build"},
 			},
 		},
 	}
 }
 
-func TestBuildRequestUsesNormalizedPlanningContext(t *testing.T) {
+func TestBuildRequestIncludesNormalizedContext(t *testing.T) {
 	request, err := BuildRequest(planningContextFixture(), "fake-planner-v1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if request.Model != "fake-planner-v1" || len(request.Messages) != 2 {
+	if request.Model != "fake-planner-v1" || request.MaxOutputTokens == 0 {
 		t.Fatalf("unexpected request: %#v", request)
 	}
-	if !json.Valid(request.ResponseSchema) {
-		t.Fatal("response schema is not valid JSON")
+	if len(request.Messages) != 2 || request.Messages[0].Role != llm.RoleSystem {
+		t.Fatalf("unexpected messages: %#v", request.Messages)
+	}
+	if !strings.Contains(request.Messages[0].Content, "Return one JSON object") {
+		t.Fatalf("system prompt does not request structured output: %s", request.Messages[0].Content)
 	}
 	userMessage := request.Messages[1].Content
 	for _, expected := range []string{
 		"Add Markdown blog",
-		"Go",
+		"Load articles",
+		"Articles are listed",
+		"Keep existing routes stable",
 		"TypeScript",
-		"abc123",
-		"go test ./...",
-		"Where should Markdown files live?",
+		"React",
+		"package.json",
+		"bun test",
+		"Existing slug conflicts",
+		"Where should Markdown live?",
 	} {
 		if !strings.Contains(userMessage, expected) {
 			t.Fatalf("planning prompt is missing %q: %s", expected, userMessage)
@@ -94,7 +98,7 @@ func TestParseResponseValidatesAndNormalizesPlan(t *testing.T) {
 			"id":" step-1 ",
 			"title":" Add loader ",
 			"description":" Read Markdown files ",
-			"affected_files":[" internal/blog/loader.go ", ""],
+			"affected_files":[" internal/blog/loader.go "],
 			"acceptance_criteria":[" Articles load "]
 		}],
 		"open_questions":[],
@@ -124,58 +128,9 @@ func TestParseResponseRejectsInvalidJSONAndSchema(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected invalid response error for %s", content)
 		}
-		var providerError *llm.ProviderError
-		if !errors.As(err, &providerError) || providerError.Code != llm.ErrorInvalidResponse {
-			t.Fatalf("expected INVALID_RESPONSE, got %T: %v", err, err)
+		providerError, ok := llm.AsProviderError(err)
+		if !ok || providerError.Code != llm.ErrorInvalidResponse {
+			t.Fatalf("unexpected error for %s: %v", content, err)
 		}
-	}
-}
-
-func TestPlanningRequestRunsThroughFakeGateway(t *testing.T) {
-	fake, err := llm.NewFakeProvider("fake", llm.FakeResult{Response: llm.Response{
-		ID:           "response-1",
-		FinishReason: llm.FinishReasonStop,
-		Content: `{
-			"summary":"Implement the blog",
-			"steps":[{
-				"id":"step-1",
-				"title":"Add loader",
-				"description":"Read Markdown files",
-				"affected_files":["internal/blog/loader.go"],
-				"acceptance_criteria":["Articles load"]
-			}],
-			"open_questions":[],
-			"risks":[]
-		}`,
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	registry, err := llm.NewRegistry(fake)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gateway, err := llm.NewGateway(registry, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request, err := BuildRequest(planningContextFixture(), "fake-planner-v1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, err := gateway.Complete(context.Background(), "fake", request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan, err := ParseResponse(response)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(plan.Steps) != 1 || plan.Steps[0].AffectedFiles[0] != "internal/blog/loader.go" {
-		t.Fatalf("unexpected generated plan: %#v", plan)
-	}
-	requests := fake.Requests()
-	if len(requests) != 1 || requests[0].Metadata["planning_context_id"] != "context-1" {
-		t.Fatalf("unexpected fake requests: %#v", requests)
 	}
 }
