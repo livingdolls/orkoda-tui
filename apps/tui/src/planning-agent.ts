@@ -47,6 +47,10 @@ export type PlanningUsage = {
   final_model?: string
   estimated_input_tokens?: number
   estimated_tokens_spent?: number
+  validation_attempts?: number
+  validation_error_count?: number
+  repair_used?: boolean
+  redaction_count?: number
 }
 
 export type PlanningRun = {
