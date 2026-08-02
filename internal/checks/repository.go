@@ -61,6 +61,20 @@ type Step struct {
 	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
+type Store interface {
+	CreateOrGet(context.Context, string, string, string, int) (Run, bool, error)
+	Get(context.Context, string) (Run, error)
+	GetByVersion(context.Context, string, int) (Run, error)
+	ListWorkflow(context.Context, string) ([]Run, error)
+	Start(context.Context, string, []Profile) (Run, error)
+	RecoverInterrupted(context.Context, string) error
+	StartStep(context.Context, string, string) (Step, error)
+	CompleteStep(context.Context, string, Result) error
+	CancelStep(context.Context, string, string) error
+	ListSteps(context.Context, string) ([]Step, error)
+	Finish(context.Context, string) (Run, error)
+}
+
 type Repository struct {
 	db  *sql.DB
 	now func() time.Time
@@ -94,55 +108,55 @@ func (r *Repository) CreateOrGet(
 
 	now := r.now().UTC()
 	item := Run{
-		ID: newID(), WorkflowJobID: workflowID, ExecutionID: executionID,
-		ExecutionVersion: executionVersion, WorkspaceID: workspaceID,
-		Status: StatusPending, CreatedAt: now, UpdatedAt: now,
+		ID:               newID(),
+		WorkflowJobID:    workflowID,
+		ExecutionID:      executionID,
+		ExecutionVersion: executionVersion,
+		WorkspaceID:      workspaceID,
+		Status:           StatusPending,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO check_runs (
 			id, workflow_job_id, execution_id, execution_version,
 			workspace_id, status, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)
-	`, item.ID, workflowID, executionID, executionVersion, workspaceID,
-		now.UnixMilli(), now.UnixMilli())
+	`, item.ID, workflowID, executionID, executionVersion, workspaceID, now.UnixMilli(), now.UnixMilli())
 	if err != nil {
 		if existing, getErr := r.GetByVersion(ctx, workflowID, executionVersion); getErr == nil {
 			return existing, false, nil
 		}
-		return Run{}, false, err
+		return Run{}, false, fmt.Errorf("insert check run: %w", err)
 	}
 	return item, true, nil
 }
 
 func (r *Repository) Get(ctx context.Context, id string) (Run, error) {
-	return scanRun(r.db.QueryRowContext(
-		ctx, `SELECT `+runColumns+` FROM check_runs WHERE id=?`, strings.TrimSpace(id),
-	))
+	return scanRun(r.db.QueryRowContext(ctx, `SELECT `+runColumns+` FROM check_runs WHERE id = ?`, strings.TrimSpace(id)))
 }
 
 func (r *Repository) GetByVersion(ctx context.Context, workflowID string, version int) (Run, error) {
-	return scanRun(r.db.QueryRowContext(
-		ctx,
-		`SELECT `+runColumns+` FROM check_runs WHERE workflow_job_id=? AND execution_version=?`,
-		strings.TrimSpace(workflowID), version,
-	))
+	return scanRun(r.db.QueryRowContext(ctx, `
+		SELECT `+runColumns+` FROM check_runs
+		WHERE workflow_job_id = ? AND execution_version = ?
+	`, strings.TrimSpace(workflowID), version))
 }
 
 func (r *Repository) ListWorkflow(ctx context.Context, workflowID string) ([]Run, error) {
-	rows, err := r.db.QueryContext(
-		ctx,
-		`SELECT `+runColumns+` FROM check_runs WHERE workflow_job_id=? ORDER BY execution_version DESC`,
-		strings.TrimSpace(workflowID),
-	)
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT `+runColumns+` FROM check_runs
+		WHERE workflow_job_id = ? ORDER BY execution_version DESC
+	`, strings.TrimSpace(workflowID))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	items := make([]Run, 0)
 	for rows.Next() {
-		item, err := scanRun(rows)
-		if err != nil {
-			return nil, err
+		item, scanErr := scanRun(rows)
+		if scanErr != nil {
+			return nil, scanErr
 		}
 		items = append(items, item)
 	}
@@ -156,15 +170,22 @@ func (r *Repository) Start(ctx context.Context, id string, profiles []Profile) (
 		return Run{}, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		UPDATE check_runs
-		SET status='RUNNING', total_steps=?, started_at=COALESCE(started_at,?),
-			completed_at=NULL, updated_at=?
-		WHERE id=? AND status IN ('PENDING','RUNNING')
-	`, len(profiles), now.UnixMilli(), now.UnixMilli(), id); err != nil {
+		SET status = 'RUNNING', total_steps = ?, started_at = COALESCE(started_at, ?),
+			completed_at = NULL, updated_at = ?
+		WHERE id = ? AND status IN ('PENDING', 'RUNNING')
+	`, len(profiles), now.UnixMilli(), now.UnixMilli(), strings.TrimSpace(id))
+	if err != nil {
+		return Run{}, err
+	}
+	if err := requireChanged(result); err != nil {
 		return Run{}, err
 	}
 	for index, profile := range profiles {
+		if err := validateProfile(profile); err != nil {
+			return Run{}, err
+		}
 		commandJSON, err := json.Marshal(profile.Command)
 		if err != nil {
 			return Run{}, err
@@ -174,8 +195,7 @@ func (r *Repository) Start(ctx context.Context, id string, profiles []Profile) (
 				id, check_run_id, sequence, profile, command_json,
 				status, created_at, updated_at
 			) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)
-		`, newID(), id, index+1, profile.Name, string(commandJSON),
-			now.UnixMilli(), now.UnixMilli())
+		`, newID(), id, index+1, profile.Name, string(commandJSON), now.UnixMilli(), now.UnixMilli())
 		if err != nil {
 			return Run{}, err
 		}
@@ -186,17 +206,27 @@ func (r *Repository) Start(ctx context.Context, id string, profiles []Profile) (
 	return r.Get(ctx, id)
 }
 
-func (r *Repository) StartStep(ctx context.Context, runID, profile string) (Step, error) {
+func (r *Repository) RecoverInterrupted(ctx context.Context, runID string) error {
+	now := r.now().UTC()
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE check_steps
+		SET status = 'PENDING', exit_code = NULL, duration_ms = 0,
+			output_text = '', output_truncated = 0, error_message = NULL,
+			started_at = NULL, completed_at = NULL, updated_at = ?
+		WHERE check_run_id = ? AND status IN ('RUNNING', 'CANCELLED')
+	`, now.UnixMilli(), strings.TrimSpace(runID))
+	return err
+}
+
+func (r *Repository) StartStep(ctx context.Context, runID string, profile string) (Step, error) {
 	now := r.now().UTC()
 	row := r.db.QueryRowContext(ctx, `
 		UPDATE check_steps
-		SET status='RUNNING', exit_code=NULL, duration_ms=0,
-			output_text='', output_truncated=0, error_message=NULL,
-			started_at=?, completed_at=NULL, updated_at=?
-		WHERE check_run_id=? AND profile=?
-			AND status IN ('PENDING','RUNNING','FAILED','CANCELLED')
+		SET status = 'RUNNING', started_at = ?, completed_at = NULL,
+			error_message = NULL, updated_at = ?
+		WHERE check_run_id = ? AND profile = ? AND status = 'PENDING'
 		RETURNING `+stepColumns,
-		now.UnixMilli(), now.UnixMilli(), runID, profile,
+		now.UnixMilli(), now.UnixMilli(), strings.TrimSpace(runID), strings.TrimSpace(profile),
 	)
 	return scanStep(row)
 }
@@ -208,61 +238,94 @@ func (r *Repository) CompleteStep(ctx context.Context, stepID string, result Res
 		status = StatusFailed
 	}
 	message := bound(result.ErrorMessage, 1024)
-	_, err := r.db.ExecContext(ctx, `
+	update, err := r.db.ExecContext(ctx, `
 		UPDATE check_steps
-		SET status=?, exit_code=?, duration_ms=?, output_text=?,
-			output_truncated=?, error_message=?, completed_at=?, updated_at=?
-		WHERE id=?
-	`, status, result.ExitCode, result.Duration.Milliseconds(),
-		bound(result.Output, result.OutputLimit), boolInt(result.Truncated), nullable(message),
-		now.UnixMilli(), now.UnixMilli(), stepID)
-	return err
+		SET status = ?, exit_code = ?, duration_ms = ?, output_text = ?,
+			output_truncated = ?, error_message = ?, completed_at = ?, updated_at = ?
+		WHERE id = ? AND status = 'RUNNING'
+	`, status, result.ExitCode, result.Duration.Milliseconds(), bound(result.Output, result.OutputLimit),
+		boolInt(result.Truncated), nullable(message), now.UnixMilli(), now.UnixMilli(), strings.TrimSpace(stepID))
+	if err != nil {
+		return err
+	}
+	return requireChanged(update)
+}
+
+func (r *Repository) CancelStep(ctx context.Context, stepID string, message string) error {
+	now := r.now().UTC()
+	update, err := r.db.ExecContext(ctx, `
+		UPDATE check_steps
+		SET status = 'CANCELLED', error_message = ?, completed_at = ?, updated_at = ?
+		WHERE id = ? AND status = 'RUNNING'
+	`, nullable(bound(message, 1024)), now.UnixMilli(), now.UnixMilli(), strings.TrimSpace(stepID))
+	if err != nil {
+		return err
+	}
+	return requireChanged(update)
 }
 
 func (r *Repository) Finish(ctx context.Context, runID string) (Run, error) {
 	now := r.now().UTC()
 	row := r.db.QueryRowContext(ctx, `
 		UPDATE check_runs
-		SET status=CASE
-				WHEN EXISTS(
+		SET status = CASE
+				WHEN EXISTS (
 					SELECT 1 FROM check_steps
-					WHERE check_run_id=? AND status!='PASSED'
+					WHERE check_run_id = ? AND status != 'PASSED'
 				) THEN 'FAILED'
 				ELSE 'PASSED'
 			END,
-			passed_steps=(SELECT COUNT(*) FROM check_steps WHERE check_run_id=? AND status='PASSED'),
-			failed_steps=(SELECT COUNT(*) FROM check_steps WHERE check_run_id=? AND status!='PASSED'),
-			completed_at=?, updated_at=?
-		WHERE id=?
+			passed_steps = (
+				SELECT COUNT(*) FROM check_steps
+				WHERE check_run_id = ? AND status = 'PASSED'
+			),
+			failed_steps = (
+				SELECT COUNT(*) FROM check_steps
+				WHERE check_run_id = ? AND status = 'FAILED'
+			),
+			completed_at = ?, updated_at = ?
+		WHERE id = ? AND status = 'RUNNING'
+			AND NOT EXISTS (
+				SELECT 1 FROM check_steps
+				WHERE check_run_id = ? AND status IN ('PENDING', 'RUNNING', 'CANCELLED')
+			)
 		RETURNING `+runColumns,
-		runID, runID, runID, now.UnixMilli(), now.UnixMilli(), runID,
+		runID, runID, runID, now.UnixMilli(), now.UnixMilli(), runID, runID,
 	)
 	return scanRun(row)
 }
 
 func (r *Repository) ListSteps(ctx context.Context, runID string) ([]Step, error) {
-	rows, err := r.db.QueryContext(
-		ctx,
-		`SELECT `+stepColumns+` FROM check_steps WHERE check_run_id=? ORDER BY sequence`,
-		strings.TrimSpace(runID),
-	)
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT `+stepColumns+` FROM check_steps
+		WHERE check_run_id = ? ORDER BY sequence
+	`, strings.TrimSpace(runID))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	items := make([]Step, 0)
 	for rows.Next() {
-		item, err := scanStep(rows)
-		if err != nil {
-			return nil, err
+		item, scanErr := scanStep(rows)
+		if scanErr != nil {
+			return nil, scanErr
 		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
 }
 
-const runColumns = `id,workflow_job_id,execution_id,execution_version,workspace_id,status,total_steps,passed_steps,failed_steps,started_at,completed_at,created_at,updated_at`
-const stepColumns = `id,check_run_id,sequence,profile,command_json,status,exit_code,duration_ms,output_text,output_truncated,error_message,started_at,completed_at,created_at,updated_at`
+const runColumns = `
+	id, workflow_job_id, execution_id, execution_version, workspace_id,
+	status, total_steps, passed_steps, failed_steps,
+	started_at, completed_at, created_at, updated_at
+`
+
+const stepColumns = `
+	id, check_run_id, sequence, profile, command_json, status,
+	exit_code, duration_ms, output_text, output_truncated, error_message,
+	started_at, completed_at, created_at, updated_at
+`
 
 func scanRun(row interface{ Scan(...any) error }) (Run, error) {
 	var item Run
@@ -327,6 +390,17 @@ func scanStep(row interface{ Scan(...any) error }) (Step, error) {
 		item.CompletedAt = &value
 	}
 	return item, nil
+}
+
+func requireChanged(result sql.Result) error {
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func newID() string {
