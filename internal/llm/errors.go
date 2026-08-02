@@ -9,19 +9,19 @@ import (
 type ErrorCode string
 
 const (
-	ErrorAuthentication          ErrorCode = "AUTHENTICATION"
-	ErrorRateLimited             ErrorCode = "RATE_LIMITED"
-	ErrorTimeout                 ErrorCode = "TIMEOUT"
-	ErrorCancelled               ErrorCode = "CANCELLED"
-	ErrorContextLength           ErrorCode = "CONTEXT_LENGTH"
-	ErrorInvalidRequest          ErrorCode = "INVALID_REQUEST"
-	ErrorInvalidResponse         ErrorCode = "INVALID_RESPONSE"
-	ErrorBudgetExceeded          ErrorCode = "BUDGET_EXCEEDED"
-	ErrorStructuredOutputInvalid ErrorCode = "STRUCTURED_OUTPUT_INVALID"
+	ErrorAuthentication           ErrorCode = "AUTHENTICATION"
+	ErrorRateLimited              ErrorCode = "RATE_LIMITED"
+	ErrorTimeout                  ErrorCode = "TIMEOUT"
+	ErrorCancelled                ErrorCode = "CANCELLED"
+	ErrorContextLength            ErrorCode = "CONTEXT_LENGTH"
+	ErrorInvalidRequest           ErrorCode = "INVALID_REQUEST"
+	ErrorInvalidResponse          ErrorCode = "INVALID_RESPONSE"
+	ErrorBudgetExceeded           ErrorCode = "BUDGET_EXCEEDED"
+	ErrorStructuredOutputInvalid  ErrorCode = "STRUCTURED_OUTPUT_INVALID"
 	ErrorStructuredOutputTooLarge ErrorCode = "STRUCTURED_OUTPUT_TOO_LARGE"
-	ErrorRedactionFailed         ErrorCode = "REDACTION_FAILED"
-	ErrorUnavailable             ErrorCode = "UNAVAILABLE"
-	ErrorUnknown                 ErrorCode = "UNKNOWN"
+	ErrorRedactionFailed          ErrorCode = "REDACTION_FAILED"
+	ErrorUnavailable              ErrorCode = "UNAVAILABLE"
+	ErrorUnknown                  ErrorCode = "UNKNOWN"
 )
 
 var (
