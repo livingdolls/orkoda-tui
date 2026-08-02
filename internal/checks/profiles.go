@@ -3,6 +3,7 @@ package checks
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -24,6 +25,10 @@ type Profile struct {
 	RequireEmptyOutput bool          `json:"require_empty_output"`
 }
 
+type ProfileDetector interface {
+	Detect(string) ([]Profile, error)
+}
+
 type Detector struct {
 	CommandTimeout time.Duration
 	OutputLimit    int
@@ -31,13 +36,21 @@ type Detector struct {
 }
 
 func NewDetector() Detector {
-	return Detector{CommandTimeout: DefaultCommandTimeout, OutputLimit: DefaultOutputLimit, MaxGoFiles: 500}
+	return Detector{
+		CommandTimeout: DefaultCommandTimeout,
+		OutputLimit:    DefaultOutputLimit,
+		MaxGoFiles:     500,
+	}
 }
 
 func (d Detector) Detect(root string) ([]Profile, error) {
 	root = filepath.Clean(strings.TrimSpace(root))
-	if root == "" {
-		return nil, ErrInvalid
+	if root == "" || !filepath.IsAbs(root) {
+		return nil, fmt.Errorf("%w: absolute workspace path is required", ErrInvalid)
+	}
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("%w: workspace path is not a directory", ErrInvalid)
 	}
 	if d.CommandTimeout <= 0 {
 		d.CommandTimeout = DefaultCommandTimeout
@@ -51,14 +64,17 @@ func (d Detector) Detect(root string) ([]Profile, error) {
 
 	profiles := make([]Profile, 0, 8)
 	if regularFile(filepath.Join(root, "go.mod")) {
-		files, err := collectGoFiles(root, d.MaxGoFiles)
-		if err != nil {
-			return nil, err
+		files, collectErr := collectGoFiles(root, d.MaxGoFiles)
+		if collectErr != nil {
+			return nil, collectErr
 		}
 		if len(files) > 0 {
 			profiles = append(profiles, Profile{
-				Name: "go.format", Command: append([]string{"gofmt", "-l"}, files...),
-				Timeout: d.CommandTimeout, OutputLimit: d.OutputLimit, RequireEmptyOutput: true,
+				Name:               "go.format",
+				Command:            append([]string{"gofmt", "-l"}, files...),
+				Timeout:            d.CommandTimeout,
+				OutputLimit:        d.OutputLimit,
+				RequireEmptyOutput: true,
 			})
 		}
 		profiles = append(profiles,
@@ -72,6 +88,11 @@ func (d Detector) Detect(root string) ([]Profile, error) {
 		return nil, err
 	}
 	profiles = append(profiles, bunProfiles...)
+	for _, profile := range profiles {
+		if err := validateProfile(profile); err != nil {
+			return nil, err
+		}
+	}
 	return profiles, nil
 }
 
@@ -82,48 +103,110 @@ func detectBunProfiles(root string, timeout time.Duration, outputLimit int) ([]P
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read package.json: %w", err)
+	}
+	if len(payload) > 1024*1024 {
+		return nil, fmt.Errorf("%w: package.json exceeds 1 MiB", ErrInvalid)
 	}
 	var manifest struct {
 		Scripts map[string]string `json:"scripts"`
 	}
 	if err := json.Unmarshal(payload, &manifest); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode package.json: %w", err)
 	}
 	ordered := []struct {
-		Script  string
-		Profile string
+		Script   string
+		Profile  string
+		Category string
 	}{
-		{"lint:ts", "bun.lint-ts"},
-		{"lint", "bun.lint"},
-		{"typecheck", "bun.typecheck"},
-		{"test:ts", "bun.test-ts"},
-		{"test", "bun.test"},
-		{"build", "bun.build"},
+		{Script: "lint:ts", Profile: "bun.lint-ts", Category: "lint"},
+		{Script: "lint", Profile: "bun.lint", Category: "lint"},
+		{Script: "typecheck", Profile: "bun.typecheck", Category: "typecheck"},
+		{Script: "test:ts", Profile: "bun.test-ts", Category: "test"},
+		{Script: "test", Profile: "bun.test", Category: "test"},
+		{Script: "build", Profile: "bun.build", Category: "build"},
 	}
 	profiles := make([]Profile, 0, len(ordered))
-	seenCategory := map[string]bool{}
+	seenCategory := make(map[string]bool, len(ordered))
 	for _, candidate := range ordered {
-		if strings.TrimSpace(manifest.Scripts[candidate.Script]) == "" {
+		if strings.TrimSpace(manifest.Scripts[candidate.Script]) == "" || seenCategory[candidate.Category] {
 			continue
 		}
-		category := strings.Split(candidate.Profile, ".")[1]
-		if strings.HasPrefix(category, "lint") {
-			category = "lint"
-		}
-		if strings.HasPrefix(category, "test") {
-			category = "test"
-		}
-		if seenCategory[category] {
-			continue
-		}
-		seenCategory[category] = true
+		seenCategory[candidate.Category] = true
 		profiles = append(profiles, Profile{
-			Name: candidate.Profile, Command: []string{"bun", "run", candidate.Script},
-			Timeout: timeout, OutputLimit: outputLimit,
+			Name:        candidate.Profile,
+			Command:     []string{"bun", "run", candidate.Script},
+			Timeout:     timeout,
+			OutputLimit: outputLimit,
 		})
 	}
 	return profiles, nil
+}
+
+func validateProfile(profile Profile) error {
+	if profile.Timeout <= 0 || profile.OutputLimit <= 0 || len(profile.Command) == 0 {
+		return fmt.Errorf("%w: incomplete check profile %q", ErrInvalid, profile.Name)
+	}
+	command := profile.Command
+	switch profile.Name {
+	case "go.format":
+		if len(command) < 3 || command[0] != "gofmt" || command[1] != "-l" || !profile.RequireEmptyOutput {
+			return fmt.Errorf("%w: invalid go.format command", ErrInvalid)
+		}
+		for _, path := range command[2:] {
+			clean := filepath.Clean(filepath.FromSlash(path))
+			if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || !strings.HasSuffix(clean, ".go") {
+				return fmt.Errorf("%w: unsafe go.format path", ErrInvalid)
+			}
+		}
+	case "go.vet":
+		if !equalCommand(command, "go", "vet", "./...") {
+			return fmt.Errorf("%w: invalid go.vet command", ErrInvalid)
+		}
+	case "go.test":
+		if !equalCommand(command, "go", "test", "./...") {
+			return fmt.Errorf("%w: invalid go.test command", ErrInvalid)
+		}
+	case "bun.lint-ts":
+		if !equalCommand(command, "bun", "run", "lint:ts") {
+			return fmt.Errorf("%w: invalid bun.lint-ts command", ErrInvalid)
+		}
+	case "bun.lint":
+		if !equalCommand(command, "bun", "run", "lint") {
+			return fmt.Errorf("%w: invalid bun.lint command", ErrInvalid)
+		}
+	case "bun.typecheck":
+		if !equalCommand(command, "bun", "run", "typecheck") {
+			return fmt.Errorf("%w: invalid bun.typecheck command", ErrInvalid)
+		}
+	case "bun.test-ts":
+		if !equalCommand(command, "bun", "run", "test:ts") {
+			return fmt.Errorf("%w: invalid bun.test-ts command", ErrInvalid)
+		}
+	case "bun.test":
+		if !equalCommand(command, "bun", "run", "test") {
+			return fmt.Errorf("%w: invalid bun.test command", ErrInvalid)
+		}
+	case "bun.build":
+		if !equalCommand(command, "bun", "run", "build") {
+			return fmt.Errorf("%w: invalid bun.build command", ErrInvalid)
+		}
+	default:
+		return fmt.Errorf("%w: unknown check profile %q", ErrInvalid, profile.Name)
+	}
+	return nil
+}
+
+func equalCommand(command []string, expected ...string) bool {
+	if len(command) != len(expected) {
+		return false
+	}
+	for index := range command {
+		if command[index] != expected[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func collectGoFiles(root string, limit int) ([]string, error) {
@@ -155,7 +238,7 @@ func collectGoFiles(root string, limit int) ([]string, error) {
 		return nil
 	})
 	if err != nil && !errors.Is(err, fs.SkipAll) {
-		return nil, err
+		return nil, fmt.Errorf("collect Go files: %w", err)
 	}
 	sort.Strings(files)
 	return files, nil
