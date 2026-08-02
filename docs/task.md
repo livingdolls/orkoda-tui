@@ -48,7 +48,7 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 - [x] Migration planning runs dan open questions.
 - [x] Migration agent configuration dan tool policy.
 - [x] Migration workflow jobs.
-- [ ] Migration workspaces.
+- [x] Migration workspaces.
 - [ ] Migration executions, tool runs, dan checks.
 - [ ] Migration reviews, revisions, dan approvals.
 - [ ] Migration Git publications dan artifact metadata.
@@ -65,9 +65,13 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Buat filesystem picker.
 - [ ] Buat branch selector.
 - [ ] Implementasikan trust level dan ignore policy.
-- [ ] Implementasikan local Git worktree adapter.
-- [ ] Tambahkan SQLite-backed workspace lease.
-- [ ] Tambahkan path guard, patch checkpoint, cleanup, dan recovery.
+- [x] Implementasikan local Git worktree adapter.
+- [x] Tambahkan SQLite-backed workspace preparation lease.
+- [x] Tambahkan managed-root, overlap, symlink, pinned-HEAD, dan dirty-state guard.
+- [x] Tambahkan idempotent workspace preparation dan crash resume.
+- [ ] Tambahkan Executor write lease dan periodic renewal.
+- [ ] Tambahkan patch checkpoint dan checksum.
+- [ ] Tambahkan archive, cleanup, dan orphan-worktree reconciliation.
 
 ## Epic 7 — Planning and LLM Gateway
 
@@ -84,11 +88,13 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 
 - [x] Definisikan job aggregate dan transition table.
 - [x] Hubungkan workflow ke SQLite queue.
-- [ ] Tambahkan handler idempotency.
+- [x] Tambahkan idempotency pada handler `workflow.prepare_workspace`.
+- [ ] Tambahkan idempotency pada Executor, checks, reviewer, dan publication handler.
 - [ ] Implementasikan polling, backoff, cancellation, dan manual retry.
 - [x] Pulihkan stale running job saat daemon startup.
 - [ ] Tambahkan revision, attempt, dan wall-clock guards.
-- [ ] Tambahkan crash-recovery dan duplicate-processing tests.
+- [x] Tambahkan crash-recovery dan duplicate-processing tests untuk workspace preparation.
+- [ ] Tambahkan crash-recovery dan duplicate-processing tests untuk tahap lain.
 
 ## Epic 9 — Tools and Sandbox
 

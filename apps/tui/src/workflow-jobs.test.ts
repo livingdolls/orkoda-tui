@@ -3,11 +3,14 @@ import { describe, expect, test } from "bun:test"
 import {
   createWorkflowJob,
   getWorkflowJob,
+  getWorkflowWorkspace,
+  listProjectWorkspaces,
   listWorkflowJobs,
   listWorkflowTransitions,
   performWorkflowAction,
   type WorkflowFetch,
   type WorkflowJob,
+  type Workspace,
 } from "./workflow-jobs"
 
 function jobFixture(): WorkflowJob {
@@ -35,6 +38,22 @@ function jobFixture(): WorkflowJob {
   }
 }
 
+function workspaceFixture(): Workspace {
+  return {
+    id: "workspace-1",
+    workflow_job_id: "workflow-1",
+    project_id: "project-1",
+    repository_id: "repository-1",
+    path: "/tmp/orkoda/workspaces/workflow-1",
+    base_commit_sha: "abc123",
+    head_sha: "abc123",
+    status: "READY",
+    dirty: false,
+    created_at: "2026-08-02T00:00:00Z",
+    updated_at: "2026-08-02T00:00:01Z",
+  }
+}
+
 describe("workflow jobs API client", () => {
   test("lists project jobs and reads a job", async () => {
     const urls: string[] = []
@@ -50,6 +69,22 @@ describe("workflow jobs API client", () => {
     expect(job.status).toBe("READY")
     expect(urls[0]).toEndWith("/api/v1/projects/project-1/jobs")
     expect(urls[1]).toEndWith("/api/v1/jobs/workflow-1")
+  })
+
+  test("lists project workspaces and reads the workflow workspace", async () => {
+    const urls: string[] = []
+    const fetcher: WorkflowFetch = async (input) => {
+      urls.push(String(input))
+      const data = urls.length === 1 ? [workspaceFixture()] : workspaceFixture()
+      return new Response(JSON.stringify({ data }), { status: 200 })
+    }
+
+    const workspaces = await listProjectWorkspaces("project-1", fetcher)
+    const workspace = await getWorkflowWorkspace("workflow-1", fetcher)
+    expect(workspaces[0]?.status).toBe("READY")
+    expect(workspace.head_sha).toBe("abc123")
+    expect(urls[0]).toEndWith("/api/v1/projects/project-1/workspaces")
+    expect(urls[1]).toEndWith("/api/v1/jobs/workflow-1/workspace")
   })
 
   test("creates a workflow with explicit limits", async () => {

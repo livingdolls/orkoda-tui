@@ -16,6 +16,14 @@ export type WorkflowStatus =
   | "REJECTED"
   | "CANCELLED"
 
+export type WorkspaceStatus =
+  | "REQUESTED"
+  | "PREPARING"
+  | "READY"
+  | "WRITE_LOCKED"
+  | "ARCHIVED"
+  | "FAILED"
+
 export type WorkflowLimits = {
   max_revisions: number
   max_stage_attempts: number
@@ -44,6 +52,23 @@ export type WorkflowJob = {
   created_at: string
   updated_at: string
   completed_at?: string
+}
+
+export type Workspace = {
+  id: string
+  workflow_job_id: string
+  project_id: string
+  repository_id: string
+  path: string
+  base_commit_sha: string
+  head_sha?: string
+  status: WorkspaceStatus
+  dirty: boolean
+  lease_owner?: string
+  lease_expires_at?: string
+  failure_message?: string
+  created_at: string
+  updated_at: string
 }
 
 export type WorkflowTransition = {
@@ -121,6 +146,24 @@ export function getWorkflowJob(
   fetcher: WorkflowFetch = fetch,
 ): Promise<WorkflowJob> {
   return request<WorkflowJob>(`/api/v1/jobs/${jobID}`, { method: "GET" }, fetcher)
+}
+
+export function listProjectWorkspaces(
+  projectID: string,
+  fetcher: WorkflowFetch = fetch,
+): Promise<Workspace[]> {
+  return request<Workspace[]>(
+    `/api/v1/projects/${projectID}/workspaces`,
+    { method: "GET" },
+    fetcher,
+  )
+}
+
+export function getWorkflowWorkspace(
+  jobID: string,
+  fetcher: WorkflowFetch = fetch,
+): Promise<Workspace> {
+  return request<Workspace>(`/api/v1/jobs/${jobID}/workspace`, { method: "GET" }, fetcher)
 }
 
 export function listWorkflowTransitions(

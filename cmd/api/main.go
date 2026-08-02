@@ -27,6 +27,7 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/repositorysummary"
 	"github.com/livingdolls/orkoda-tui/internal/scheduler"
 	"github.com/livingdolls/orkoda-tui/internal/workflowjob"
+	"github.com/livingdolls/orkoda-tui/internal/workspace"
 )
 
 type componentResult struct {
@@ -204,14 +205,41 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	workspaceRoot, err := workspace.PrepareRoot(cfg.WorkspaceDir)
+	if err != nil {
+		return err
+	}
+	workspaceRepository, err := workspace.NewRepository(db, workspaceRoot)
+	if err != nil {
+		return err
+	}
+	workerID := fmt.Sprintf("local-daemon-%d", os.Getpid())
+	prepareWorkspaceHandler, err := workspace.NewPrepareHandler(
+		workflowJobRepository,
+		workspaceRepository,
+		workspace.NewWorktreeManager(),
+		activityRecorder,
+		workerID,
+		cfg.WorkspaceLeaseTTL,
+	)
+	if err != nil {
+		return err
+	}
+	logger.Info(
+		"workspace runtime ready",
+		"root", workspaceRepository.Root(),
+		"lease_ttl", cfg.WorkspaceLeaseTTL,
+	)
+
 	queueScheduler, err := scheduler.New(
 		queue,
-		scheduler.DefaultConfig(fmt.Sprintf("local-daemon-%d", os.Getpid())),
+		scheduler.DefaultConfig(workerID),
 		map[string]scheduler.Handler{
 			"system.noop": func(_ context.Context, job jobqueue.Job) error {
 				logger.Info("noop job handled", "job_id", job.ID)
 				return nil
 			},
+			"workflow.prepare_workspace": prepareWorkspaceHandler.HandleDurable,
 		},
 		activityRecorder,
 		logger,
@@ -233,6 +261,7 @@ func run() error {
 				PlanningAgent:       planningAgentService,
 				AgentSettings:       agentSettingsRepository,
 				WorkflowJobs:        workflowJobRepository,
+				Workspaces:          workspaceRepository,
 				LLMProviders:        providerCatalog,
 				LLMPolicy:           llmGateway,
 				DefaultLLMProvider:  defaultProvider,

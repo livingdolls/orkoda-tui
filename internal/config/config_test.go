@@ -22,6 +22,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.ArtifactDir != ".orkoda/artifacts" {
 		t.Fatalf("ArtifactDir = %q", cfg.ArtifactDir)
 	}
+	if cfg.WorkspaceDir != ".orkoda/workspaces" || cfg.WorkspaceLeaseTTL.String() != "5m0s" {
+		t.Fatalf("unexpected workspace config: dir=%q lease=%s", cfg.WorkspaceDir, cfg.WorkspaceLeaseTTL)
+	}
 	if cfg.LLM.Provider != "local-fake" || cfg.LLM.Timeout.String() != "1m0s" {
 		t.Fatalf("unexpected default LLM config %#v", cfg.LLM)
 	}
@@ -49,6 +52,20 @@ func TestLoadReadsOpenAICompatibleConfig(t *testing.T) {
 	}
 }
 
+func TestLoadReadsWorkspaceConfig(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("ORKODA_WORKSPACE_DIR", "/tmp/orkoda-workspaces")
+	t.Setenv("ORKODA_WORKSPACE_LEASE_TTL", "90s")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.WorkspaceDir != "/tmp/orkoda-workspaces" || cfg.WorkspaceLeaseTTL.String() != "1m30s" {
+		t.Fatalf("unexpected workspace config: dir=%q lease=%s", cfg.WorkspaceDir, cfg.WorkspaceLeaseTTL)
+	}
+}
+
 func TestLoadRejectsIncompleteLLMConfig(t *testing.T) {
 	clearConfigEnvironment(t)
 	t.Setenv("ORKODA_LLM_PROVIDER", "openrouter")
@@ -72,6 +89,14 @@ func TestLoadRejectsInvalidPort(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidWorkspaceLeaseTTL(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("ORKODA_WORKSPACE_LEASE_TTL", "0s")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() expected a workspace lease TTL error")
+	}
+}
+
 func clearConfigEnvironment(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
@@ -83,6 +108,8 @@ func clearConfigEnvironment(t *testing.T) {
 		"ORKODA_DATA_DIR",
 		"ORKODA_DATABASE_PATH",
 		"ORKODA_ARTIFACT_DIR",
+		"ORKODA_WORKSPACE_DIR",
+		"ORKODA_WORKSPACE_LEASE_TTL",
 		"ORKODA_LLM_PROVIDER",
 		"ORKODA_LLM_BASE_URL",
 		"ORKODA_LLM_API_KEY",
