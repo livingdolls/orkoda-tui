@@ -123,12 +123,47 @@ func run() error {
 		defaultModel = cfg.LLM.Model
 	}
 	providerCatalog := llm.NewCatalog(providerRegistry, defaultProvider)
-	logger.Info("LLM providers ready", "default_provider", defaultProvider, "default_model", defaultModel, "provider_count", len(providerCatalog.List()))
 
-	llmGateway, err := llm.NewGateway(providerRegistry, activityRecorder)
+	fallbacks := make([]llm.FallbackTarget, 0, len(cfg.LLM.Fallbacks))
+	for _, fallback := range cfg.LLM.Fallbacks {
+		fallbacks = append(fallbacks, llm.FallbackTarget{
+			Provider: fallback.Provider,
+			Model:    fallback.Model,
+		})
+	}
+	policy := llm.ExecutionPolicy{
+		AttemptTimeout: cfg.LLM.AttemptTimeout,
+		MaxWallClock:   cfg.LLM.MaxWallClock,
+		MaxAttempts:    cfg.LLM.MaxAttempts,
+		InitialBackoff: cfg.LLM.InitialBackoff,
+		MaxBackoff:     cfg.LLM.MaxBackoff,
+		Jitter:         cfg.LLM.BackoffJitter,
+		Fallbacks:      fallbacks,
+		Budget: llm.TokenBudget{
+			MaxInputTokens:  cfg.LLM.MaxInputTokens,
+			MaxOutputTokens: cfg.LLM.MaxOutputTokens,
+			MaxTotalTokens:  cfg.LLM.MaxTotalTokens,
+		},
+	}
+	llmGateway, err := llm.NewPolicyGateway(
+		providerRegistry,
+		activityRecorder,
+		policy,
+		llm.ConservativeTokenEstimator{},
+	)
 	if err != nil {
 		return err
 	}
+	logger.Info(
+		"LLM providers ready",
+		"default_provider", defaultProvider,
+		"default_model", defaultModel,
+		"provider_count", len(providerCatalog.List()),
+		"max_attempts", policy.MaxAttempts,
+		"fallback_count", len(policy.Fallbacks),
+		"max_total_tokens", policy.Budget.MaxTotalTokens,
+	)
+
 	planningAgentService, err := planningagent.NewService(
 		db,
 		planningContextRepository,
@@ -149,7 +184,6 @@ func run() error {
 				logger.Info("noop job handled", "job_id", job.ID)
 				return nil
 			},
-		},
 		activityRecorder,
 		logger,
 	)
@@ -169,6 +203,7 @@ func run() error {
 				PlanningContexts:    planningContextRepository,
 				PlanningAgent:       planningAgentService,
 				LLMProviders:        providerCatalog,
+				LLMPolicy:           llmGateway,
 				DefaultLLMProvider:  defaultProvider,
 				DefaultLLMModel:     defaultModel,
 			},
