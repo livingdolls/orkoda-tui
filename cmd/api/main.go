@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/livingdolls/orkoda-tui/internal/activity"
+	"github.com/livingdolls/orkoda-tui/internal/agentconfig"
 	"github.com/livingdolls/orkoda-tui/internal/config"
 	"github.com/livingdolls/orkoda-tui/internal/database"
 	"github.com/livingdolls/orkoda-tui/internal/eventbus"
@@ -72,6 +73,10 @@ func run() error {
 	}
 
 	projectRepository, err := projects.NewRepository(db, gitrepo.NewInspector())
+	if err != nil {
+		return err
+	}
+	agentSettingsRepository, err := agentconfig.NewRepository(db, activityRecorder)
 	if err != nil {
 		return err
 	}
@@ -221,6 +226,7 @@ func run() error {
 				RepositorySummaries: summaryRepository,
 				PlanningContexts:    planningContextRepository,
 				PlanningAgent:       planningAgentService,
+				AgentSettings:       agentSettingsRepository,
 				LLMProviders:        providerCatalog,
 				LLMPolicy:           llmGateway,
 				DefaultLLMProvider:  defaultProvider,
