@@ -26,6 +26,10 @@ export type LLMPolicyInfo = {
     max_output_tokens: number
     max_total_tokens: number
   }
+  redaction_mode: "strict" | "report" | "off"
+  structured_validation: boolean
+  max_repair_attempts: number
+  max_structured_response_bytes: number
 }
 
 export type LLMProviderFetch = (
