@@ -1,0 +1,56 @@
+name: Executor wiring
+
+on:
+  push:
+    branches: [feat/llm-executor-loop]
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/llm-executor-loop
+      - name: Wire LLM executor
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('cmd/api/main.go')
+          text = path.read_text()
+          old = '''\texecuteHandler, err := execution.NewHandler(
+\t\tworkflowJobRepository,
+\t\tworkspaceRepository,
+\t\tagentSettingsRepository,
+\t\texecutionRepository,
+\t\texecution.ScriptedRunner{},
+'''
+          new = '''\tcontextSelector, err := execution.NewContextSelector(db)
+\tif err != nil {
+\t\treturn err
+\t}
+\texecutorRunner, err := execution.NewLLMRunner(llmGateway, contextSelector, executionRepository)
+\tif err != nil {
+\t\treturn err
+\t}
+\texecuteHandler, err := execution.NewHandler(
+\t\tworkflowJobRepository,
+\t\tworkspaceRepository,
+\t\tagentSettingsRepository,
+\t\texecutionRepository,
+\t\texecutorRunner,
+'''
+          if old not in text:
+              raise SystemExit('executor block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit wiring
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add cmd/api/main.go
+          git commit -m 'feat: wire autonomous LLM executor'
+          git push origin HEAD:feat/llm-executor-loop
