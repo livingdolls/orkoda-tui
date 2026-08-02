@@ -93,12 +93,23 @@ export function SettingsScreen({ connection }: { connection: DaemonConnection })
             {`Token budget: ${formatNumber(policy.budget.max_input_tokens)} input / ${formatNumber(policy.budget.max_output_tokens)} output / ${formatNumber(policy.budget.max_total_tokens)} total`}
           </text>
           <text fg="#94A3B8">{`Fallbacks: ${fallbackLabel}`}</text>
+
+          <text fg="#E2E8F0">LLM safety</text>
+          <text fg={policy.redaction_mode === "strict" ? "#4ADE80" : "#FACC15"}>
+            {`Prompt redaction: ${policy.redaction_mode}`}
+          </text>
+          <text fg="#94A3B8">
+            {`Structured validation: ${policy.structured_validation ? "enabled" : "disabled"} • repair attempts: ${policy.max_repair_attempts}`}
+          </text>
+          <text fg="#94A3B8">
+            {`Maximum structured response: ${formatBytes(policy.max_structured_response_bytes)}`}
+          </text>
         </box>
       ) : null}
 
       {message ? <text fg="#FACC15">{message}</text> : null}
       <text fg="#64748B">
-        Configure provider credentials and execution policy through ORKODA_LLM_* environment
+        Configure provider credentials, execution policy, and safety through ORKODA_LLM_* environment
         variables before starting the daemon.
       </text>
     </box>
@@ -117,4 +128,14 @@ function formatDuration(milliseconds: number): string {
 
 function formatNumber(value: number): string {
   return value === 0 ? "unlimited" : value.toLocaleString("en-US")
+}
+
+function formatBytes(value: number): string {
+  if (value >= 1024 * 1024 && value % (1024 * 1024) === 0) {
+    return `${value / (1024 * 1024)} MiB`
+  }
+  if (value >= 1024 && value % 1024 === 0) {
+    return `${value / 1024} KiB`
+  }
+  return `${value} bytes`
 }
