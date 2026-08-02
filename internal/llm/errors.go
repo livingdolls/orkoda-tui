@@ -16,6 +16,7 @@ const (
 	ErrorContextLength   ErrorCode = "CONTEXT_LENGTH"
 	ErrorInvalidRequest  ErrorCode = "INVALID_REQUEST"
 	ErrorInvalidResponse ErrorCode = "INVALID_RESPONSE"
+	ErrorBudgetExceeded  ErrorCode = "BUDGET_EXCEEDED"
 	ErrorUnavailable     ErrorCode = "UNAVAILABLE"
 	ErrorUnknown         ErrorCode = "UNKNOWN"
 )

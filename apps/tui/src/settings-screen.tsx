@@ -4,10 +4,16 @@ import { useEffect, useState } from "react"
 
 import type { DaemonConnection } from "./daemon"
 import { daemonBaseURL } from "./daemon"
-import { type LLMProviderInfo, listLLMProviders } from "./llm-providers"
+import {
+  getLLMPolicy,
+  type LLMPolicyInfo,
+  type LLMProviderInfo,
+  listLLMProviders,
+} from "./llm-providers"
 
 export function SettingsScreen({ connection }: { connection: DaemonConnection }) {
   const [providers, setProviders] = useState<LLMProviderInfo[]>([])
+  const [policy, setPolicy] = useState<LLMPolicyInfo | null>(null)
   const [message, setMessage] = useState("")
   const [loading, setLoading] = useState(false)
 
@@ -15,6 +21,7 @@ export function SettingsScreen({ connection }: { connection: DaemonConnection })
     let disposed = false
     if (connection.state !== "connected") {
       setProviders([])
+      setPolicy(null)
       setMessage("Start the daemon to inspect configured providers.")
       return () => {
         disposed = true
@@ -23,15 +30,16 @@ export function SettingsScreen({ connection }: { connection: DaemonConnection })
 
     setLoading(true)
     setMessage("")
-    void listLLMProviders()
-      .then((items) => {
+    void Promise.all([listLLMProviders(), getLLMPolicy()])
+      .then(([items, nextPolicy]) => {
         if (!disposed) {
           setProviders(items)
+          setPolicy(nextPolicy)
         }
       })
       .catch((error) => {
         if (!disposed) {
-          setMessage(error instanceof Error ? error.message : "Failed to load LLM providers")
+          setMessage(error instanceof Error ? error.message : "Failed to load LLM configuration")
         }
       })
       .finally(() => {
@@ -45,6 +53,11 @@ export function SettingsScreen({ connection }: { connection: DaemonConnection })
     }
   }, [connection.state])
 
+  const fallbackLabel =
+    policy && policy.fallbacks.length > 0
+      ? policy.fallbacks.map((fallback) => `${fallback.provider}/${fallback.model}`).join(", ")
+      : "none"
+
   return (
     <box flexDirection="column" gap={1}>
       <text fg="#E2E8F0">Local daemon endpoint</text>
@@ -52,7 +65,7 @@ export function SettingsScreen({ connection }: { connection: DaemonConnection })
       <text fg="#94A3B8">Override with ORKODA_DAEMON_URL before running the TUI.</text>
 
       <text fg="#E2E8F0">LLM providers</text>
-      {loading ? <text fg="#FACC15">Loading provider configuration...</text> : null}
+      {loading ? <text fg="#FACC15">Loading LLM configuration...</text> : null}
       {!loading && providers.length === 0 && message === "" ? (
         <text fg="#94A3B8">No provider metadata is available.</text>
       ) : null}
@@ -66,11 +79,42 @@ export function SettingsScreen({ connection }: { connection: DaemonConnection })
           </text>
         </box>
       ))}
+
+      {policy ? (
+        <box flexDirection="column">
+          <text fg="#E2E8F0">LLM execution policy</text>
+          <text fg="#94A3B8">
+            {`Attempts: ${policy.max_attempts} • attempt timeout: ${formatDuration(policy.attempt_timeout_ms)} • wall clock: ${formatDuration(policy.max_wall_clock_ms)}`}
+          </text>
+          <text fg="#94A3B8">
+            {`Backoff: ${formatDuration(policy.initial_backoff_ms)} → ${formatDuration(policy.max_backoff_ms)} • jitter: ${Math.round(policy.jitter * 100)}%`}
+          </text>
+          <text fg="#94A3B8">
+            {`Token budget: ${formatNumber(policy.budget.max_input_tokens)} input / ${formatNumber(policy.budget.max_output_tokens)} output / ${formatNumber(policy.budget.max_total_tokens)} total`}
+          </text>
+          <text fg="#94A3B8">{`Fallbacks: ${fallbackLabel}`}</text>
+        </box>
+      ) : null}
+
       {message ? <text fg="#FACC15">{message}</text> : null}
       <text fg="#64748B">
-        Configure ORKODA_LLM_PROVIDER, ORKODA_LLM_BASE_URL, ORKODA_LLM_MODEL, and ORKODA_LLM_API_KEY
-        before starting the daemon.
+        Configure provider credentials and execution policy through ORKODA_LLM_* environment
+        variables before starting the daemon.
       </text>
     </box>
   )
+}
+
+function formatDuration(milliseconds: number): string {
+  if (milliseconds >= 60000 && milliseconds % 60000 === 0) {
+    return `${milliseconds / 60000}m`
+  }
+  if (milliseconds >= 1000 && milliseconds % 1000 === 0) {
+    return `${milliseconds / 1000}s`
+  }
+  return `${milliseconds}ms`
+}
+
+function formatNumber(value: number): string {
+  return value === 0 ? "unlimited" : value.toLocaleString("en-US")
 }

@@ -14,6 +14,7 @@ The repository currently contains the Phase 1 foundation:
 - Local filesystem artifact storage under `.orkoda/artifacts`.
 - Shared versioned JSON protocol schema.
 - A provider-neutral LLM gateway with local fake and configurable OpenAI-compatible providers.
+- Bounded LLM retries, explicit fallbacks, cancellation, backoff, and token budgets.
 - Formatting, linting, tests, Make targets, and GitHub Actions CI.
 
 Orkoda does not require PostgreSQL, Redis, RabbitMQ, MinIO, or Docker Compose.
@@ -55,6 +56,7 @@ The API exposes:
 GET /health/live
 GET /api/v1/status
 GET /api/v1/llm/providers
+GET /api/v1/llm/policy
 ```
 
 ## LLM providers
@@ -75,7 +77,32 @@ ORKODA_LLM_HEADERS_JSON={"X-Title":"Orkoda"}
 
 `ORKODA_LLM_JSON_MODE` accepts `json_schema`, `json_object`, or `prompt_only`. HTTPS is required except for loopback development endpoints such as `http://127.0.0.1:11434/v1`. Credentials remain in process memory and are never returned by the provider status API or stored in SQLite.
 
-The Settings screen lists registered providers, their default model, structured-output capability, and the active default provider.
+### Resilience and budget policy
+
+One logical LLM request can be bounded independently from the provider HTTP client:
+
+```text
+ORKODA_LLM_ATTEMPT_TIMEOUT=45s
+ORKODA_LLM_MAX_WALL_CLOCK=2m
+ORKODA_LLM_MAX_ATTEMPTS=3
+ORKODA_LLM_BACKOFF_INITIAL=500ms
+ORKODA_LLM_BACKOFF_MAX=8s
+ORKODA_LLM_BACKOFF_JITTER=0.2
+ORKODA_LLM_MAX_INPUT_TOKENS=50000
+ORKODA_LLM_MAX_OUTPUT_TOKENS=8000
+ORKODA_LLM_MAX_TOTAL_TOKENS=60000
+ORKODA_LLM_FALLBACKS_JSON=[]
+```
+
+Only `RATE_LIMITED`, `TIMEOUT`, and `UNAVAILABLE` errors are retried. Authentication, invalid request, context-length, budget, and cancellation errors fail immediately. `Retry-After` takes precedence over local exponential backoff.
+
+Fallbacks are explicit and must reference a provider already registered by the daemon. `local-fake` is never selected silently; it is used as a fallback only when it is listed explicitly, for example:
+
+```text
+ORKODA_LLM_FALLBACKS_JSON=[{"provider":"local-fake","model":"local-fake-planner-v1"}]
+```
+
+The Settings screen lists registered providers and the active execution policy. Planning-run usage persists total tokens, attempt count, final provider/model, fallback status, and conservative token estimates.
 
 ## Local data
 
