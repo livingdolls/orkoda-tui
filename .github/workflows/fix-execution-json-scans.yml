@@ -73,3 +73,5 @@ jobs:
           git add internal/execution/repository.go
           git commit -m 'fix: decode execution repository JSON fields'
           git push origin HEAD:feat/llm-executor-loop
+
+# Triggered after workflow registration.
