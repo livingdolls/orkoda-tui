@@ -150,16 +150,20 @@ func (r *Repository) ListIterations(ctx context.Context, executionID string) ([]
 	for rows.Next() {
 		var item Iteration
 		var tool, errorCode, errorMessage sql.NullString
+		var actionSummary, resultSummary, usage string
 		var completedAt sql.NullInt64
 		var startedAt, createdAt, updatedAt int64
 		if err := rows.Scan(
 			&item.ID, &item.ExecutionID, &item.Sequence, &item.Provider, &item.Model,
-			&item.Status, &item.ActionType, &tool, &item.ActionSummaryJSON,
-			&item.ResultSummaryJSON, &item.UsageJSON, &errorCode, &errorMessage,
+			&item.Status, &item.ActionType, &tool, &actionSummary,
+			&resultSummary, &usage, &errorCode, &errorMessage,
 			&startedAt, &completedAt, &createdAt, &updatedAt,
 		); err != nil {
 			return nil, err
 		}
+		item.ActionSummaryJSON = json.RawMessage(actionSummary)
+		item.ResultSummaryJSON = json.RawMessage(resultSummary)
+		item.UsageJSON = json.RawMessage(usage)
 		item.Tool = tool.String
 		item.ErrorCode = errorCode.String
 		item.ErrorMessage = errorMessage.String
