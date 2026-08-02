@@ -42,9 +42,7 @@ export async function listLLMProviders(
   return requestLLMData<LLMProviderInfo[]>("/api/v1/llm/providers", fetcher)
 }
 
-export async function getLLMPolicy(
-  fetcher: LLMProviderFetch = fetch,
-): Promise<LLMPolicyInfo> {
+export async function getLLMPolicy(fetcher: LLMProviderFetch = fetch): Promise<LLMPolicyInfo> {
   return requestLLMData<LLMPolicyInfo>("/api/v1/llm/policy", fetcher)
 }
 
