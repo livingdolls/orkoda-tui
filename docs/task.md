@@ -76,7 +76,7 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Definisikan provider-neutral request, response, usage, dan error.
 - [x] Implementasikan provider registry, gateway, dan fake provider deterministik.
 - [x] Implementasikan provider adapter nyata pertama.
-- [ ] Tambahkan timeout, cancellation, retry, fallback, dan budget.
+- [x] Tambahkan timeout, cancellation, retry, fallback, dan budget.
 - [ ] Tambahkan structured output validation dan prompt redaction.
 
 ## Epic 8 — Workflow and Scheduler
