@@ -89,7 +89,7 @@ func TestPolicyGatewayFallsBackAfterUnavailable(t *testing.T) {
 	}
 	gateway, err := NewPolicyGateway(registry, nil, ExecutionPolicy{
 		MaxAttempts: 2,
-		Fallbacks: []FallbackTarget{{Provider: "secondary", Model: "secondary-model"}},
+		Fallbacks:   []FallbackTarget{{Provider: "secondary", Model: "secondary-model"}},
 	}, fixedEstimator(10))
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +209,7 @@ func TestPolicyGatewayAggregatesUsageAcrossAttempts(t *testing.T) {
 	provider := &scriptedProvider{name: "primary", rows: []scriptedResult{
 		{
 			response: Response{Usage: Usage{InputTokens: 5, OutputTokens: 1}},
-			err: &ProviderError{Provider: "primary", Code: ErrorUnavailable, Message: "retry", Retryable: true},
+			err:      &ProviderError{Provider: "primary", Code: ErrorUnavailable, Message: "retry", Retryable: true},
 		},
 		{response: Response{Content: "{}", Usage: Usage{InputTokens: 7, OutputTokens: 2}}},
 	}}
