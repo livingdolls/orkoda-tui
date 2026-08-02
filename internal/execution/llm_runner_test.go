@@ -130,7 +130,7 @@ func TestLLMRunnerPersistsToolAndFinishIterations(t *testing.T) {
 	if len(iterations) != 2 || iterations[0].Tool != "git_status" || iterations[1].ActionType != "finish" {
 		t.Fatalf("iterations = %#v", iterations)
 	}
-	toolRuns, err := repository.ListToolRuns(ctx, executionItem.ID)
+	toolRuns, err := repository.ListToolRunsDecoded(ctx, executionItem.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
