@@ -51,6 +51,10 @@ type Usage struct {
 	FinalModel           string `json:"final_model,omitempty"`
 	EstimatedInputTokens int    `json:"estimated_input_tokens,omitempty"`
 	EstimatedTokensSpent int    `json:"estimated_tokens_spent,omitempty"`
+	ValidationAttempts   int    `json:"validation_attempts,omitempty"`
+	ValidationErrorCount int    `json:"validation_error_count,omitempty"`
+	RepairUsed           bool   `json:"repair_used,omitempty"`
+	RedactionCount       int    `json:"redaction_count,omitempty"`
 }
 
 type Response struct {
@@ -108,6 +112,10 @@ func applyExecutionMetadata(usage *Usage, metadata map[string]string) {
 	usage.FallbackUsed, _ = strconv.ParseBool(metadata["fallback_used"])
 	usage.EstimatedInputTokens, _ = strconv.Atoi(metadata["estimated_input_tokens"])
 	usage.EstimatedTokensSpent, _ = strconv.Atoi(metadata["estimated_tokens_spent"])
+	usage.ValidationAttempts, _ = strconv.Atoi(metadata["validation_attempts"])
+	usage.ValidationErrorCount, _ = strconv.Atoi(metadata["validation_error_count"])
+	usage.RepairUsed, _ = strconv.ParseBool(metadata["repair_used"])
+	usage.RedactionCount, _ = strconv.Atoi(metadata["redaction_count"])
 }
 
 func cloneStrings(values map[string]string) map[string]string {
