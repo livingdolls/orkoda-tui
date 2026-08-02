@@ -40,10 +40,16 @@ type Request struct {
 }
 
 type Usage struct {
-	InputTokens       int `json:"input_tokens"`
-	OutputTokens      int `json:"output_tokens"`
-	CachedInputTokens int `json:"cached_input_tokens,omitempty"`
-	TotalTokens       int `json:"total_tokens"`
+	InputTokens          int    `json:"input_tokens"`
+	OutputTokens         int    `json:"output_tokens"`
+	CachedInputTokens    int    `json:"cached_input_tokens,omitempty"`
+	TotalTokens          int    `json:"total_tokens"`
+	AttemptCount         int    `json:"attempt_count,omitempty"`
+	FallbackUsed         bool   `json:"fallback_used,omitempty"`
+	FinalProvider        string `json:"final_provider,omitempty"`
+	FinalModel           string `json:"final_model,omitempty"`
+	EstimatedInputTokens int    `json:"estimated_input_tokens,omitempty"`
+	EstimatedTokensSpent int    `json:"estimated_tokens_spent,omitempty"`
 }
 
 type Response struct {
@@ -55,21 +61,9 @@ type Response struct {
 	Metadata     map[string]string `json:"metadata,omitempty"`
 }
 
-type ProviderInfo struct {
-	Name             string `json:"name"`
-	DefaultModel     string `json:"default_model"`
-	Configured       bool   `json:"configured"`
-	StructuredOutput bool   `json:"structured_output"`
-	Default          bool   `json:"default"`
-}
-
 type Provider interface {
 	Name() string
 	Complete(context.Context, Request) (Response, error)
-}
-
-type ProviderDescriber interface {
-	Info() ProviderInfo
 }
 
 type Gateway interface {
