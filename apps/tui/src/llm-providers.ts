@@ -8,6 +8,26 @@ export type LLMProviderInfo = {
   default: boolean
 }
 
+export type LLMFallbackTarget = {
+  provider: string
+  model: string
+}
+
+export type LLMPolicyInfo = {
+  attempt_timeout_ms: number
+  max_wall_clock_ms: number
+  max_attempts: number
+  initial_backoff_ms: number
+  max_backoff_ms: number
+  jitter: number
+  fallbacks: LLMFallbackTarget[]
+  budget: {
+    max_input_tokens: number
+    max_output_tokens: number
+    max_total_tokens: number
+  }
+}
+
 export type LLMProviderFetch = (
   input: string | URL | Request,
   init?: RequestInit,
@@ -19,10 +39,20 @@ type ErrorResponse = { error?: { message?: string } }
 export async function listLLMProviders(
   fetcher: LLMProviderFetch = fetch,
 ): Promise<LLMProviderInfo[]> {
+  return requestLLMData<LLMProviderInfo[]>("/api/v1/llm/providers", fetcher)
+}
+
+export async function getLLMPolicy(
+  fetcher: LLMProviderFetch = fetch,
+): Promise<LLMPolicyInfo> {
+  return requestLLMData<LLMPolicyInfo>("/api/v1/llm/policy", fetcher)
+}
+
+async function requestLLMData<T>(path: string, fetcher: LLMProviderFetch): Promise<T> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10000)
   try {
-    const response = await fetcher(`${daemonBaseURL}/api/v1/llm/providers`, {
+    const response = await fetcher(`${daemonBaseURL}${path}`, {
       method: "GET",
       headers: { accept: "application/json" },
       signal: controller.signal,
@@ -39,11 +69,11 @@ export async function listLLMProviders(
       }
       throw new Error(message)
     }
-    const payload = (await response.json()) as DataResponse<LLMProviderInfo[]>
-    return payload.data ?? []
+    const payload = (await response.json()) as DataResponse<T>
+    return payload.data
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("LLM provider request timed out")
+      throw new Error("LLM configuration request timed out")
     }
     throw error
   } finally {
