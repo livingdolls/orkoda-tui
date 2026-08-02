@@ -34,14 +34,18 @@ type ExecutionPolicy struct {
 
 // PolicyInfo is the safe, read-only representation exposed through the daemon API.
 type PolicyInfo struct {
-	AttemptTimeoutMS int64            `json:"attempt_timeout_ms"`
-	MaxWallClockMS   int64            `json:"max_wall_clock_ms"`
-	MaxAttempts      int              `json:"max_attempts"`
-	InitialBackoffMS int64            `json:"initial_backoff_ms"`
-	MaxBackoffMS     int64            `json:"max_backoff_ms"`
-	Jitter           float64          `json:"jitter"`
-	Fallbacks        []FallbackTarget `json:"fallbacks"`
-	Budget           TokenBudget      `json:"budget"`
+	AttemptTimeoutMS           int64            `json:"attempt_timeout_ms"`
+	MaxWallClockMS             int64            `json:"max_wall_clock_ms"`
+	MaxAttempts                int              `json:"max_attempts"`
+	InitialBackoffMS           int64            `json:"initial_backoff_ms"`
+	MaxBackoffMS               int64            `json:"max_backoff_ms"`
+	Jitter                     float64          `json:"jitter"`
+	Fallbacks                  []FallbackTarget `json:"fallbacks"`
+	Budget                     TokenBudget      `json:"budget"`
+	RedactionMode              string           `json:"redaction_mode"`
+	StructuredValidation       bool             `json:"structured_validation"`
+	MaxRepairAttempts          int              `json:"max_repair_attempts"`
+	MaxStructuredResponseBytes int              `json:"max_structured_response_bytes"`
 }
 
 // TokenEstimator estimates request size without claiming provider-specific accuracy.
