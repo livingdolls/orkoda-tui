@@ -46,7 +46,7 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 - [x] Migration projects dan repositories.
 - [x] Migration plans dan plan versions.
 - [x] Migration planning runs dan open questions.
-- [ ] Migration agent configuration dan tool policy.
+- [x] Migration agent configuration dan tool policy.
 - [ ] Migration workflow jobs dan workspaces.
 - [ ] Migration executions, tool runs, dan checks.
 - [ ] Migration reviews, revisions, dan approvals.
