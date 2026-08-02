@@ -105,15 +105,15 @@ func (g *GatewayService) Complete(ctx context.Context, providerName string, requ
 	}
 
 	request = cloneRequest(request)
-	request, estimatedInput, err := g.applyBudget(request)
+	request, estimatedInput, budgetErr := g.applyBudget(request)
 	requestID := g.requestID()
-	if err != nil {
+	if budgetErr != nil {
 		payload := eventPayload(providerName, request, 0)
 		payload["request_id"] = requestID
 		payload["estimated_input_tokens"] = estimatedInput
 		payload["error_code"] = ErrorBudgetExceeded
 		g.record(ctx, "llm.budget_rejected", payload)
-		return Response{}, err
+		return Response{}, budgetErr
 	}
 
 	runContext := ctx
@@ -135,63 +135,48 @@ func (g *GatewayService) Complete(ctx context.Context, providerName string, requ
 	targets = append(targets, g.policy.Fallbacks...)
 
 	var aggregate Usage
-	targetIndex := 0
-	fallbackUsed := false
-	estimatedSpent := 0
 	var lastError *ProviderError
+	targetIndex := 0
 	attempts := 0
+	estimatedSpent := 0
+	fallbackUsed := false
 
 	for attempts < g.policy.MaxAttempts {
 		if err := runContext.Err(); err != nil {
-			return Response{}, g.finishFailure(runContext, requestID, providerName, request, startedAt, attempts, fallbackUsed, aggregate, normalizeProviderError(providerName, err))
+			lastError = normalizeProviderError(targets[targetIndex].Provider, err)
+			break
 		}
 		if err := g.checkRemainingBudget(request, estimatedInput, estimatedSpent, aggregate); err != nil {
-			payload := eventPayload(providerName, request, g.elapsed(startedAt))
+			payload := eventPayload(targets[targetIndex].Provider, request, g.elapsed(startedAt))
 			payload["request_id"] = requestID
 			payload["attempt_count"] = attempts
 			payload["total_tokens_so_far"] = aggregate.TotalTokens
 			payload["estimated_tokens_spent"] = estimatedSpent
 			payload["error_code"] = ErrorBudgetExceeded
 			g.record(runContext, "llm.budget_exhausted", payload)
-			return Response{}, g.finishFailure(runContext, requestID, providerName, request, startedAt, attempts, fallbackUsed, aggregate, err)
+			lastError = err
+			break
 		}
 
-		attempts++
 		target := targets[targetIndex]
-		attemptRequest := cloneRequest(request)
-		attemptRequest.Model = target.Model
-		provider, lookupErr := g.registry.Provider(target.Provider)
-		if lookupErr != nil {
+		provider, err := g.registry.Provider(target.Provider)
+		if err != nil {
 			lastError = &ProviderError{
 				Provider: target.Provider,
 				Code:     ErrorUnavailable,
 				Message:  "provider is not registered",
-				Cause:    lookupErr,
+				Cause:    err,
 			}
 			break
 		}
 
-		attemptStarted := g.now()
-		if g.emitAttemptEvents {
-			payload := eventPayload(target.Provider, attemptRequest, 0)
-			payload["request_id"] = requestID
-			payload["attempt"] = attempts
-			payload["fallback"] = targetIndex > 0
-			payload["estimated_input_tokens"] = estimatedInput
-			g.record(runContext, "llm.attempt_started", payload)
-		}
+		attempts++
+		attemptRequest := cloneRequest(request)
+		attemptRequest.Model = target.Model
+		attemptStartedAt := g.now()
+		g.recordAttemptStarted(runContext, requestID, attempts, targetIndex > 0, estimatedInput, target, attemptRequest)
 
-		attemptContext := runContext
-		cancelAttempt := func() {}
-		if g.policy.AttemptTimeout > 0 {
-			attemptContext, cancelAttempt = context.WithTimeout(runContext, g.policy.AttemptTimeout)
-		}
-		response, callErr := provider.Complete(attemptContext, attemptRequest)
-		attemptContextErr := attemptContext.Err()
-		cancelAttempt()
-		if attemptContextErr != nil {
-			callErr = attemptContextErr
-		}
+		response, callErr := g.invoke(runContext, provider, attemptRequest)
 		response = normalizeResponse(attemptRequest, response)
 		if hasUsage(response.Usage) {
 			aggregate = addUsage(aggregate, response.Usage)
@@ -200,75 +185,48 @@ func (g *GatewayService) Complete(ctx context.Context, providerName string, requ
 		}
 
 		if callErr == nil {
-			if budgetErr := g.checkActualBudget(target.Provider, aggregate); budgetErr != nil {
+			if err := g.checkActualBudget(target.Provider, aggregate); err != nil {
 				payload := eventPayload(target.Provider, attemptRequest, g.elapsed(startedAt))
 				payload["request_id"] = requestID
 				payload["attempt_count"] = attempts
 				payload["total_tokens_so_far"] = aggregate.TotalTokens
 				payload["error_code"] = ErrorBudgetExceeded
 				g.record(runContext, "llm.budget_exhausted", payload)
-				return Response{}, g.finishFailure(runContext, requestID, providerName, request, startedAt, attempts, fallbackUsed, aggregate, budgetErr)
+				lastError = err
+				break
 			}
-			if g.emitAttemptEvents {
-				payload := eventPayload(target.Provider, attemptRequest, g.elapsed(attemptStarted))
-				payload["request_id"] = requestID
-				payload["attempt"] = attempts
-				payload["input_tokens"] = response.Usage.InputTokens
-				payload["output_tokens"] = response.Usage.OutputTokens
-				payload["total_tokens"] = response.Usage.TotalTokens
-				g.record(runContext, "llm.attempt_completed", payload)
-			}
+			g.recordAttemptCompleted(runContext, requestID, attempts, target, attemptRequest, response, attemptStartedAt)
 			response.Usage = aggregate
-			response.Metadata = executionMetadata(response.Metadata, providerName, request.Model, target, requestID, attempts, fallbackUsed, estimatedInput, estimatedSpent)
-			payload := eventPayload(target.Provider, attemptRequest, g.elapsed(startedAt))
-			payload["request_id"] = requestID
-			payload["response_id"] = response.ID
-			payload["finish_reason"] = response.FinishReason
-			payload["attempt_count"] = attempts
-			payload["fallback_used"] = fallbackUsed
-			payload["input_tokens"] = aggregate.InputTokens
-			payload["output_tokens"] = aggregate.OutputTokens
-			payload["cached_input_tokens"] = aggregate.CachedInputTokens
-			payload["total_tokens"] = aggregate.TotalTokens
-			g.record(runContext, "llm.request_completed", payload)
+			response.Metadata = executionMetadata(
+				response.Metadata,
+				providerName,
+				request.Model,
+				target,
+				requestID,
+				attempts,
+				fallbackUsed,
+				estimatedInput,
+				estimatedSpent,
+			)
+			g.recordRequestCompleted(runContext, requestID, attempts, fallbackUsed, startedAt, target, attemptRequest, response)
 			return cloneResponse(response), nil
 		}
 
 		lastError = normalizeProviderError(target.Provider, callErr)
-		if g.emitAttemptEvents {
-			payload := eventPayload(target.Provider, attemptRequest, g.elapsed(attemptStarted))
-			payload["request_id"] = requestID
-			payload["attempt"] = attempts
-			payload["error_code"] = lastError.Code
-			payload["retryable"] = lastError.Retryable
-			payload["total_tokens_so_far"] = aggregate.TotalTokens
-			g.record(runContext, "llm.attempt_failed", payload)
-		}
+		g.recordAttemptFailed(runContext, requestID, attempts, target, attemptRequest, aggregate, attemptStartedAt, lastError)
 		if !retryableError(lastError) || attempts >= g.policy.MaxAttempts {
 			break
 		}
 
-		if lastError.Code != ErrorRateLimited && targetIndex+1 < len(targets) {
+		if shouldFallback(lastError) && targetIndex+1 < len(targets) {
+			previous := target
 			targetIndex++
 			fallbackUsed = true
-			selected := targets[targetIndex]
-			payload := eventPayload(selected.Provider, Request{Model: selected.Model, Metadata: request.Metadata}, 0)
-			payload["request_id"] = requestID
-			payload["attempt"] = attempts + 1
-			payload["from_provider"] = target.Provider
-			g.record(runContext, "llm.fallback_selected", payload)
+			g.recordFallbackSelected(runContext, requestID, attempts+1, previous, targets[targetIndex], request.Metadata)
 		}
 
 		delay := g.retryDelay(attempts, lastError.RetryAfter)
-		payload := eventPayload(targets[targetIndex].Provider, Request{Model: targets[targetIndex].Model, Metadata: request.Metadata}, 0)
-		payload["request_id"] = requestID
-		payload["attempt"] = attempts + 1
-		payload["delay_ms"] = delay.Milliseconds()
-		payload["error_code"] = lastError.Code
-		if lastError.RetryAfter > 0 {
-			payload["retry_after_ms"] = lastError.RetryAfter.Milliseconds()
-		}
-		g.record(runContext, "llm.retry_scheduled", payload)
+		g.recordRetryScheduled(runContext, requestID, attempts+1, targets[targetIndex], request.Metadata, delay, lastError)
 		if err := g.sleep(runContext, delay); err != nil {
 			lastError = normalizeProviderError(targets[targetIndex].Provider, err)
 			break
@@ -282,7 +240,36 @@ func (g *GatewayService) Complete(ctx context.Context, providerName string, requ
 			Message:  "provider request failed",
 		}
 	}
-	return Response{}, g.finishFailure(runContext, requestID, providerName, request, startedAt, attempts, fallbackUsed, aggregate, lastError)
+	return Response{}, g.finishFailure(
+		runContext,
+		requestID,
+		providerName,
+		request,
+		startedAt,
+		attempts,
+		fallbackUsed,
+		aggregate,
+		lastError,
+	)
+}
+
+func (g *GatewayService) invoke(
+	ctx context.Context,
+	provider Provider,
+	request Request,
+) (Response, error) {
+	attemptContext := ctx
+	cancel := func() {}
+	if g.policy.AttemptTimeout > 0 {
+		attemptContext, cancel = context.WithTimeout(ctx, g.policy.AttemptTimeout)
+	}
+	defer cancel()
+
+	response, err := provider.Complete(attemptContext, request)
+	if contextErr := attemptContext.Err(); contextErr != nil {
+		return response, contextErr
+	}
+	return response, err
 }
 
 func (g *GatewayService) applyBudget(request Request) (Request, int, *ProviderError) {
@@ -306,7 +293,12 @@ func (g *GatewayService) applyBudget(request Request) (Request, int, *ProviderEr
 	return request, estimated, nil
 }
 
-func (g *GatewayService) checkRemainingBudget(request Request, estimatedInput, estimatedSpent int, usage Usage) *ProviderError {
+func (g *GatewayService) checkRemainingBudget(
+	request Request,
+	estimatedInput int,
+	estimatedSpent int,
+	usage Usage,
+) *ProviderError {
 	budget := g.policy.Budget
 	if budget.MaxTotalTokens == 0 {
 		return nil
@@ -335,7 +327,8 @@ func (g *GatewayService) checkActualBudget(provider string, usage Usage) *Provid
 
 func (g *GatewayService) finishFailure(
 	ctx context.Context,
-	requestID, requestedProvider string,
+	requestID string,
+	requestedProvider string,
 	request Request,
 	startedAt time.Time,
 	attempts int,
@@ -344,7 +337,11 @@ func (g *GatewayService) finishFailure(
 	providerError *ProviderError,
 ) *ProviderError {
 	if providerError == nil {
-		providerError = &ProviderError{Provider: requestedProvider, Code: ErrorUnknown, Message: "provider request failed"}
+		providerError = &ProviderError{
+			Provider: requestedProvider,
+			Code:     ErrorUnknown,
+			Message:  "provider request failed",
+		}
 	}
 	payload := eventPayload(providerError.Provider, request, g.elapsed(startedAt))
 	payload["request_id"] = requestID
@@ -366,11 +363,131 @@ func (g *GatewayService) finishFailure(
 	return providerError
 }
 
+func (g *GatewayService) recordAttemptStarted(
+	ctx context.Context,
+	requestID string,
+	attempt int,
+	fallback bool,
+	estimatedInput int,
+	target FallbackTarget,
+	request Request,
+) {
+	if !g.emitAttemptEvents {
+		return
+	}
+	payload := eventPayload(target.Provider, request, 0)
+	payload["request_id"] = requestID
+	payload["attempt"] = attempt
+	payload["fallback"] = fallback
+	payload["estimated_input_tokens"] = estimatedInput
+	g.record(ctx, "llm.attempt_started", payload)
+}
+
+func (g *GatewayService) recordAttemptCompleted(
+	ctx context.Context,
+	requestID string,
+	attempt int,
+	target FallbackTarget,
+	request Request,
+	response Response,
+	startedAt time.Time,
+) {
+	if !g.emitAttemptEvents {
+		return
+	}
+	payload := eventPayload(target.Provider, request, g.elapsed(startedAt))
+	payload["request_id"] = requestID
+	payload["attempt"] = attempt
+	payload["input_tokens"] = response.Usage.InputTokens
+	payload["output_tokens"] = response.Usage.OutputTokens
+	payload["total_tokens"] = response.Usage.TotalTokens
+	g.record(ctx, "llm.attempt_completed", payload)
+}
+
+func (g *GatewayService) recordAttemptFailed(
+	ctx context.Context,
+	requestID string,
+	attempt int,
+	target FallbackTarget,
+	request Request,
+	usage Usage,
+	startedAt time.Time,
+	providerError *ProviderError,
+) {
+	if !g.emitAttemptEvents {
+		return
+	}
+	payload := eventPayload(target.Provider, request, g.elapsed(startedAt))
+	payload["request_id"] = requestID
+	payload["attempt"] = attempt
+	payload["error_code"] = providerError.Code
+	payload["retryable"] = providerError.Retryable
+	payload["total_tokens_so_far"] = usage.TotalTokens
+	g.record(ctx, "llm.attempt_failed", payload)
+}
+
+func (g *GatewayService) recordFallbackSelected(
+	ctx context.Context,
+	requestID string,
+	attempt int,
+	previous FallbackTarget,
+	selected FallbackTarget,
+	metadata map[string]string,
+) {
+	payload := eventPayload(selected.Provider, Request{Model: selected.Model, Metadata: metadata}, 0)
+	payload["request_id"] = requestID
+	payload["attempt"] = attempt
+	payload["from_provider"] = previous.Provider
+	g.record(ctx, "llm.fallback_selected", payload)
+}
+
+func (g *GatewayService) recordRetryScheduled(
+	ctx context.Context,
+	requestID string,
+	attempt int,
+	target FallbackTarget,
+	metadata map[string]string,
+	delay time.Duration,
+	providerError *ProviderError,
+) {
+	payload := eventPayload(target.Provider, Request{Model: target.Model, Metadata: metadata}, 0)
+	payload["request_id"] = requestID
+	payload["attempt"] = attempt
+	payload["delay_ms"] = delay.Milliseconds()
+	payload["error_code"] = providerError.Code
+	if providerError.RetryAfter > 0 {
+		payload["retry_after_ms"] = providerError.RetryAfter.Milliseconds()
+	}
+	g.record(ctx, "llm.retry_scheduled", payload)
+}
+
+func (g *GatewayService) recordRequestCompleted(
+	ctx context.Context,
+	requestID string,
+	attempts int,
+	fallbackUsed bool,
+	startedAt time.Time,
+	target FallbackTarget,
+	request Request,
+	response Response,
+) {
+	payload := eventPayload(target.Provider, request, g.elapsed(startedAt))
+	payload["request_id"] = requestID
+	payload["response_id"] = response.ID
+	payload["finish_reason"] = response.FinishReason
+	payload["attempt_count"] = attempts
+	payload["fallback_used"] = fallbackUsed
+	payload["input_tokens"] = response.Usage.InputTokens
+	payload["output_tokens"] = response.Usage.OutputTokens
+	payload["cached_input_tokens"] = response.Usage.CachedInputTokens
+	payload["total_tokens"] = response.Usage.TotalTokens
+	g.record(ctx, "llm.request_completed", payload)
+}
+
 func (g *GatewayService) retryDelay(attempt int, retryAfter time.Duration) time.Duration {
 	backoff := g.policy.InitialBackoff
 	if backoff > 0 && attempt > 1 {
-		factor := math.Pow(2, float64(attempt-1))
-		backoff = time.Duration(float64(backoff) * factor)
+		backoff = time.Duration(float64(backoff) * math.Pow(2, float64(attempt-1)))
 	}
 	if g.policy.MaxBackoff > 0 && backoff > g.policy.MaxBackoff {
 		backoff = g.policy.MaxBackoff
@@ -399,12 +516,14 @@ func (g *GatewayService) requestID() string {
 
 func executionMetadata(
 	metadata map[string]string,
-	requestedProvider, requestedModel string,
+	requestedProvider string,
+	requestedModel string,
 	finalTarget FallbackTarget,
 	requestID string,
 	attempts int,
 	fallbackUsed bool,
-	estimatedInput, estimatedSpent int,
+	estimatedInput int,
+	estimatedSpent int,
 ) map[string]string {
 	result := cloneStrings(metadata)
 	if result == nil {
@@ -434,11 +553,21 @@ func retryableError(providerError *ProviderError) bool {
 	}
 }
 
-func hasUsage(usage Usage) bool {
-	return usage.InputTokens != 0 || usage.OutputTokens != 0 || usage.CachedInputTokens != 0 || usage.TotalTokens != 0
+func shouldFallback(providerError *ProviderError) bool {
+	if providerError == nil {
+		return false
+	}
+	return providerError.Code == ErrorTimeout || providerError.Code == ErrorUnavailable
 }
 
-func addUsage(left, right Usage) Usage {
+func hasUsage(usage Usage) bool {
+	return usage.InputTokens != 0 ||
+		usage.OutputTokens != 0 ||
+		usage.CachedInputTokens != 0 ||
+		usage.TotalTokens != 0
+}
+
+func addUsage(left Usage, right Usage) Usage {
 	return normalizeUsage(Usage{
 		InputTokens:       left.InputTokens + right.InputTokens,
 		OutputTokens:      left.OutputTokens + right.OutputTokens,
@@ -450,7 +579,7 @@ func budgetError(message string) *ProviderError {
 	return budgetErrorFor("LLM", message)
 }
 
-func budgetErrorFor(provider, message string) *ProviderError {
+func budgetErrorFor(provider string, message string) *ProviderError {
 	return &ProviderError{
 		Provider: provider,
 		Code:     ErrorBudgetExceeded,
@@ -529,14 +658,17 @@ func eventPayload(provider string, request Request, duration time.Duration) map[
 		"planning_context_id",
 		"repository_summary_id",
 	} {
-		if value := strings.TrimSpace(request.Metadata[key]); value != "" {
-			if key == "plan_version" {
-				if number, err := strconv.Atoi(value); err == nil {
-					payload[key] = number
-					continue
-				}
-			payload[key] = value
+		value := strings.TrimSpace(request.Metadata[key])
+		if value == "" {
+			continue
 		}
+		if key == "plan_version" {
+			if number, err := strconv.Atoi(value); err == nil {
+				payload[key] = number
+				continue
+			}
+		}
+		payload[key] = value
 	}
 	return payload
 }
