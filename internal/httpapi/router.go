@@ -28,6 +28,7 @@ type RouterServices struct {
 	WorkflowJobs        WorkflowJobRegistry
 	Workspaces          WorkspaceRegistry
 	Executions          ExecutionRegistry
+	Checks              CheckRegistry
 	LLMProviders        LLMProviderCatalog
 	LLMPolicy           LLMPolicyReader
 	DefaultLLMProvider  string
@@ -115,6 +116,7 @@ func NewRouterWithServices(
 	registerWorkflowJobRoutes(api, services.WorkflowJobs)
 	registerWorkspaceRoutes(api, services.Workspaces)
 	registerExecutionRoutes(api, services.Executions)
+	registerCheckRoutes(api, services.Checks)
 	registerLLMRoutes(api, services.LLMProviders, services.LLMPolicy)
 
 	return router
