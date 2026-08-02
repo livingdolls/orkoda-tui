@@ -47,7 +47,8 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 - [x] Migration plans dan plan versions.
 - [x] Migration planning runs dan open questions.
 - [x] Migration agent configuration dan tool policy.
-- [ ] Migration workflow jobs dan workspaces.
+- [x] Migration workflow jobs.
+- [ ] Migration workspaces.
 - [ ] Migration executions, tool runs, dan checks.
 - [ ] Migration reviews, revisions, dan approvals.
 - [ ] Migration Git publications dan artifact metadata.
@@ -81,8 +82,8 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 
 ## Epic 8 — Workflow and Scheduler
 
-- [ ] Definisikan job aggregate dan transition table.
-- [ ] Hubungkan workflow ke SQLite queue.
+- [x] Definisikan job aggregate dan transition table.
+- [x] Hubungkan workflow ke SQLite queue.
 - [ ] Tambahkan handler idempotency.
 - [ ] Implementasikan polling, backoff, cancellation, dan manual retry.
 - [x] Pulihkan stale running job saat daemon startup.

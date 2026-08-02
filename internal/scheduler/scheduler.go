@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
@@ -16,6 +17,10 @@ type Queue interface {
 	Complete(context.Context, string, time.Time) error
 	Fail(context.Context, string, string, time.Time, time.Time) (string, error)
 	RecoverStale(context.Context, time.Time, time.Time) ([]string, error)
+}
+
+type typedQueue interface {
+	ClaimTypes(context.Context, string, time.Time, []string) (*jobqueue.Job, error)
 }
 
 type ActivityRecorder interface {
@@ -33,12 +38,13 @@ type Config struct {
 }
 
 type Scheduler struct {
-	queue      Queue
-	config     Config
-	handlers   map[string]Handler
-	activities ActivityRecorder
-	logger     *slog.Logger
-	now        func() time.Time
+	queue        Queue
+	config       Config
+	handlers     map[string]Handler
+	handlerTypes []string
+	activities   ActivityRecorder
+	logger       *slog.Logger
+	now          func() time.Time
 }
 
 func New(
@@ -74,19 +80,23 @@ func New(
 	}
 
 	registered := make(map[string]Handler, len(handlers))
+	handlerTypes := make([]string, 0, len(handlers))
 	for jobType, handler := range handlers {
 		if jobType != "" && handler != nil {
 			registered[jobType] = handler
+			handlerTypes = append(handlerTypes, jobType)
 		}
 	}
+	sort.Strings(handlerTypes)
 
 	return &Scheduler{
-		queue:      queue,
-		config:     config,
-		handlers:   registered,
-		activities: activities,
-		logger:     logger,
-		now:        time.Now,
+		queue:        queue,
+		config:       config,
+		handlers:     registered,
+		handlerTypes: handlerTypes,
+		activities:   activities,
+		logger:       logger,
+		now:          time.Now,
 	}, nil
 }
 
@@ -118,7 +128,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		}
 
 		now = s.now().UTC()
-		job, err := s.queue.Claim(ctx, s.config.WorkerID, now)
+		job, err := s.claim(ctx, now)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -145,6 +155,13 @@ func (s *Scheduler) Run(ctx context.Context) error {
 			return err
 		}
 	}
+}
+
+func (s *Scheduler) claim(ctx context.Context, now time.Time) (*jobqueue.Job, error) {
+	if queue, ok := s.queue.(typedQueue); ok {
+		return queue.ClaimTypes(ctx, s.config.WorkerID, now, s.handlerTypes)
+	}
+	return s.queue.Claim(ctx, s.config.WorkerID, now)
 }
 
 func (s *Scheduler) process(ctx context.Context, job jobqueue.Job) error {

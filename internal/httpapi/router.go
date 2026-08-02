@@ -25,6 +25,7 @@ type RouterServices struct {
 	PlanningContexts    PlanningContextRegistry
 	PlanningAgent       PlanningAgentRegistry
 	AgentSettings       AgentSettingsRegistry
+	WorkflowJobs        WorkflowJobRegistry
 	LLMProviders        LLMProviderCatalog
 	LLMPolicy           LLMPolicyReader
 	DefaultLLMProvider  string
@@ -109,6 +110,7 @@ func NewRouterWithServices(
 	registerPlanRoutes(api, services.Plans)
 	registerPlanningRoutes(api, services.RepositorySummaries, services.PlanningContexts)
 	registerPlanningAgentRoutes(api, services.PlanningAgent, services.DefaultLLMProvider, services.DefaultLLMModel)
+	registerWorkflowJobRoutes(api, services.WorkflowJobs)
 	registerLLMRoutes(api, services.LLMProviders, services.LLMPolicy)
 
 	return router
