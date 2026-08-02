@@ -42,19 +42,19 @@ const (
 )
 
 const (
-	ToolFileRead    = "file_read"
-	ToolFileSearch  = "file_search"
-	ToolFilePatch   = "file_patch"
-	ToolFileCreate  = "file_create"
-	ToolFileDelete  = "file_delete"
-	ToolGitStatus   = "git_status"
-	ToolGitDiff     = "git_diff"
-	ToolCommandRun  = "command_run"
+	ToolFileRead   = "file_read"
+	ToolFileSearch = "file_search"
+	ToolFilePatch  = "file_patch"
+	ToolFileCreate = "file_create"
+	ToolFileDelete = "file_delete"
+	ToolGitStatus  = "git_status"
+	ToolGitDiff    = "git_diff"
+	ToolCommandRun = "command_run"
 	maxInstruction = 8000
 )
 
 var (
-	roles = []Role{RolePlanner, RoleExecutor, RoleReviewer}
+	roles      = []Role{RolePlanner, RoleExecutor, RoleReviewer}
 	knownTools = map[string]struct{}{
 		ToolFileRead: {}, ToolFileSearch: {}, ToolFilePatch: {}, ToolFileCreate: {},
 		ToolFileDelete: {}, ToolGitStatus: {}, ToolGitDiff: {}, ToolCommandRun: {},
@@ -80,15 +80,15 @@ type AgentConfig struct {
 }
 
 type ToolPolicy struct {
-	Role                    Role             `json:"role"`
-	AllowedTools            []string         `json:"allowed_tools"`
-	AllowedCommandProfiles  []string         `json:"allowed_command_profiles"`
-	NetworkAccess           NetworkAccess    `json:"network_access"`
-	FilesystemAccess        FilesystemAccess `json:"filesystem_access"`
-	CommandTimeoutMS        int              `json:"command_timeout_ms"`
-	MaxCommandOutputBytes   int              `json:"max_command_output_bytes"`
-	MaxFileBytes            int              `json:"max_file_bytes"`
-	MaxPatchBytes           int              `json:"max_patch_bytes"`
+	Role                   Role             `json:"role"`
+	AllowedTools           []string         `json:"allowed_tools"`
+	AllowedCommandProfiles []string         `json:"allowed_command_profiles"`
+	NetworkAccess          NetworkAccess    `json:"network_access"`
+	FilesystemAccess       FilesystemAccess `json:"filesystem_access"`
+	CommandTimeoutMS       int              `json:"command_timeout_ms"`
+	MaxCommandOutputBytes  int              `json:"max_command_output_bytes"`
+	MaxFileBytes           int              `json:"max_file_bytes"`
+	MaxPatchBytes          int              `json:"max_patch_bytes"`
 }
 
 type Settings struct {
@@ -101,7 +101,7 @@ type Settings struct {
 }
 
 type UpdateInput struct {
-	ExpectedVersion int          `json:"expected_version"`
+	ExpectedVersion int           `json:"expected_version"`
 	Agents          []AgentConfig `json:"agents"`
 	ToolPolicies    []ToolPolicy  `json:"tool_policies"`
 }
@@ -372,8 +372,8 @@ func defaultPolicies() []ToolPolicy {
 			CommandTimeoutMS: 30000, MaxCommandOutputBytes: 262144, MaxFileBytes: 1048576, MaxPatchBytes: 1048576,
 		},
 		{
-			Role: RoleExecutor,
-			AllowedTools: []string{ToolFileRead, ToolFileSearch, ToolFilePatch, ToolFileCreate, ToolFileDelete, ToolGitStatus, ToolGitDiff},
+			Role:                   RoleExecutor,
+			AllowedTools:           []string{ToolFileRead, ToolFileSearch, ToolFilePatch, ToolFileCreate, ToolFileDelete, ToolGitStatus, ToolGitDiff},
 			AllowedCommandProfiles: []string{}, NetworkAccess: NetworkDisabled,
 			FilesystemAccess: FilesystemWorkspaceWrite, CommandTimeoutMS: 120000,
 			MaxCommandOutputBytes: 1048576, MaxFileBytes: 2097152, MaxPatchBytes: 4194304,
