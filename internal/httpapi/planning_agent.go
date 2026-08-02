@@ -137,7 +137,13 @@ func writePlanningAgentError(c *gin.Context, err error) {
 				status = http.StatusTooManyRequests
 			case llm.ErrorCancelled, llm.ErrorTimeout:
 				status = http.StatusRequestTimeout
-			case llm.ErrorInvalidRequest, llm.ErrorInvalidResponse, llm.ErrorContextLength, llm.ErrorBudgetExceeded:
+			case llm.ErrorInvalidRequest,
+				llm.ErrorInvalidResponse,
+				llm.ErrorContextLength,
+				llm.ErrorBudgetExceeded,
+				llm.ErrorStructuredOutputInvalid,
+				llm.ErrorStructuredOutputTooLarge,
+				llm.ErrorRedactionFailed:
 				status = http.StatusUnprocessableEntity
 			}
 			writeError(c, status, providerError.Message)
