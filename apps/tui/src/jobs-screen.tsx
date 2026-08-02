@@ -4,11 +4,18 @@ import { useEffect, useState } from "react"
 
 import type { DaemonConnection } from "./daemon"
 import { listProjects } from "./projects"
-import { listWorkflowJobs, type WorkflowJob, type WorkflowStatus } from "./workflow-jobs"
+import {
+  listProjectWorkspaces,
+  listWorkflowJobs,
+  type WorkflowJob,
+  type WorkflowStatus,
+  type Workspace,
+} from "./workflow-jobs"
 
 type JobEntry = {
   projectName: string
   job: WorkflowJob
+  workspace?: Workspace
 }
 
 export function JobsScreen({ connection }: { connection: DaemonConnection }) {
@@ -30,13 +37,23 @@ export function JobsScreen({ connection }: { connection: DaemonConnection }) {
     void listProjects()
       .then(async (projects) => {
         const grouped = await Promise.all(
-          projects.map(async (project) => ({
-            project,
-            jobs: await listWorkflowJobs(project.id),
-          })),
+          projects.map(async (project) => {
+            const [jobs, workspaces] = await Promise.all([
+              listWorkflowJobs(project.id),
+              listProjectWorkspaces(project.id),
+            ])
+            const workspaceByJob = new Map(
+              workspaces.map((workspace) => [workspace.workflow_job_id, workspace]),
+            )
+            return jobs.map((job) => ({
+              projectName: project.name,
+              job,
+              workspace: workspaceByJob.get(job.id),
+            }))
+          }),
         )
         return grouped
-          .flatMap(({ project, jobs }) => jobs.map((job) => ({ projectName: project.name, job })))
+          .flat()
           .sort(
             (left, right) =>
               new Date(right.job.updated_at).getTime() - new Date(left.job.updated_at).getTime(),
@@ -66,11 +83,11 @@ export function JobsScreen({ connection }: { connection: DaemonConnection }) {
     <box flexDirection="column" gap={1}>
       <text fg="#E2E8F0">Versioned workflow jobs</text>
       <text fg="#64748B">
-        Business state is persisted separately from the durable dispatch queue.
+        Business state is persisted separately from durable dispatch and isolated workspaces.
       </text>
       {state === "loading" ? <text fg="#FACC15">Loading workflow jobs...</text> : null}
       {message ? <text fg={state === "error" ? "#F87171" : "#94A3B8"}>{message}</text> : null}
-      {entries.slice(0, 20).map(({ projectName, job }) => (
+      {entries.slice(0, 20).map(({ projectName, job, workspace }) => (
         <box
           key={job.id}
           flexDirection="column"
@@ -90,9 +107,27 @@ export function JobsScreen({ connection }: { connection: DaemonConnection }) {
           </text>
           <text fg="#64748B">
             {job.current_dispatch_id
-              ? `Dispatch ${job.current_dispatch_id.slice(0, 12)} is durable and awaiting a registered handler.`
+              ? `Dispatch ${job.current_dispatch_id.slice(0, 12)} is durable.`
               : "No pending dispatch."}
           </text>
+          {workspace ? (
+            <box flexDirection="column">
+              <text fg={workspace.status === "FAILED" ? "#F87171" : "#7DD3FC"}>
+                {`Workspace ${workspace.status} • ${workspace.head_sha?.slice(0, 12) ?? "no HEAD"}${workspace.dirty ? " • dirty" : ""}`}
+              </text>
+              <text fg="#64748B">{workspace.path}</text>
+              {workspace.lease_owner ? (
+                <text fg="#FACC15">
+                  {`Lease ${workspace.lease_owner} until ${workspace.lease_expires_at ?? "unknown"}`}
+                </text>
+              ) : null}
+              {workspace.failure_message ? (
+                <text fg="#F87171">{workspace.failure_message}</text>
+              ) : null}
+            </box>
+          ) : (
+            <text fg="#64748B">Workspace has not been requested.</text>
+          )}
           {job.failure_message ? <text fg="#F87171">{job.failure_message}</text> : null}
         </box>
       ))}

@@ -8,27 +8,31 @@ import (
 )
 
 const (
-	defaultAPIHost         = "127.0.0.1"
-	defaultAPIPort         = 8181
-	defaultEnvironment     = "development"
-	defaultLogLevel        = "info"
-	defaultShutdownTimeout = 10 * time.Second
-	defaultDataDir         = ".orkoda"
-	defaultDatabasePath    = ".orkoda/orkoda.db"
-	defaultArtifactDir     = ".orkoda/artifacts"
+	defaultAPIHost           = "127.0.0.1"
+	defaultAPIPort           = 8181
+	defaultEnvironment       = "development"
+	defaultLogLevel          = "info"
+	defaultShutdownTimeout   = 10 * time.Second
+	defaultDataDir           = ".orkoda"
+	defaultDatabasePath      = ".orkoda/orkoda.db"
+	defaultArtifactDir       = ".orkoda/artifacts"
+	defaultWorkspaceDir      = ".orkoda/workspaces"
+	defaultWorkspaceLeaseTTL = 5 * time.Minute
 )
 
 // Config contains process-level settings for the local daemon.
 type Config struct {
-	Environment     string
-	LogLevel        string
-	APIHost         string
-	APIPort         int
-	ShutdownTimeout time.Duration
-	DataDir         string
-	DatabasePath    string
-	ArtifactDir     string
-	LLM             LLMConfig
+	Environment       string
+	LogLevel          string
+	APIHost           string
+	APIPort           int
+	ShutdownTimeout   time.Duration
+	DataDir           string
+	DatabasePath      string
+	ArtifactDir       string
+	WorkspaceDir      string
+	WorkspaceLeaseTTL time.Duration
+	LLM               LLMConfig
 }
 
 // Load reads environment variables and applies safe local-development defaults.
@@ -42,21 +46,27 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	workspaceLeaseTTL, err := durationFromEnv("ORKODA_WORKSPACE_LEASE_TTL", defaultWorkspaceLeaseTTL)
+	if err != nil {
+		return Config{}, err
+	}
 	llmConfig, err := loadLLMConfig()
 	if err != nil {
 		return Config{}, err
 	}
 
 	return Config{
-		Environment:     stringFromEnv("ORKODA_ENV", defaultEnvironment),
-		LogLevel:        stringFromEnv("ORKODA_LOG_LEVEL", defaultLogLevel),
-		APIHost:         stringFromEnv("ORKODA_API_HOST", defaultAPIHost),
-		APIPort:         port,
-		ShutdownTimeout: shutdownTimeout,
-		DataDir:         stringFromEnv("ORKODA_DATA_DIR", defaultDataDir),
-		DatabasePath:    stringFromEnv("ORKODA_DATABASE_PATH", defaultDatabasePath),
-		ArtifactDir:     stringFromEnv("ORKODA_ARTIFACT_DIR", defaultArtifactDir),
-		LLM:             llmConfig,
+		Environment:       stringFromEnv("ORKODA_ENV", defaultEnvironment),
+		LogLevel:          stringFromEnv("ORKODA_LOG_LEVEL", defaultLogLevel),
+		APIHost:           stringFromEnv("ORKODA_API_HOST", defaultAPIHost),
+		APIPort:           port,
+		ShutdownTimeout:   shutdownTimeout,
+		DataDir:           stringFromEnv("ORKODA_DATA_DIR", defaultDataDir),
+		DatabasePath:      stringFromEnv("ORKODA_DATABASE_PATH", defaultDatabasePath),
+		ArtifactDir:       stringFromEnv("ORKODA_ARTIFACT_DIR", defaultArtifactDir),
+		WorkspaceDir:      stringFromEnv("ORKODA_WORKSPACE_DIR", defaultWorkspaceDir),
+		WorkspaceLeaseTTL: workspaceLeaseTTL,
+		LLM:               llmConfig,
 	}, nil
 }
 
