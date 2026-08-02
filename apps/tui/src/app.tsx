@@ -3,6 +3,7 @@
 import { useKeyboard } from "@opentui/react"
 import { useEffect, useState } from "react"
 
+import { AgentSettingsScreen } from "./agent-settings-screen"
 import { type DaemonConnection, initialDaemonConnection, probeDaemon } from "./daemon"
 import {
   moveScreen,
@@ -31,6 +32,22 @@ export function App() {
         return
       }
 
+      const shortcut = screenFromShortcut(key.name)
+      if (shortcut) {
+        setActiveScreen(shortcut)
+        return
+      }
+      if (key.name === "right" || key.name === "l") {
+        setActiveScreen((current) => moveScreen(current, 1))
+        return
+      }
+      if (key.name === "left" || key.name === "h") {
+        setActiveScreen((current) => moveScreen(current, -1))
+      }
+      return
+    }
+
+    if (activeScreen === "agents") {
       const shortcut = screenFromShortcut(key.name)
       if (shortcut) {
         setActiveScreen(shortcut)
@@ -84,11 +101,13 @@ export function App() {
     }
   }, [])
 
-  let footerHelp = "↑↓/hjkl navigate • 1-4 jump • r reconnect • Ctrl+C quit"
+  let footerHelp = "↑↓/hjkl navigate • 1-5 jump • r reconnect • Ctrl+C quit"
   if (activeScreen === "projects") {
     footerHelp = projectInteractionActive
       ? "Project dialog active • use the controls shown in the panel"
       : "n project • p plan • s scan • o normalize • a agent • q answer • ↑↓/jk select • h/l screen"
+  } else if (activeScreen === "agents") {
+    footerHelp = "↑↓/jk project • Tab role • e enabled • n network • f filesystem • s save • h/l screen"
   }
 
   return (
@@ -164,6 +183,10 @@ export function App() {
 }
 
 function ScreenContent({ screen, connection }: { screen: Screen; connection: DaemonConnection }) {
+  if (screen === "agents") {
+    return <AgentSettingsScreen connection={connection} />
+  }
+
   if (screen === "jobs") {
     return (
       <box flexDirection="column" gap={1}>
