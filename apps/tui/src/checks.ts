@@ -38,10 +38,7 @@ export type CheckStep = {
 
 type DataResponse<T> = { data: T }
 type ErrorResponse = { error?: { message?: string } }
-export type CheckFetch = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>
+export type CheckFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
 async function request<T>(path: string, fetcher: CheckFetch): Promise<T> {
   const controller = new AbortController()
@@ -74,16 +71,10 @@ async function request<T>(path: string, fetcher: CheckFetch): Promise<T> {
   }
 }
 
-export function listChecks(
-  jobID: string,
-  fetcher: CheckFetch = fetch,
-): Promise<CheckRun[]> {
+export function listChecks(jobID: string, fetcher: CheckFetch = fetch): Promise<CheckRun[]> {
   return request<CheckRun[]>(`/api/v1/jobs/${jobID}/checks`, fetcher)
 }
 
-export function listCheckSteps(
-  checkID: string,
-  fetcher: CheckFetch = fetch,
-): Promise<CheckStep[]> {
+export function listCheckSteps(checkID: string, fetcher: CheckFetch = fetch): Promise<CheckStep[]> {
   return request<CheckStep[]>(`/api/v1/checks/${checkID}/steps`, fetcher)
 }

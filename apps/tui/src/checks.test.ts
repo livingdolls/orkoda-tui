@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { type CheckFetch, listChecks, listCheckSteps } from "./checks"
+import { type CheckFetch, listCheckSteps, listChecks } from "./checks"
 
 describe("checks API client", () => {
   test("loads check runs and steps", async () => {
