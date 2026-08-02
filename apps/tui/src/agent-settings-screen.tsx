@@ -1,12 +1,12 @@
 /** @jsxImportSource @opentui/react */
 
 import { useKeyboard } from "@opentui/react"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import {
-  cloneAgentSettings,
   type AgentRole,
   type AgentSettings,
+  cloneAgentSettings,
   getAgentSettings,
   updateAgentSettings,
 } from "./agent-settings"
@@ -25,12 +25,13 @@ export function AgentSettingsScreen({ connection }: { connection: DaemonConnecti
   const [saving, setSaving] = useState(false)
 
   const selectedProject = projects[projectIndex] ?? null
+  const selectedProjectID = selectedProject?.id ?? ""
   const selectedRole = roles[roleIndex] ?? "PLANNER"
   const selectedAgent = settings?.agents.find((agent) => agent.role === selectedRole) ?? null
   const selectedPolicy =
     settings?.tool_policies.find((policy) => policy.role === selectedRole) ?? null
 
-  const loadProjects = async () => {
+  const loadProjects = useCallback(async () => {
     if (connection.state !== "connected") {
       setProjects([])
       setSettings(null)
@@ -52,7 +53,7 @@ export function AgentSettingsScreen({ connection }: { connection: DaemonConnecti
     } finally {
       setLoading(false)
     }
-  }
+  }, [connection.state])
 
   const saveSettings = async () => {
     if (!settings || saving) {
@@ -149,17 +150,17 @@ export function AgentSettingsScreen({ connection }: { connection: DaemonConnecti
 
   useEffect(() => {
     void loadProjects()
-  }, [connection.state])
+  }, [loadProjects])
 
   useEffect(() => {
     let disposed = false
-    if (connection.state !== "connected" || !selectedProject) {
+    if (connection.state !== "connected" || selectedProjectID === "") {
       setSettings(null)
       return
     }
     setLoading(true)
     setMessage("")
-    void getAgentSettings(selectedProject.id)
+    void getAgentSettings(selectedProjectID)
       .then((nextSettings) => {
         if (!disposed) {
           setSettings(nextSettings)
@@ -179,11 +180,17 @@ export function AgentSettingsScreen({ connection }: { connection: DaemonConnecti
     return () => {
       disposed = true
     }
-  }, [connection.state, selectedProject?.id])
+  }, [connection.state, selectedProjectID])
 
   return (
     <box flexDirection="row" gap={1} flexGrow={1}>
-      <box width={28} flexDirection="column" borderStyle="rounded" borderColor="#334155" padding={1}>
+      <box
+        width={28}
+        flexDirection="column"
+        borderStyle="rounded"
+        borderColor="#334155"
+        padding={1}
+      >
         <text fg="#E2E8F0">Projects</text>
         {projects.length === 0 ? <text fg="#94A3B8">No projects available.</text> : null}
         {projects.map((project, index) => (
@@ -195,7 +202,9 @@ export function AgentSettingsScreen({ connection }: { connection: DaemonConnecti
 
       <box flexGrow={1} flexDirection="column" gap={1}>
         <text fg="#E2E8F0">
-          {selectedProject ? `${selectedProject.name} • settings v${settings?.version ?? "-"}` : "Agent settings"}
+          {selectedProject
+            ? `${selectedProject.name} • settings v${settings?.version ?? "-"}`
+            : "Agent settings"}
         </text>
         <box flexDirection="row" gap={2}>
           {roles.map((role, index) => (
@@ -238,7 +247,8 @@ export function AgentSettingsScreen({ connection }: { connection: DaemonConnecti
           Tab role • e enabled • n executor network • f executor filesystem • s save • r reload
         </text>
         <text fg="#64748B">
-          Provider, model, tools, command profiles, and numeric limits remain fully editable through the local API.
+          Provider, model, tools, command profiles, and numeric limits remain fully editable through
+          the local API.
         </text>
       </box>
     </box>
