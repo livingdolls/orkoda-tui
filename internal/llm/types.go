@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
@@ -81,7 +82,20 @@ func cloneRequest(request Request) Request {
 func cloneResponse(response Response) Response {
 	cloned := response
 	cloned.Metadata = cloneStrings(response.Metadata)
+	applyExecutionMetadata(&cloned.Usage, cloned.Metadata)
 	return cloned
+}
+
+func applyExecutionMetadata(usage *Usage, metadata map[string]string) {
+	if usage == nil || len(metadata) == 0 {
+		return
+	}
+	usage.FinalProvider = strings.TrimSpace(metadata["final_provider"])
+	usage.FinalModel = strings.TrimSpace(metadata["final_model"])
+	usage.AttemptCount, _ = strconv.Atoi(metadata["attempt_count"])
+	usage.FallbackUsed, _ = strconv.ParseBool(metadata["fallback_used"])
+	usage.EstimatedInputTokens, _ = strconv.Atoi(metadata["estimated_input_tokens"])
+	usage.EstimatedTokensSpent, _ = strconv.Atoi(metadata["estimated_tokens_spent"])
 }
 
 func cloneStrings(values map[string]string) map[string]string {
