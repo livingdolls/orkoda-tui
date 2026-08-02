@@ -69,7 +69,8 @@ func SingleAttemptPolicy() ExecutionPolicy {
 }
 
 func (p ExecutionPolicy) Info() PolicyInfo {
-	fallbacks := append([]FallbackTarget(nil), p.Fallbacks...)
+	fallbacks := make([]FallbackTarget, len(p.Fallbacks))
+	copy(fallbacks, p.Fallbacks)
 	return PolicyInfo{
 		AttemptTimeoutMS: p.AttemptTimeout.Milliseconds(),
 		MaxWallClockMS:   p.MaxWallClock.Milliseconds(),
