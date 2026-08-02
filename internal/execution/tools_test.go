@@ -23,9 +23,9 @@ func writablePolicy() agentconfig.ToolPolicy {
 			agentconfig.ToolGitDiff,
 		},
 		FilesystemAccess: agentconfig.FilesystemWorkspaceWrite,
-		NetworkAccess: agentconfig.NetworkDisabled,
-		MaxFileBytes: 1024,
-		MaxPatchBytes: 2048,
+		NetworkAccess:    agentconfig.NetworkDisabled,
+		MaxFileBytes:     1024,
+		MaxPatchBytes:    2048,
 	}
 }
 

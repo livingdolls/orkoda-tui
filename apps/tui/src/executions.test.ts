@@ -1,11 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import {
-  listCheckpoints,
-  listExecutions,
-  listToolRuns,
-  type ExecutionFetch,
-} from "./executions"
+import { type ExecutionFetch, listCheckpoints, listExecutions, listToolRuns } from "./executions"
 
 describe("execution API client", () => {
   test("loads executions, tool runs, and checkpoints", async () => {
@@ -24,10 +19,9 @@ describe("execution API client", () => {
           { status: 200 },
         )
       }
-      return new Response(
-        JSON.stringify({ data: [{ id: "execution-1", status: "COMPLETED" }] }),
-        { status: 200 },
-      )
+      return new Response(JSON.stringify({ data: [{ id: "execution-1", status: "COMPLETED" }] }), {
+        status: 200,
+      })
     }
 
     const executions = await listExecutions("workflow-1", fetcher)
