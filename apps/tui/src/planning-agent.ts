@@ -41,6 +41,12 @@ export type PlanningUsage = {
   output_tokens: number
   cached_input_tokens?: number
   total_tokens: number
+  attempt_count?: number
+  fallback_used?: boolean
+  final_provider?: string
+  final_model?: string
+  estimated_input_tokens?: number
+  estimated_tokens_spent?: number
 }
 
 export type PlanningRun = {
