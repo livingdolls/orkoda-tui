@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test"
 
 import {
-  cloneAgentSettings,
   type AgentSettings,
   type AgentSettingsFetch,
+  cloneAgentSettings,
   getAgentSettings,
   updateAgentSettings,
 } from "./agent-settings"
@@ -117,8 +117,13 @@ describe("agent settings API client", () => {
   test("deep clones mutable policy arrays", () => {
     const original = settingsFixture()
     const cloned = cloneAgentSettings(original)
-    cloned.agents[0]!.enabled = false
-    cloned.tool_policies[1]!.allowed_tools.push("file_search")
+    const planner = cloned.agents[0]
+    const executorPolicy = cloned.tool_policies[1]
+    if (!planner || !executorPolicy) {
+      throw new Error("agent settings fixture is incomplete")
+    }
+    planner.enabled = false
+    executorPolicy.allowed_tools.push("file_search")
 
     expect(original.agents[0]?.enabled).toBe(true)
     expect(original.tool_policies[1]?.allowed_tools).toEqual(["file_read", "git_diff"])
