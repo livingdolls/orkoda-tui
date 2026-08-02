@@ -24,6 +24,7 @@ type RouterServices struct {
 	RepositorySummaries RepositorySummaryRegistry
 	PlanningContexts    PlanningContextRegistry
 	PlanningAgent       PlanningAgentRegistry
+	AgentSettings       AgentSettingsRegistry
 	LLMProviders        LLMProviderCatalog
 	LLMPolicy           LLMPolicyReader
 	DefaultLLMProvider  string
@@ -104,6 +105,7 @@ func NewRouterWithServices(
 		replayEvents(c, events, c.Param("jobID"))
 	})
 	registerProjectRoutes(api, projectRegistry)
+	registerAgentSettingsRoutes(api, services.AgentSettings)
 	registerPlanRoutes(api, services.Plans)
 	registerPlanningRoutes(api, services.RepositorySummaries, services.PlanningContexts)
 	registerPlanningAgentRoutes(api, services.PlanningAgent, services.DefaultLLMProvider, services.DefaultLLMModel)

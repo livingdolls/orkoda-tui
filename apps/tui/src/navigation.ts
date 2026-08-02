@@ -1,5 +1,6 @@
 export const screenDefinitions = [
   { id: "projects", label: "Projects" },
+  { id: "agents", label: "Agents" },
   { id: "jobs", label: "Jobs" },
   { id: "settings", label: "Settings" },
   { id: "diagnostics", label: "Diagnostics" },

@@ -27,6 +27,49 @@ var foundationStatements = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_repositories_project
 		ON repositories(project_id, created_at)`,
+	`CREATE TABLE IF NOT EXISTS agent_settings (
+		project_id TEXT PRIMARY KEY,
+		version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+	)`,
+	`CREATE TABLE IF NOT EXISTS agent_configs (
+		project_id TEXT NOT NULL,
+		role TEXT NOT NULL CHECK (role IN ('PLANNER', 'EXECUTOR', 'REVIEWER')),
+		provider TEXT NOT NULL DEFAULT '',
+		model TEXT NOT NULL DEFAULT '',
+		temperature REAL NOT NULL CHECK (temperature >= 0 AND temperature <= 2),
+		max_output_tokens INTEGER NOT NULL CHECK (max_output_tokens >= 256 AND max_output_tokens <= 65536),
+		enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+		system_instruction TEXT NOT NULL DEFAULT '',
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		PRIMARY KEY (project_id, role),
+		FOREIGN KEY (project_id) REFERENCES agent_settings(project_id) ON DELETE CASCADE
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_configs_project_role
+		ON agent_configs(project_id, role)`,
+	`CREATE TABLE IF NOT EXISTS tool_policies (
+		project_id TEXT NOT NULL,
+		role TEXT NOT NULL CHECK (role IN ('PLANNER', 'EXECUTOR', 'REVIEWER')),
+		allowed_tools_json TEXT NOT NULL DEFAULT '[]',
+		allowed_command_profiles_json TEXT NOT NULL DEFAULT '[]',
+		network_access TEXT NOT NULL DEFAULT 'DISABLED'
+			CHECK (network_access IN ('DISABLED', 'LOOPBACK', 'OUTBOUND')),
+		filesystem_access TEXT NOT NULL DEFAULT 'READ_ONLY'
+			CHECK (filesystem_access IN ('READ_ONLY', 'WORKSPACE_WRITE')),
+		command_timeout_ms INTEGER NOT NULL CHECK (command_timeout_ms >= 1000 AND command_timeout_ms <= 600000),
+		max_command_output_bytes INTEGER NOT NULL CHECK (max_command_output_bytes >= 1024 AND max_command_output_bytes <= 33554432),
+		max_file_bytes INTEGER NOT NULL CHECK (max_file_bytes >= 1024 AND max_file_bytes <= 33554432),
+		max_patch_bytes INTEGER NOT NULL CHECK (max_patch_bytes >= 1024 AND max_patch_bytes <= 33554432),
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		PRIMARY KEY (project_id, role),
+		FOREIGN KEY (project_id) REFERENCES agent_settings(project_id) ON DELETE CASCADE
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_tool_policies_project_role
+		ON tool_policies(project_id, role)`,
 	`CREATE TABLE IF NOT EXISTS plans (
 		id TEXT PRIMARY KEY,
 		project_id TEXT NOT NULL,
