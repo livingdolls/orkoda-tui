@@ -9,8 +9,8 @@ import (
 )
 
 type SafetyPolicy struct {
-	RedactionMode             RedactionMode
-	MaxRepairAttempts         int
+	RedactionMode              RedactionMode
+	MaxRepairAttempts          int
 	MaxStructuredResponseBytes int
 }
 
