@@ -218,6 +218,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	contextSelector, err := execution.NewContextSelector(db)
+	if err != nil {
+		return err
+	}
+	executorRunner, err := execution.NewLLMRunner(llmGateway, contextSelector, executionRepository)
+	if err != nil {
+		return err
+	}
 	workerID := fmt.Sprintf("local-daemon-%d", os.Getpid())
 	prepareWorkspaceHandler, err := workspace.NewPrepareHandler(
 		workflowJobRepository,
@@ -235,7 +243,7 @@ func run() error {
 		workspaceRepository,
 		agentSettingsRepository,
 		executionRepository,
-		execution.ScriptedRunner{},
+		executorRunner,
 		activityRecorder,
 		workerID,
 		cfg.WorkspaceLeaseTTL,

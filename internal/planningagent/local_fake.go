@@ -16,7 +16,7 @@ const (
 	LocalFakeModelName    = "local-fake-planner-v1"
 )
 
-// LocalFakeProvider keeps the complete planning flow usable without credentials or network access.
+// LocalFakeProvider keeps the complete planning and executor flow usable without credentials or network access.
 type LocalFakeProvider struct{}
 
 func NewLocalFakeProvider() *LocalFakeProvider {
@@ -43,6 +43,10 @@ func (p *LocalFakeProvider) Complete(ctx context.Context, request llm.Request) (
 	default:
 	}
 
+	if request.Metadata["agent_role"] == "executor" {
+		return localExecutorResponse(request)
+	}
+
 	normalized, err := extractNormalizedPlan(request)
 	if err != nil {
 		return llm.Response{}, &llm.ProviderError{
@@ -59,7 +63,21 @@ func (p *LocalFakeProvider) Complete(ctx context.Context, request llm.Request) (
 	if err != nil {
 		return llm.Response{}, fmt.Errorf("marshal local fake response: %w", err)
 	}
+	return localResponse(request, content), nil
+}
 
+func localExecutorResponse(request llm.Request) (llm.Response, error) {
+	content, err := json.Marshal(map[string]any{
+		"type":    "finish",
+		"summary": "Local fake executor completed the deterministic no-op execution after the workspace foundation was verified.",
+	})
+	if err != nil {
+		return llm.Response{}, fmt.Errorf("marshal local fake executor response: %w", err)
+	}
+	return localResponse(request, content), nil
+}
+
+func localResponse(request llm.Request, content []byte) llm.Response {
 	inputTokens := 0
 	for _, message := range request.Messages {
 		inputTokens += max(1, len(message.Content)/4)
@@ -75,7 +93,7 @@ func (p *LocalFakeProvider) Complete(ctx context.Context, request llm.Request) (
 			OutputTokens: outputTokens,
 			TotalTokens:  inputTokens + outputTokens,
 		},
-	}, nil
+	}
 }
 
 func extractNormalizedPlan(request llm.Request) (planningcontext.NormalizedPlan, error) {

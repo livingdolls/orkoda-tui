@@ -14,6 +14,7 @@ type ExecutionRegistry interface {
 	ListWorkflow(context.Context, string) ([]execution.Execution, error)
 	ListToolRuns(context.Context, string) ([]execution.ToolRun, error)
 	ListCheckpoints(context.Context, string) ([]execution.Checkpoint, error)
+	ListIterations(context.Context, string) ([]execution.Iteration, error)
 }
 
 func registerExecutionRoutes(api *gin.RouterGroup, registry ExecutionRegistry) {
@@ -38,6 +39,17 @@ func registerExecutionRoutes(api *gin.RouterGroup, registry ExecutionRegistry) {
 			return
 		}
 		writeData(c, http.StatusOK, item)
+	})
+	api.GET("/executions/:executionID/iterations", func(c *gin.Context) {
+		if !requireExecutionRegistry(c, registry) {
+			return
+		}
+		items, err := registry.ListIterations(c.Request.Context(), c.Param("executionID"))
+		if err != nil {
+			writeExecutionError(c, err)
+			return
+		}
+		writeData(c, http.StatusOK, items)
 	})
 	api.GET("/executions/:executionID/tool-runs", func(c *gin.Context) {
 		if !requireExecutionRegistry(c, registry) {
