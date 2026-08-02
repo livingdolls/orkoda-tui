@@ -184,6 +184,7 @@ func run() error {
 				logger.Info("noop job handled", "job_id", job.ID)
 				return nil
 			},
+		},
 		activityRecorder,
 		logger,
 	)
