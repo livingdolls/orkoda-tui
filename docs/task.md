@@ -49,7 +49,8 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 - [x] Migration agent configuration dan tool policy.
 - [x] Migration workflow jobs.
 - [x] Migration workspaces.
-- [ ] Migration executions, tool runs, dan checks.
+- [x] Migration executions, tool runs, dan patch checkpoints.
+- [ ] Migration checks dan check artifacts.
 - [ ] Migration reviews, revisions, dan approvals.
 - [ ] Migration Git publications dan artifact metadata.
 - [ ] Tambahkan indexes, foreign keys, dan integrity rules.
@@ -69,8 +70,8 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Tambahkan SQLite-backed workspace preparation lease.
 - [x] Tambahkan managed-root, overlap, symlink, pinned-HEAD, dan dirty-state guard.
 - [x] Tambahkan idempotent workspace preparation dan crash resume.
-- [ ] Tambahkan Executor write lease dan periodic renewal.
-- [ ] Tambahkan patch checkpoint dan checksum.
+- [x] Tambahkan Executor write lease dan periodic renewal.
+- [x] Tambahkan patch checkpoint dan checksum.
 - [ ] Tambahkan archive, cleanup, dan orphan-worktree reconciliation.
 
 ## Epic 7 — Planning and LLM Gateway
@@ -89,28 +90,32 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Definisikan job aggregate dan transition table.
 - [x] Hubungkan workflow ke SQLite queue.
 - [x] Tambahkan idempotency pada handler `workflow.prepare_workspace`.
-- [ ] Tambahkan idempotency pada Executor, checks, reviewer, dan publication handler.
+- [x] Tambahkan idempotency pada handler `workflow.execute`.
+- [ ] Tambahkan idempotency pada checks, reviewer, dan publication handler.
 - [ ] Implementasikan polling, backoff, cancellation, dan manual retry.
 - [x] Pulihkan stale running job saat daemon startup.
 - [ ] Tambahkan revision, attempt, dan wall-clock guards.
 - [x] Tambahkan crash-recovery dan duplicate-processing tests untuk workspace preparation.
+- [x] Tambahkan crash-recovery dan duplicate-processing boundary untuk execution.
 - [ ] Tambahkan crash-recovery dan duplicate-processing tests untuk tahap lain.
 
 ## Epic 9 — Tools and Sandbox
 
-- [ ] Implementasikan file read, search, patch, create, dan delete.
-- [ ] Implementasikan Git status dan diff.
-- [ ] Validasi canonical path, symlink, dan file size.
+- [x] Implementasikan file read, search, patch, create, dan delete.
+- [x] Implementasikan Git status dan diff.
+- [x] Validasi canonical path, symlink, special file, dan file size.
 - [ ] Buat Docker sandbox adapter.
 - [ ] Tambahkan command profiles dan argument validation.
 - [ ] Tambahkan CPU, memory, process, disk, timeout, dan output limits.
-- [ ] Disable network secara default.
+- [x] Disable network secara default melalui persisted tool policy.
 - [ ] Implementasikan process-tree cancellation dan environment allowlist.
 
 ## Epic 10 — Executor, Checks, and Reviewer
 
-- [ ] Buat execution snapshot, context selector, dan Executor loop.
-- [ ] Simpan tool runs, checkpoints, changed files, patch, dan usage.
+- [x] Buat execution snapshot dan deterministic scripted Executor foundation.
+- [ ] Buat context selector dan autonomous LLM Executor loop.
+- [x] Simpan tool runs, checkpoints, changed files, dan patch.
+- [ ] Simpan execution token/cost usage.
 - [ ] Implementasikan formatter, linter, type check, test, dan build runner.
 - [ ] Simpan check summary dan log artifact.
 - [ ] Buat Reviewer prompt dan structured review schema.

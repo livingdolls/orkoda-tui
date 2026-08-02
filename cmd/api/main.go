@@ -15,6 +15,7 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/config"
 	"github.com/livingdolls/orkoda-tui/internal/database"
 	"github.com/livingdolls/orkoda-tui/internal/eventbus"
+	"github.com/livingdolls/orkoda-tui/internal/execution"
 	"github.com/livingdolls/orkoda-tui/internal/gitrepo"
 	"github.com/livingdolls/orkoda-tui/internal/httpapi"
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
@@ -213,6 +214,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	executionRepository, err := execution.NewRepository(db)
+	if err != nil {
+		return err
+	}
 	workerID := fmt.Sprintf("local-daemon-%d", os.Getpid())
 	prepareWorkspaceHandler, err := workspace.NewPrepareHandler(
 		workflowJobRepository,
@@ -221,6 +226,21 @@ func run() error {
 		activityRecorder,
 		workerID,
 		cfg.WorkspaceLeaseTTL,
+	)
+	if err != nil {
+		return err
+	}
+	executeHandler, err := execution.NewHandler(
+		workflowJobRepository,
+		workspaceRepository,
+		agentSettingsRepository,
+		executionRepository,
+		execution.ScriptedRunner{},
+		activityRecorder,
+		workerID,
+		cfg.WorkspaceLeaseTTL,
+		defaultProvider,
+		defaultModel,
 	)
 	if err != nil {
 		return err
@@ -240,6 +260,7 @@ func run() error {
 				return nil
 			},
 			"workflow.prepare_workspace": prepareWorkspaceHandler.HandleDurable,
+			"workflow.execute":           executeHandler.HandleDurable,
 		},
 		activityRecorder,
 		logger,
@@ -262,6 +283,7 @@ func run() error {
 				AgentSettings:       agentSettingsRepository,
 				WorkflowJobs:        workflowJobRepository,
 				Workspaces:          workspaceRepository,
+				Executions:          executionRepository,
 				LLMProviders:        providerCatalog,
 				LLMPolicy:           llmGateway,
 				DefaultLLMProvider:  defaultProvider,
