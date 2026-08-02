@@ -107,10 +107,10 @@ func TestLLMRunnerPersistsToolAndFinishIterations(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy := agentconfig.ToolPolicy{
-		Role: agentconfig.RoleExecutor,
-		AllowedTools: []string{agentconfig.ToolGitStatus, agentconfig.ToolGitDiff},
+		Role:             agentconfig.RoleExecutor,
+		AllowedTools:     []string{agentconfig.ToolGitStatus, agentconfig.ToolGitDiff},
 		FilesystemAccess: agentconfig.FilesystemWorkspaceWrite,
-		MaxFileBytes: 1024 * 1024, MaxPatchBytes: 1024 * 1024,
+		MaxFileBytes:     1024 * 1024, MaxPatchBytes: 1024 * 1024,
 	}
 	tools := &RecordedTools{
 		repository: repository, execution: executionItem,
@@ -119,7 +119,7 @@ func TestLLMRunnerPersistsToolAndFinishIterations(t *testing.T) {
 	if err := runner.Run(ctx, RunContext{
 		Execution: executionItem,
 		Workspace: workspace.Workspace{ID: "workspace-1", Path: root},
-		Tools: tools,
+		Tools:     tools,
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
