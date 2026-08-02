@@ -15,6 +15,7 @@ The repository currently contains the Phase 1 foundation:
 - Shared versioned JSON protocol schema.
 - A provider-neutral LLM gateway with local fake and configurable OpenAI-compatible providers.
 - Bounded LLM retries, explicit fallbacks, cancellation, backoff, and token budgets.
+- Prompt redaction, structured response validation, and bounded output repair.
 - Formatting, linting, tests, Make targets, and GitHub Actions CI.
 
 Orkoda does not require PostgreSQL, Redis, RabbitMQ, MinIO, or Docker Compose.
@@ -102,7 +103,25 @@ Fallbacks are explicit and must reference a provider already registered by the d
 ORKODA_LLM_FALLBACKS_JSON=[{"provider":"local-fake","model":"local-fake-planner-v1"}]
 ```
 
-The Settings screen lists registered providers and the active execution policy. Planning-run usage persists total tokens, attempt count, final provider/model, fallback status, and conservative token estimates.
+### Prompt and structured-output safety
+
+High-confidence secrets are redacted before token estimation and before a request reaches any provider. Structured responses are limited by size, parsed as exactly one JSON value, checked against the supplied schema, and then checked by Planning Agent domain validation.
+
+```text
+ORKODA_LLM_REDACTION_MODE=strict
+ORKODA_LLM_MAX_REPAIR_ATTEMPTS=1
+ORKODA_LLM_MAX_STRUCTURED_RESPONSE_BYTES=1048576
+```
+
+Redaction modes:
+
+- `strict`: replace high-confidence secrets with stable request-local placeholders.
+- `report`: detect and count secrets without changing the prompt.
+- `off`: disable prompt redaction for local debugging only.
+
+A failed structured response can trigger a bounded repair request. The repair prompt contains the original redacted request and safe validation issue paths, but never includes the malformed provider response. Repair calls share the parent wall-clock limit and are checked against the remaining token budget.
+
+The Settings screen lists registered providers, execution policy, prompt-redaction mode, repair limit, and maximum structured-response size. Planning-run usage persists total tokens, provider attempts, fallback state, validation attempts, repair state, and redaction count.
 
 ## Local data
 
