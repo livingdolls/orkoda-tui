@@ -109,8 +109,8 @@ export function SettingsScreen({ connection }: { connection: DaemonConnection })
 
       {message ? <text fg="#FACC15">{message}</text> : null}
       <text fg="#64748B">
-        Configure provider credentials, execution policy, and safety through ORKODA_LLM_* environment
-        variables before starting the daemon.
+        Configure provider credentials, execution policy, and safety through ORKODA_LLM_*
+        environment variables before starting the daemon.
       </text>
     </box>
   )
