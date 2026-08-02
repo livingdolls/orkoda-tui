@@ -1,0 +1,34 @@
+name: Format fix
+
+on:
+  push:
+    branches: [feat/execution-safe-tools]
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/execution-safe-tools
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.x
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install
+      - run: gofmt -w cmd internal
+      - run: bunx biome check --write apps packages
+      - name: Commit formatting
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add cmd internal apps packages
+          git commit -m 'chore: format execution tests'
+          git push origin HEAD:feat/execution-safe-tools
