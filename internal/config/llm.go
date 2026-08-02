@@ -10,18 +10,18 @@ import (
 )
 
 const (
-	defaultLLMProvider       = "local-fake"
-	defaultLLMTimeout        = 60 * time.Second
-	defaultLLMJSONMode       = "json_schema"
-	defaultAttemptTimeout    = 45 * time.Second
-	defaultMaxWallClock      = 2 * time.Minute
-	defaultMaxAttempts       = 3
-	defaultInitialBackoff    = 500 * time.Millisecond
-	defaultMaxBackoff        = 8 * time.Second
-	defaultBackoffJitter     = 0.2
-	defaultMaxInputTokens    = 50000
-	defaultMaxOutputTokens   = 8000
-	defaultMaxTotalTokens    = 60000
+	defaultLLMProvider     = "local-fake"
+	defaultLLMTimeout      = 60 * time.Second
+	defaultLLMJSONMode     = "json_schema"
+	defaultAttemptTimeout  = 45 * time.Second
+	defaultMaxWallClock    = 2 * time.Minute
+	defaultMaxAttempts     = 3
+	defaultInitialBackoff  = 500 * time.Millisecond
+	defaultMaxBackoff      = 8 * time.Second
+	defaultBackoffJitter   = 0.2
+	defaultMaxInputTokens  = 50000
+	defaultMaxOutputTokens = 8000
+	defaultMaxTotalTokens  = 60000
 )
 
 type LLMFallbackConfig struct {
