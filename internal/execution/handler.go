@@ -181,8 +181,8 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 		maxCalls:   job.Limits.MaxToolCalls,
 	}
 	h.record(ctx, job.ID, "execution.started", map[string]any{
-		"execution_id": executionItem.ID,
-		"execution_version": executionItem.ExecutionVersion,
+		"execution_id":           executionItem.ID,
+		"execution_version":      executionItem.ExecutionVersion,
 		"agent_settings_version": executionItem.AgentSettingsVersion,
 	}, time.Now().UTC())
 
@@ -229,9 +229,9 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 	}
 	released = true
 	h.record(ctx, job.ID, "execution.completed", map[string]any{
-		"execution_id": executionItem.ID,
-		"tool_calls": executionItem.ToolCalls,
-		"patch_checksum": checkpoint.PatchChecksum,
+		"execution_id":       executionItem.ID,
+		"tool_calls":         executionItem.ToolCalls,
+		"patch_checksum":     checkpoint.PatchChecksum,
 		"changed_file_count": len(changed),
 	}, time.Now().UTC())
 	return h.finishWorkflow(ctx, job, executionItem, queueJob.ID)
@@ -295,7 +295,7 @@ func (h *Handler) finishWorkflow(
 		ExpectedVersion: current.Version,
 		Action:          workflowjob.ActionExecutionCompleted,
 		Details: map[string]any{
-			"execution_id": executionItem.ID,
+			"execution_id":    executionItem.ID,
 			"dispatch_job_id": dispatchID,
 		},
 	})
@@ -328,7 +328,7 @@ func (h *Handler) failWorkflowOnLastAttempt(
 			FailureCode:     "EXECUTION_FAILED",
 			FailureMessage:  cause.Error(),
 			Details: map[string]any{
-				"attempt": queueJob.Attempts,
+				"attempt":      queueJob.Attempts,
 				"max_attempts": queueJob.MaxAttempts,
 			},
 		})
@@ -469,7 +469,7 @@ func (t *RecordedTools) Create(ctx context.Context, path, content string) error 
 
 func (t *RecordedTools) Patch(ctx context.Context, path, expected, replacement string) error {
 	_, err := t.invoke(ctx, agentconfig.ToolFilePatch, map[string]any{
-		"path": path,
+		"path":        path,
 		"patch_bytes": len([]byte(expected)) + len([]byte(replacement)),
 	}, func() (any, error) {
 		return map[string]any{"changed": true}, t.toolset.Patch(path, expected, replacement)

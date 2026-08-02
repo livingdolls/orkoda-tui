@@ -45,7 +45,10 @@ export type PatchCheckpoint = {
 
 type DataResponse<T> = { data: T }
 type ErrorResponse = { error?: { message?: string } }
-export type ExecutionFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+export type ExecutionFetch = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>
 
 async function request<T>(path: string, fetcher: ExecutionFetch): Promise<T> {
   const controller = new AbortController()
@@ -78,11 +81,17 @@ async function request<T>(path: string, fetcher: ExecutionFetch): Promise<T> {
   }
 }
 
-export function listExecutions(jobID: string, fetcher: ExecutionFetch = fetch): Promise<Execution[]> {
+export function listExecutions(
+  jobID: string,
+  fetcher: ExecutionFetch = fetch,
+): Promise<Execution[]> {
   return request<Execution[]>(`/api/v1/jobs/${jobID}/executions`, fetcher)
 }
 
-export function listToolRuns(executionID: string, fetcher: ExecutionFetch = fetch): Promise<ToolRun[]> {
+export function listToolRuns(
+  executionID: string,
+  fetcher: ExecutionFetch = fetch,
+): Promise<ToolRun[]> {
   return request<ToolRun[]>(`/api/v1/executions/${executionID}/tool-runs`, fetcher)
 }
 

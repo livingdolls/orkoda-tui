@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 
 import type { DaemonConnection } from "./daemon"
-import { listExecutions, type Execution } from "./executions"
+import { type Execution, listExecutions } from "./executions"
 import { listProjects } from "./projects"
 import {
   listProjectWorkspaces,
