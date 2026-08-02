@@ -10,18 +10,21 @@ import (
 )
 
 const (
-	defaultLLMProvider     = "local-fake"
-	defaultLLMTimeout      = 60 * time.Second
-	defaultLLMJSONMode     = "json_schema"
-	defaultAttemptTimeout  = 45 * time.Second
-	defaultMaxWallClock    = 2 * time.Minute
-	defaultMaxAttempts     = 3
-	defaultInitialBackoff  = 500 * time.Millisecond
-	defaultMaxBackoff      = 8 * time.Second
-	defaultBackoffJitter   = 0.2
-	defaultMaxInputTokens  = 50000
-	defaultMaxOutputTokens = 8000
-	defaultMaxTotalTokens  = 60000
+	defaultLLMProvider                      = "local-fake"
+	defaultLLMTimeout                       = 60 * time.Second
+	defaultLLMJSONMode                      = "json_schema"
+	defaultAttemptTimeout                   = 45 * time.Second
+	defaultMaxWallClock                     = 2 * time.Minute
+	defaultMaxAttempts                      = 3
+	defaultInitialBackoff                   = 500 * time.Millisecond
+	defaultMaxBackoff                       = 8 * time.Second
+	defaultBackoffJitter                    = 0.2
+	defaultMaxInputTokens                   = 50000
+	defaultMaxOutputTokens                  = 8000
+	defaultMaxTotalTokens                   = 60000
+	defaultLLMRedactionMode                 = "strict"
+	defaultLLMMaxRepairAttempts             = 1
+	defaultLLMMaxStructuredResponseBytes    = 1 << 20
 )
 
 type LLMFallbackConfig struct {
@@ -30,23 +33,26 @@ type LLMFallbackConfig struct {
 }
 
 type LLMConfig struct {
-	Provider        string
-	BaseURL         string
-	APIKey          string
-	Model           string
-	JSONMode        string
-	Timeout         time.Duration
-	Headers         map[string]string
-	AttemptTimeout  time.Duration
-	MaxWallClock    time.Duration
-	MaxAttempts     int
-	InitialBackoff  time.Duration
-	MaxBackoff      time.Duration
-	BackoffJitter   float64
-	MaxInputTokens  int
-	MaxOutputTokens int
-	MaxTotalTokens  int
-	Fallbacks       []LLMFallbackConfig
+	Provider                   string
+	BaseURL                    string
+	APIKey                     string
+	Model                      string
+	JSONMode                   string
+	Timeout                    time.Duration
+	Headers                    map[string]string
+	AttemptTimeout             time.Duration
+	MaxWallClock               time.Duration
+	MaxAttempts                int
+	InitialBackoff             time.Duration
+	MaxBackoff                 time.Duration
+	BackoffJitter              float64
+	MaxInputTokens             int
+	MaxOutputTokens            int
+	MaxTotalTokens             int
+	Fallbacks                  []LLMFallbackConfig
+	RedactionMode              string
+	MaxRepairAttempts          int
+	MaxStructuredResponseBytes int
 }
 
 func loadLLMConfig() (LLMConfig, error) {
@@ -90,6 +96,17 @@ func loadLLMConfig() (LLMConfig, error) {
 	if err != nil {
 		return LLMConfig{}, err
 	}
+	maxRepairAttempts, err := nonNegativeIntFromEnv("ORKODA_LLM_MAX_REPAIR_ATTEMPTS", defaultLLMMaxRepairAttempts)
+	if err != nil {
+		return LLMConfig{}, err
+	}
+	maxStructuredResponseBytes, err := positiveIntFromEnv(
+		"ORKODA_LLM_MAX_STRUCTURED_RESPONSE_BYTES",
+		defaultLLMMaxStructuredResponseBytes,
+	)
+	if err != nil {
+		return LLMConfig{}, err
+	}
 	headers, err := stringMapFromEnv("ORKODA_LLM_HEADERS_JSON")
 	if err != nil {
 		return LLMConfig{}, err
@@ -99,23 +116,26 @@ func loadLLMConfig() (LLMConfig, error) {
 		return LLMConfig{}, err
 	}
 	config := LLMConfig{
-		Provider:        strings.ToLower(strings.TrimSpace(stringFromEnv("ORKODA_LLM_PROVIDER", defaultLLMProvider))),
-		BaseURL:         strings.TrimSpace(os.Getenv("ORKODA_LLM_BASE_URL")),
-		APIKey:          strings.TrimSpace(os.Getenv("ORKODA_LLM_API_KEY")),
-		Model:           strings.TrimSpace(os.Getenv("ORKODA_LLM_MODEL")),
-		JSONMode:        strings.ToLower(strings.TrimSpace(stringFromEnv("ORKODA_LLM_JSON_MODE", defaultLLMJSONMode))),
-		Timeout:         timeout,
-		Headers:         headers,
-		AttemptTimeout:  attemptTimeout,
-		MaxWallClock:    maxWallClock,
-		MaxAttempts:     maxAttempts,
-		InitialBackoff:  initialBackoff,
-		MaxBackoff:      maxBackoff,
-		BackoffJitter:   backoffJitter,
-		MaxInputTokens:  maxInputTokens,
-		MaxOutputTokens: maxOutputTokens,
-		MaxTotalTokens:  maxTotalTokens,
-		Fallbacks:       fallbacks,
+		Provider:                   strings.ToLower(strings.TrimSpace(stringFromEnv("ORKODA_LLM_PROVIDER", defaultLLMProvider))),
+		BaseURL:                    strings.TrimSpace(os.Getenv("ORKODA_LLM_BASE_URL")),
+		APIKey:                     strings.TrimSpace(os.Getenv("ORKODA_LLM_API_KEY")),
+		Model:                      strings.TrimSpace(os.Getenv("ORKODA_LLM_MODEL")),
+		JSONMode:                   strings.ToLower(strings.TrimSpace(stringFromEnv("ORKODA_LLM_JSON_MODE", defaultLLMJSONMode))),
+		Timeout:                    timeout,
+		Headers:                    headers,
+		AttemptTimeout:             attemptTimeout,
+		MaxWallClock:               maxWallClock,
+		MaxAttempts:                maxAttempts,
+		InitialBackoff:             initialBackoff,
+		MaxBackoff:                 maxBackoff,
+		BackoffJitter:              backoffJitter,
+		MaxInputTokens:             maxInputTokens,
+		MaxOutputTokens:            maxOutputTokens,
+		MaxTotalTokens:             maxTotalTokens,
+		Fallbacks:                  fallbacks,
+		RedactionMode:              strings.ToLower(strings.TrimSpace(stringFromEnv("ORKODA_LLM_REDACTION_MODE", defaultLLMRedactionMode))),
+		MaxRepairAttempts:          maxRepairAttempts,
+		MaxStructuredResponseBytes: maxStructuredResponseBytes,
 	}
 	if config.Provider == "" {
 		config.Provider = defaultLLMProvider
@@ -133,6 +153,11 @@ func loadLLMConfig() (LLMConfig, error) {
 	}
 	if config.InitialBackoff > config.MaxBackoff {
 		return LLMConfig{}, fmt.Errorf("ORKODA_LLM_BACKOFF_MAX must not be smaller than ORKODA_LLM_BACKOFF_INITIAL")
+	}
+	switch config.RedactionMode {
+	case "strict", "report", "off":
+	default:
+		return LLMConfig{}, fmt.Errorf("ORKODA_LLM_REDACTION_MODE must be strict, report, or off")
 	}
 	seenFallbacks := make(map[string]struct{}, len(config.Fallbacks))
 	for _, fallback := range config.Fallbacks {
