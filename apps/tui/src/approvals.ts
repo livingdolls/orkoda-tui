@@ -43,16 +43,9 @@ export type ApprovalOutcome = {
 
 type DataResponse<T> = { data: T }
 type ErrorResponse = { error?: { message?: string } }
-export type ApprovalFetch = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>
+export type ApprovalFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
-async function request<T>(
-  path: string,
-  init: RequestInit,
-  fetcher: ApprovalFetch,
-): Promise<T> {
+async function request<T>(path: string, init: RequestInit, fetcher: ApprovalFetch): Promise<T> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 5000)
   try {
