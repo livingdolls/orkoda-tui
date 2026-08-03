@@ -16,7 +16,7 @@ const (
 	LocalFakeModelName    = "local-fake-planner-v1"
 )
 
-// LocalFakeProvider keeps the complete planning and executor flow usable without credentials or network access.
+// LocalFakeProvider keeps the complete planning, executor, and reviewer flow usable without credentials or network access.
 type LocalFakeProvider struct{}
 
 func NewLocalFakeProvider() *LocalFakeProvider {
@@ -43,8 +43,11 @@ func (p *LocalFakeProvider) Complete(ctx context.Context, request llm.Request) (
 	default:
 	}
 
-	if request.Metadata["agent_role"] == "executor" {
+	switch request.Metadata["agent_role"] {
+	case "executor":
 		return localExecutorResponse(request)
+	case "reviewer":
+		return localReviewerResponse(request)
 	}
 
 	normalized, err := extractNormalizedPlan(request)
@@ -73,6 +76,38 @@ func localExecutorResponse(request llm.Request) (llm.Response, error) {
 	})
 	if err != nil {
 		return llm.Response{}, fmt.Errorf("marshal local fake executor response: %w", err)
+	}
+	return localResponse(request, content), nil
+}
+
+func localReviewerResponse(request llm.Request) (llm.Response, error) {
+	failedChecks, _ := strconv.Atoi(request.Metadata["failed_checks"])
+	result := map[string]any{
+		"verdict": "APPROVE",
+		"summary": "Local fake reviewer found no blocking issue in the deterministic execution snapshot.",
+		"issues":  []any{},
+	}
+	if failedChecks > 0 {
+		result["verdict"] = "REQUEST_REVISION"
+		result["summary"] = "Local fake reviewer requests revision because one or more persisted repository checks failed."
+		result["issues"] = []any{
+			map[string]any{
+				"key":           "failed-checks",
+				"severity":      "HIGH",
+				"category":      "TESTING",
+				"blocking":      true,
+				"title":         "Repository checks failed",
+				"description":   "Fix the persisted failing formatter, linter, typecheck, test, or build checks before approval.",
+				"file_path":     "",
+				"line_start":    0,
+				"line_end":      0,
+				"criteria_refs": []string{},
+			},
+		}
+	}
+	content, err := json.Marshal(result)
+	if err != nil {
+		return llm.Response{}, fmt.Errorf("marshal local fake reviewer response: %w", err)
 	}
 	return localResponse(request, content), nil
 }

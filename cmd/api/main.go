@@ -27,6 +27,7 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/plans"
 	"github.com/livingdolls/orkoda-tui/internal/projects"
 	"github.com/livingdolls/orkoda-tui/internal/repositorysummary"
+	"github.com/livingdolls/orkoda-tui/internal/reviewer"
 	"github.com/livingdolls/orkoda-tui/internal/scheduler"
 	"github.com/livingdolls/orkoda-tui/internal/workflowjob"
 	"github.com/livingdolls/orkoda-tui/internal/workspace"
@@ -223,6 +224,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	reviewRepository, err := reviewer.NewRepository(db)
+	if err != nil {
+		return err
+	}
+	reviewContextBuilder, err := reviewer.NewContextBuilder(db)
+	if err != nil {
+		return err
+	}
 	contextSelector, err := execution.NewContextSelector(db)
 	if err != nil {
 		return err
@@ -272,6 +281,21 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	reviewHandler, err := reviewer.NewHandler(
+		workflowJobRepository,
+		executionRepository,
+		checkRepository,
+		agentSettingsRepository,
+		reviewRepository,
+		reviewContextBuilder,
+		llmGateway,
+		activityRecorder,
+		defaultProvider,
+		defaultModel,
+	)
+	if err != nil {
+		return err
+	}
 	logger.Info(
 		"workspace runtime ready",
 		"root", workspaceRepository.Root(),
@@ -289,6 +313,7 @@ func run() error {
 			"workflow.prepare_workspace": prepareWorkspaceHandler.HandleDurable,
 			"workflow.execute":           executeHandler.HandleDurable,
 			"workflow.run_checks":        checkHandler.HandleDurable,
+			"workflow.review":            reviewHandler.HandleDurable,
 		},
 		activityRecorder,
 		logger,
@@ -313,6 +338,7 @@ func run() error {
 				Workspaces:          workspaceRepository,
 				Executions:          executionRepository,
 				Checks:              checkRepository,
+				Reviews:             reviewRepository,
 				LLMProviders:        providerCatalog,
 				LLMPolicy:           llmGateway,
 				DefaultLLMProvider:  defaultProvider,

@@ -29,6 +29,7 @@ type RouterServices struct {
 	Workspaces          WorkspaceRegistry
 	Executions          ExecutionRegistry
 	Checks              CheckRegistry
+	Reviews             ReviewRegistry
 	LLMProviders        LLMProviderCatalog
 	LLMPolicy           LLMPolicyReader
 	DefaultLLMProvider  string
@@ -117,6 +118,7 @@ func NewRouterWithServices(
 	registerWorkspaceRoutes(api, services.Workspaces)
 	registerExecutionRoutes(api, services.Executions)
 	registerCheckRoutes(api, services.Checks)
+	registerReviewRoutes(api, services.Reviews)
 	registerLLMRoutes(api, services.LLMProviders, services.LLMPolicy)
 
 	return router

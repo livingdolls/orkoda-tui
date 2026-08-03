@@ -52,7 +52,8 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 - [x] Migration executions, tool runs, dan patch checkpoints.
 - [x] Migration check runs dan check steps.
 - [ ] Tambahkan check log artifact untuk output besar.
-- [ ] Migration reviews, revisions, dan approvals.
+- [x] Migration review runs dan review issues.
+- [ ] Migration revisions dan approvals.
 - [ ] Migration Git publications dan artifact metadata.
 - [ ] Tambahkan indexes, foreign keys, dan integrity rules.
 
@@ -93,14 +94,16 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Tambahkan idempotency pada handler `workflow.prepare_workspace`.
 - [x] Tambahkan idempotency pada handler `workflow.execute`.
 - [x] Tambahkan idempotency pada handler `workflow.run_checks`.
-- [ ] Tambahkan idempotency pada reviewer dan publication handler.
+- [x] Tambahkan idempotency pada handler `workflow.review`.
+- [ ] Tambahkan idempotency pada publication handler.
 - [ ] Implementasikan polling, backoff, cancellation, dan manual retry.
 - [x] Pulihkan stale running job saat daemon startup.
 - [ ] Tambahkan revision, attempt, dan wall-clock guards.
 - [x] Tambahkan crash-recovery dan duplicate-processing tests untuk workspace preparation.
 - [x] Tambahkan crash-recovery dan duplicate-processing boundary untuk execution.
 - [x] Tambahkan crash-recovery dan duplicate-processing tests untuk checks.
-- [ ] Tambahkan crash-recovery dan duplicate-processing tests untuk tahap lain.
+- [x] Tambahkan crash-recovery dan duplicate-processing tests untuk reviewer.
+- [ ] Tambahkan crash-recovery dan duplicate-processing tests untuk publication.
 
 ## Epic 9 — Tools and Sandbox
 
@@ -122,15 +125,15 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Implementasikan formatter, linter, type check, test, dan build runner.
 - [x] Simpan check summary dan bounded check output.
 - [ ] Simpan check log sebagai artifact terpisah.
-- [ ] Buat Reviewer prompt dan structured review schema.
-- [ ] Validasi file reference, severity, blocking flag, dan criteria.
+- [x] Buat Reviewer prompt dan structured review schema.
+- [x] Validasi file reference, severity, blocking flag, dan criteria.
 - [ ] Publish live progress setelah durable event tersimpan.
 
 ## Epic 11 — Approval and Git Publication
 
 - [ ] Buat changed-file tree dan unified diff viewer.
 - [x] Buat check matrix pada Jobs screen.
-- [ ] Buat review issue panel.
+- [x] Buat review issue panel read-only pada Jobs screen.
 - [ ] Implementasikan approve, revision, reject, dan take over.
 - [ ] Bind approval ke execution version, base SHA, dan patch checksum.
 - [ ] Implementasikan local commit dan commit message editor.
