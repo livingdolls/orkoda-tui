@@ -53,7 +53,7 @@ Validation rules include:
 
 A duplicate dispatch reuses the persisted review run. A completed review advances the workflow without another provider request. Provider or persistence failures use durable queue retry. The final infrastructure attempt moves the workflow to `FAILED`.
 
-A successful review always advances the workflow from `REVIEWING` to `WAITING_FOR_APPROVAL`. The reviewer verdict is advisory evidence for the human approval stage; automatic approval or revision is intentionally not performed here.
+A successful review always advances the workflow from `REVIEWING` to `WAITING_FOR_APPROVAL`. The reviewer verdict is advisory evidence for the human approval stage; automatic approval or revision is intentionally not performed here. Human approval remains a separate, version-bound workflow operation.
 
 ## API
 
