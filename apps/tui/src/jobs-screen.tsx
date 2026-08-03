@@ -122,7 +122,7 @@ export function JobsScreen({ connection }: { connection: DaemonConnection }) {
       </text>
       {state === "loading" ? <text fg="#FACC15">Loading workflow jobs...</text> : null}
       {message ? <text fg={state === "error" ? "#F87171" : "#94A3B8"}>{message}</text> : null}
-      {entries.map((entry) => (
+      {entries.slice(0, 20).map((entry) => (
         <JobCard key={entry.job.id} entry={entry} />
       ))}
       {entries.length > 20 ? (
@@ -135,12 +135,7 @@ export function JobsScreen({ connection }: { connection: DaemonConnection }) {
 function JobCard({ entry }: { entry: JobEntry }) {
   const { projectName, job, workspace, execution, check, checkSteps, review, reviewIssues } = entry
   return (
-    <box
-      flexDirection="column"
-      borderStyle="rounded"
-      borderColor="#334155"
-      padding={1}
-    >
+    <box flexDirection="column" borderStyle="rounded" borderColor="#334155" padding={1}>
       <box flexDirection="row" justifyContent="space-between">
         <text fg="#E2E8F0">{projectName}</text>
         <text fg={statusColor(job.status)}>{job.status}</text>

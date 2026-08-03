@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { type ReviewFetch, listReviewIssues, listReviews } from "./reviews"
+import { listReviewIssues, listReviews, type ReviewFetch } from "./reviews"
 
 describe("review API client", () => {
   test("loads review runs and issues", async () => {

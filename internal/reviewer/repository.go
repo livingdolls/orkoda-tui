@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	ErrNotFound        = errors.New("review run not found")
-	ErrInvalid         = errors.New("invalid review run")
+	ErrNotFound         = errors.New("review run not found")
+	ErrInvalid          = errors.New("invalid review run")
 	ErrSnapshotConflict = errors.New("review snapshot conflicts with persisted run")
 )
 
@@ -53,44 +53,44 @@ const (
 )
 
 type Run struct {
-	ID                   string        `json:"id"`
-	WorkflowJobID        string        `json:"workflow_job_id"`
-	ExecutionID          string        `json:"execution_id"`
-	ExecutionVersion     int           `json:"execution_version"`
-	CheckRunID           string        `json:"check_run_id"`
-	CheckpointID         string        `json:"checkpoint_id"`
-	AgentSettingsVersion int           `json:"agent_settings_version"`
-	Provider             string        `json:"provider"`
-	Model                string        `json:"model"`
-	Status               Status        `json:"status"`
-	Verdict              Verdict       `json:"verdict,omitempty"`
-	Summary              string        `json:"summary"`
-	TotalIssues          int           `json:"total_issues"`
-	BlockingIssues       int           `json:"blocking_issues"`
-	Usage                llm.Usage     `json:"usage"`
-	FailureCode          string        `json:"failure_code,omitempty"`
-	FailureMessage       string        `json:"failure_message,omitempty"`
-	StartedAt            *time.Time    `json:"started_at,omitempty"`
-	CompletedAt          *time.Time    `json:"completed_at,omitempty"`
-	CreatedAt            time.Time     `json:"created_at"`
-	UpdatedAt            time.Time     `json:"updated_at"`
+	ID                   string     `json:"id"`
+	WorkflowJobID        string     `json:"workflow_job_id"`
+	ExecutionID          string     `json:"execution_id"`
+	ExecutionVersion     int        `json:"execution_version"`
+	CheckRunID           string     `json:"check_run_id"`
+	CheckpointID         string     `json:"checkpoint_id"`
+	AgentSettingsVersion int        `json:"agent_settings_version"`
+	Provider             string     `json:"provider"`
+	Model                string     `json:"model"`
+	Status               Status     `json:"status"`
+	Verdict              Verdict    `json:"verdict,omitempty"`
+	Summary              string     `json:"summary"`
+	TotalIssues          int        `json:"total_issues"`
+	BlockingIssues       int        `json:"blocking_issues"`
+	Usage                llm.Usage  `json:"usage"`
+	FailureCode          string     `json:"failure_code,omitempty"`
+	FailureMessage       string     `json:"failure_message,omitempty"`
+	StartedAt            *time.Time `json:"started_at,omitempty"`
+	CompletedAt          *time.Time `json:"completed_at,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
 }
 
 type Issue struct {
-	ID           string     `json:"id"`
-	ReviewRunID  string     `json:"review_run_id"`
-	Position     int        `json:"position"`
-	Key          string     `json:"key"`
-	Severity     Severity   `json:"severity"`
-	Category     Category   `json:"category"`
-	Blocking     bool       `json:"blocking"`
-	Title        string     `json:"title"`
-	Description  string     `json:"description"`
-	FilePath     string     `json:"file_path,omitempty"`
-	LineStart    int        `json:"line_start,omitempty"`
-	LineEnd      int        `json:"line_end,omitempty"`
-	CriteriaRefs []string   `json:"criteria_refs"`
-	CreatedAt    time.Time  `json:"created_at"`
+	ID           string    `json:"id"`
+	ReviewRunID  string    `json:"review_run_id"`
+	Position     int       `json:"position"`
+	Key          string    `json:"key"`
+	Severity     Severity  `json:"severity"`
+	Category     Category  `json:"category"`
+	Blocking     bool      `json:"blocking"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	FilePath     string    `json:"file_path,omitempty"`
+	LineStart    int       `json:"line_start,omitempty"`
+	LineEnd      int       `json:"line_end,omitempty"`
+	CriteriaRefs []string  `json:"criteria_refs"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type Result struct {

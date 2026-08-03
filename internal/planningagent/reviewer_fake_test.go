@@ -13,7 +13,7 @@ func TestLocalFakeReviewerUsesPersistedCheckOutcome(t *testing.T) {
 	response, err := provider.Complete(context.Background(), llm.Request{
 		Model: LocalFakeModelName,
 		Metadata: map[string]string{
-			"agent_role":   "reviewer",
+			"agent_role":    "reviewer",
 			"failed_checks": "1",
 		},
 	})

@@ -106,7 +106,7 @@ Do not invent files, line numbers, requirements, or check results.`)
 		MaxOutputTokens: config.MaxOutputTokens,
 		Temperature:     config.Temperature,
 		Metadata: map[string]string{
-			"agent_role":        "reviewer",
+			"agent_role":         "reviewer",
 			"review_run_id":      config.RunID,
 			"workflow_job_id":    config.WorkflowJobID,
 			"execution_version":  strconv.Itoa(reviewContext.ExecutionVersion),

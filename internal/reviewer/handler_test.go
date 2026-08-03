@@ -79,15 +79,15 @@ func (fakeContextSource) Build(
 	[]checks.Step,
 ) (Context, ValidationContext, error) {
 	return Context{
-		Requirement:        "Implement the feature.",
-		AcceptanceCriteria: []Criterion{{ID: "requirement.ac-1", Text: "Works."}},
-		ExecutionVersion:   1,
-		ChangedFiles:       []string{"internal/example.go"},
-		Checks:             []CheckEvidence{{Profile: "go.test", Status: checks.StatusPassed}},
-	}, ValidationContext{
-		ChangedFiles: map[string]struct{}{"internal/example.go": {}},
-		CriteriaRefs: map[string]struct{}{"requirement.ac-1": {}},
-	}, nil
+			Requirement:        "Implement the feature.",
+			AcceptanceCriteria: []Criterion{{ID: "requirement.ac-1", Text: "Works."}},
+			ExecutionVersion:   1,
+			ChangedFiles:       []string{"internal/example.go"},
+			Checks:             []CheckEvidence{{Profile: "go.test", Status: checks.StatusPassed}},
+		}, ValidationContext{
+			ChangedFiles: map[string]struct{}{"internal/example.go": {}},
+			CriteriaRefs: map[string]struct{}{"requirement.ac-1": {}},
+		}, nil
 }
 
 type fakeGateway struct {
@@ -239,11 +239,11 @@ func newTestHandler(
 
 func reviewerWorkflow() workflowjob.Job {
 	return workflowjob.Job{
-		ID:              "workflow-1",
-		ProjectID:       "project-1",
-		PlanVersionID:   "plan-version-1",
-		Status:          workflowjob.StatusReviewing,
-		Version:         5,
+		ID:               "workflow-1",
+		ProjectID:        "project-1",
+		PlanVersionID:    "plan-version-1",
+		Status:           workflowjob.StatusReviewing,
+		Version:          5,
 		ExecutionVersion: 1,
 	}
 }

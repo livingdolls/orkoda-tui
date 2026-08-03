@@ -221,12 +221,12 @@ func (h *Handler) handle(
 		return run.ID, err
 	}
 	h.record(ctx, job.ID, "review.started", map[string]any{
-		"review_run_id":    run.ID,
-		"execution_id":     executionItem.ID,
-		"check_run_id":     checkRun.ID,
-		"checkpoint_id":    checkpoint.ID,
-		"provider":         reviewerConfig.Provider,
-		"model":            reviewerConfig.Model,
+		"review_run_id":      run.ID,
+		"execution_id":       executionItem.ID,
+		"check_run_id":       checkRun.ID,
+		"checkpoint_id":      checkpoint.ID,
+		"provider":           reviewerConfig.Provider,
+		"model":              reviewerConfig.Model,
 		"changed_file_count": len(reviewContext.ChangedFiles),
 	}, time.Now().UTC())
 	response, err := h.gateway.Complete(ctx, reviewerConfig.Provider, request)
@@ -242,12 +242,12 @@ func (h *Handler) handle(
 		return run.ID, err
 	}
 	h.record(ctx, job.ID, "review.completed", map[string]any{
-		"review_run_id":  run.ID,
-		"verdict":        run.Verdict,
-		"total_issues":   run.TotalIssues,
+		"review_run_id":   run.ID,
+		"verdict":         run.Verdict,
+		"total_issues":    run.TotalIssues,
 		"blocking_issues": run.BlockingIssues,
-		"input_tokens":   response.Usage.InputTokens,
-		"output_tokens":  response.Usage.OutputTokens,
+		"input_tokens":    response.Usage.InputTokens,
+		"output_tokens":   response.Usage.OutputTokens,
 	}, time.Now().UTC())
 	return run.ID, h.finishWorkflow(ctx, job, run, queueJob.ID)
 }
@@ -309,13 +309,13 @@ func (h *Handler) finishWorkflow(
 		ExpectedVersion: current.Version,
 		Action:          workflowjob.ActionReviewCompleted,
 		Details: map[string]any{
-			"review_run_id":    run.ID,
-			"verdict":          run.Verdict,
-			"total_issues":     run.TotalIssues,
-			"blocking_issues":  run.BlockingIssues,
+			"review_run_id":     run.ID,
+			"verdict":           run.Verdict,
+			"total_issues":      run.TotalIssues,
+			"blocking_issues":   run.BlockingIssues,
 			"execution_version": run.ExecutionVersion,
-			"checkpoint_id":    run.CheckpointID,
-			"dispatch_job_id":  dispatchID,
+			"checkpoint_id":     run.CheckpointID,
+			"dispatch_job_id":   dispatchID,
 		},
 	})
 	if errors.Is(err, workflowjob.ErrVersionConflict) {
