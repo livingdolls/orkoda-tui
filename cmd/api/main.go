@@ -12,6 +12,7 @@ import (
 
 	"github.com/livingdolls/orkoda-tui/internal/activity"
 	"github.com/livingdolls/orkoda-tui/internal/agentconfig"
+	"github.com/livingdolls/orkoda-tui/internal/approval"
 	"github.com/livingdolls/orkoda-tui/internal/checks"
 	"github.com/livingdolls/orkoda-tui/internal/config"
 	"github.com/livingdolls/orkoda-tui/internal/database"
@@ -228,6 +229,20 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	approvalRepository, err := approval.NewRepository(db)
+	if err != nil {
+		return err
+	}
+	approvalService, err := approval.NewService(
+		approvalRepository,
+		workflowJobRepository,
+		executionRepository,
+		reviewRepository,
+		activityRecorder,
+	)
+	if err != nil {
+		return err
+	}
 	reviewContextBuilder, err := reviewer.NewContextBuilder(db)
 	if err != nil {
 		return err
@@ -339,6 +354,7 @@ func run() error {
 				Executions:          executionRepository,
 				Checks:              checkRepository,
 				Reviews:             reviewRepository,
+				Approvals:           approvalService,
 				LLMProviders:        providerCatalog,
 				LLMPolicy:           llmGateway,
 				DefaultLLMProvider:  defaultProvider,
