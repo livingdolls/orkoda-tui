@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 )
+
+const latestSchemaVersion = 2
 
 var foundationStatements = []string{
 	`CREATE TABLE IF NOT EXISTS projects (
@@ -194,14 +197,103 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	}
 	defer tx.Rollback()
 
-	for index, statement := range foundationStatements {
-		if _, err := tx.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("apply migration statement %d: %w", index+1, err)
+	if _, err := tx.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			version INTEGER PRIMARY KEY,
+			name TEXT NOT NULL,
+			applied_at INTEGER NOT NULL
+		)`); err != nil {
+		return fmt.Errorf("create schema migration table: %w", err)
+	}
+	var current sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&current); err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	version := int64(0)
+	if current.Valid {
+		version = current.Int64
+	}
+	if version < 1 {
+		for index, statement := range foundationStatements {
+			if _, err := tx.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("apply foundation migration statement %d: %w", index+1, err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, applied_at) VALUES (1, 'foundation', strftime('%s','now') * 1000)`); err != nil {
+			return fmt.Errorf("record foundation migration: %w", err)
+		}
+		version = 1
+	}
+	if version < 2 {
+		if err := ensureColumn(ctx, tx, "approval_decisions", "check_status", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+		if err := ensureColumn(ctx, tx, "approval_decisions", "failed_steps", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+		if err := ensureColumn(ctx, tx, "patch_checkpoints", "artifact_key", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+		for index, statement := range []string{
+			`CREATE TABLE IF NOT EXISTS publications (
+				id TEXT PRIMARY KEY,
+				workflow_job_id TEXT NOT NULL UNIQUE,
+				execution_version INTEGER NOT NULL CHECK (execution_version > 0),
+				approval_decision_id TEXT NOT NULL,
+				base_commit_sha TEXT NOT NULL,
+				patch_checksum TEXT NOT NULL,
+				published_commit_sha TEXT NOT NULL,
+				status TEXT NOT NULL CHECK (status IN ('COMPLETED','FAILED')),
+				error_message TEXT,
+				created_at INTEGER NOT NULL,
+				completed_at INTEGER,
+				FOREIGN KEY (workflow_job_id) REFERENCES workflow_jobs(id) ON DELETE CASCADE,
+				FOREIGN KEY (approval_decision_id) REFERENCES approval_decisions(id) ON DELETE RESTRICT
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_publications_workflow_created ON publications(workflow_job_id, created_at DESC)`,
+		} {
+			if _, err := tx.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("apply publication migration statement %d: %w", index+1, err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, applied_at) VALUES (2, 'workflow-publication-and-approval-check-snapshot', strftime('%s','now') * 1000)`); err != nil {
+			return fmt.Errorf("record publication migration: %w", err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit migration: %w", err)
+	}
+	return nil
+}
+
+func ensureColumn(ctx context.Context, tx *sql.Tx, table, column, definition string) error {
+	rows, err := tx.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return fmt.Errorf("inspect %s schema: %w", table, err)
+	}
+	defer rows.Close()
+	var found bool
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return fmt.Errorf("scan %s schema: %w", table, err)
+		}
+		if strings.EqualFold(name, column) {
+			found = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read %s schema: %w", table, err)
+	}
+	if found {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE `+table+` ADD COLUMN `+column+` `+definition); err != nil {
+		return fmt.Errorf("add %s.%s: %w", table, column, err)
 	}
 	return nil
 }

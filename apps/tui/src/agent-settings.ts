@@ -1,4 +1,4 @@
-import { daemonBaseURL } from "./daemon"
+import { daemonBaseURL, requestWithDaemonAuth } from "./daemon"
 
 export type AgentRole = "PLANNER" | "EXECUTOR" | "REVIEWER"
 export type NetworkAccess = "DISABLED" | "LOOPBACK" | "OUTBOUND"
@@ -57,7 +57,7 @@ async function request<T>(
   }
 
   try {
-    const response = await fetcher(`${daemonBaseURL}${path}`, {
+    const response = await requestWithDaemonAuth(fetcher, `${daemonBaseURL}${path}`, {
       ...init,
       headers,
       signal: controller.signal,

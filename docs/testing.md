@@ -35,6 +35,18 @@ Memastikan OpenTUI, workflow, repository operations, sandbox, agent contracts, r
 - Cancel running command.
 - Push branch dan create draft PR.
 
+Daemon E2E lokal dapat dijalankan tanpa kredensial LLM dengan provider `local-fake`:
+
+```sh
+ORKODA_E2E=1 \
+ORKODA_E2E_GO_BIN=/path/to/go \
+go test -mod=readonly ./internal/e2e -run TestDaemonWorkflowEndToEnd -count=1 -v
+```
+
+Test ini membuat repository Git sementara, menyalakan daemon/API, menjalankan workflow sampai
+commit publikasi, dan menghapus fixture setelah selesai. Runner check host hanya dipakai untuk
+test lokal; deployment normal tetap menggunakan sandbox Docker.
+
 ## 3. OpenTUI Tests
 
 - Keyboard-only navigation.

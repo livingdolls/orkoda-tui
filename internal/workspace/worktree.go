@@ -33,6 +33,7 @@ type commandRunner struct{}
 func (commandRunner) Run(ctx context.Context, directory string, arguments ...string) (string, error) {
 	commandArguments := append([]string{"-C", directory}, arguments...)
 	command := exec.CommandContext(ctx, "git", commandArguments...)
+	command.Env = safeGitEnvironment()
 	output, err := command.CombinedOutput()
 	if err != nil {
 		message := strings.TrimSpace(string(output))
@@ -42,6 +43,22 @@ func (commandRunner) Run(ctx context.Context, directory string, arguments ...str
 		return "", fmt.Errorf("git %s: %w", strings.Join(arguments, " "), err)
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+func safeGitEnvironment() []string {
+	path := os.Getenv("PATH")
+	if path == "" {
+		path = "/usr/bin:/bin"
+	}
+	return []string{
+		"PATH=" + path,
+		"HOME=/tmp/orkoda-home",
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_OPTIONAL_LOCKS=0",
+		"LC_ALL=C",
+	}
 }
 
 type WorktreeManager struct {

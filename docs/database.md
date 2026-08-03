@@ -126,7 +126,8 @@ Lease tidak menggantikan filesystem permission dan path guard. Source repository
 
 ## 7. Backup and Recovery
 
-Backup lokal mencakup:
+Backup source database dibuat setelah WAL checkpoint dan dipublikasikan atomik
+sebagai `.orkoda/orkoda.db.bak` dengan permission `0600`. Backup lokal mencakup:
 
 ```text
 .orkoda/orkoda.db
@@ -135,7 +136,7 @@ Backup lokal mencakup:
 .orkoda/artifacts/
 ```
 
-Untuk backup konsisten saat daemon aktif, gunakan SQLite backup API atau jalankan checkpoint sebelum menyalin database. Menyalin hanya file `.db` ketika WAL aktif dapat menghasilkan backup yang tidak lengkap.
+Untuk backup konsisten saat daemon aktif, gunakan SQLite backup API atau jalankan checkpoint sebelum menyalin database. Menyalin hanya file `.db` ketika WAL aktif tanpa checkpoint dapat menghasilkan backup yang tidak lengkap.
 
 Workspace dapat direkonstruksi dari repository base commit dan patch artifact. Database, artifact, approval, dan publication record tidak boleh terhapus oleh cleanup workspace.
 

@@ -20,9 +20,9 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 - [x] Jalankan queue scheduler sebagai goroutine daemon.
 - [x] Tambahkan activity event repository dan replay berdasarkan sequence.
 - [x] Tambahkan coordinated goroutine shutdown.
-- [ ] Tambahkan OS single-instance lock.
-- [ ] Tambahkan SQLite checkpoint, backup, dan integrity diagnostics.
-- [ ] Tambahkan migration version tracking dan upgrade tests.
+- [x] Tambahkan OS single-instance lock.
+- [x] Tambahkan SQLite checkpoint, backup, dan integrity diagnostics.
+- [x] Tambahkan migration version tracking dan upgrade tests.
 
 ## Epic 3 — OpenTUI Foundation
 
@@ -54,8 +54,8 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 - [ ] Tambahkan check log artifact untuk output besar.
 - [x] Migration review runs dan review issues.
 - [x] Migration approval decisions dan revision requests.
-- [ ] Migration Git publications dan artifact metadata.
-- [ ] Tambahkan indexes, foreign keys, dan integrity rules.
+- [x] Migration Git publications dan artifact metadata.
+- [x] Tambahkan indexes, foreign keys, dan integrity rules.
 
 User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 
@@ -95,10 +95,10 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Tambahkan idempotency pada handler `workflow.execute`.
 - [x] Tambahkan idempotency pada handler `workflow.run_checks`.
 - [x] Tambahkan idempotency pada handler `workflow.review`.
-- [ ] Tambahkan idempotency pada publication handler.
+- [x] Tambahkan idempotency pada publication handler.
 - [ ] Implementasikan polling, backoff, cancellation, dan manual retry.
 - [x] Pulihkan stale running job saat daemon startup.
-- [ ] Tambahkan revision, attempt, dan wall-clock guards.
+- [x] Tambahkan revision, attempt, dan wall-clock guards.
 - [x] Tambahkan crash-recovery dan duplicate-processing tests untuk workspace preparation.
 - [x] Tambahkan crash-recovery dan duplicate-processing boundary untuk execution.
 - [x] Tambahkan crash-recovery dan duplicate-processing tests untuk checks.
@@ -111,10 +111,10 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Implementasikan file read, search, patch, create, dan delete.
 - [x] Implementasikan Git status dan diff.
 - [x] Validasi canonical path, symlink, special file, dan file size.
-- [ ] Buat Docker sandbox adapter.
+- [x] Buat Docker sandbox adapter.
 - [x] Tambahkan command profiles dan argument validation.
 - [x] Tambahkan timeout, output limit, process cancellation, dan environment allowlist.
-- [ ] Tambahkan CPU, memory, process-count, dan disk limits.
+- [x] Tambahkan CPU, memory, process-count, file-size, dan tmpfs disk limits.
 - [x] Disable network secara default melalui persisted tool policy.
 
 ## Epic 10 — Executor, Checks, and Reviewer
@@ -125,6 +125,7 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [ ] Simpan execution token/cost usage.
 - [x] Implementasikan formatter, linter, type check, test, dan build runner.
 - [x] Simpan check summary dan bounded check output.
+- [x] Tambahkan daemon E2E dari repository registration sampai local publication.
 - [ ] Simpan check log sebagai artifact terpisah.
 - [x] Buat Reviewer prompt dan structured review schema.
 - [x] Validasi file reference, severity, blocking flag, dan criteria.
@@ -139,9 +140,9 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [ ] Implementasikan take over dan manual workspace editing.
 - [x] Bind approval ke execution version, base SHA, dan patch checksum.
 - [x] Tambahkan decision composer dan Reviewer override acknowledgement pada Jobs screen.
-- [ ] Implementasikan local commit dan commit message editor.
+- [x] Implementasikan local commit dengan deterministic commit message.
 - [ ] Buat optional GitHub adapter untuk branch push dan draft PR.
-- [ ] Tambahkan publication idempotency dan conflict handling.
+- [x] Tambahkan publication idempotency dan conflict handling.
 
 ## Epic 12 — Local Release
 
@@ -149,7 +150,7 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [ ] Tambahkan repository, workspace, command, dan artifact security tests.
 - [ ] Tambahkan structured logs, local metrics, dan diagnostics bundle.
 - [ ] Tambahkan SQLite backup, restore, dan recovery drill.
-- [ ] Build daemon binary, TUI artifact, dan optional sandbox image.
+- [x] Build daemon binary, TUI artifact, dan optional sandbox image.
 - [ ] Jalankan end-to-end dan security tests.
 - [ ] Release local MVP.
 

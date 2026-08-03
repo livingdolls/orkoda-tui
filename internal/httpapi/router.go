@@ -2,10 +2,12 @@ package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +37,7 @@ type RouterServices struct {
 	LLMPolicy           LLMPolicyReader
 	DefaultLLMProvider  string
 	DefaultLLMModel     string
+	APIToken            string
 }
 
 type healthResponse struct {
@@ -92,6 +95,10 @@ func NewRouterWithServices(
 	})
 
 	api := router.Group("/api/v1")
+	api.Use(requestLimitMiddleware(4 * 1024 * 1024))
+	if token := strings.TrimSpace(services.APIToken); token != "" {
+		api.Use(apiTokenMiddleware(token))
+	}
 	api.GET("/status", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"data": gin.H{
@@ -124,6 +131,34 @@ func NewRouterWithServices(
 	registerLLMRoutes(api, services.LLMProviders, services.LLMPolicy)
 
 	return router
+}
+
+func requestLimitMiddleware(maxBytes int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+		}
+		c.Next()
+	}
+}
+
+func apiTokenMiddleware(expected string) gin.HandlerFunc {
+	expected = strings.TrimSpace(expected)
+	return func(c *gin.Context) {
+		header := strings.Fields(c.GetHeader("Authorization"))
+		provided := ""
+		if len(header) == 2 && strings.EqualFold(header[0], "Bearer") {
+			provided = header[1]
+		}
+		if provided == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": gin.H{"message": "API bearer token is required"},
+				"meta":  gin.H{"protocol_version": protocolVersion},
+			})
+			return
+		}
+		c.Next()
+	}
 }
 
 func replayEvents(c *gin.Context, reader EventReader, jobID string) {

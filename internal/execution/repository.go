@@ -77,6 +77,7 @@ type Checkpoint struct {
 	PatchBytes       int             `json:"patch_bytes"`
 	ChangedFilesJSON json.RawMessage `json:"changed_files"`
 	PatchText        string          `json:"-"`
+	ArtifactKey      string          `json:"artifact_key,omitempty"`
 	CreatedAt        time.Time       `json:"created_at"`
 }
 
@@ -196,6 +197,20 @@ func (r *Repository) Fail(ctx context.Context, executionID, code, message string
 	return err
 }
 
+func (r *Repository) Cancel(ctx context.Context, executionID, message string) error {
+	if len(message) > 2048 {
+		message = message[:2048]
+	}
+	now := r.now().UTC()
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE executions
+		SET status='CANCELLED', failure_code='CANCELLED', failure_message=?,
+			completed_at=?, updated_at=?
+		WHERE id=? AND status IN ('PENDING','RUNNING')
+	`, nullable(message), now.UnixMilli(), now.UnixMilli(), executionID)
+	return err
+}
+
 func (r *Repository) StartTool(ctx context.Context, executionID, tool string, input any, maxCalls int) (ToolRun, error) {
 	inputJSON, err := json.Marshal(input)
 	if err != nil {
@@ -267,6 +282,14 @@ func (r *Repository) ListToolRuns(ctx context.Context, executionID string) ([]To
 }
 
 func (r *Repository) SaveCheckpoint(ctx context.Context, executionID, baseSHA, headSHA, patch string, changedFiles []string) (Checkpoint, error) {
+	return r.saveCheckpoint(ctx, executionID, baseSHA, headSHA, patch, changedFiles, "")
+}
+
+func (r *Repository) SaveCheckpointArtifact(ctx context.Context, executionID, baseSHA, headSHA, patch string, changedFiles []string, artifactKey string) (Checkpoint, error) {
+	return r.saveCheckpoint(ctx, executionID, baseSHA, headSHA, patch, changedFiles, artifactKey)
+}
+
+func (r *Repository) saveCheckpoint(ctx context.Context, executionID, baseSHA, headSHA, patch string, changedFiles []string, artifactKey string) (Checkpoint, error) {
 	changedJSON, err := json.Marshal(changedFiles)
 	if err != nil {
 		return Checkpoint{}, err
@@ -278,8 +301,8 @@ func (r *Repository) SaveCheckpoint(ctx context.Context, executionID, baseSHA, h
 		return Checkpoint{}, err
 	}
 	now := r.now().UTC()
-	item := Checkpoint{ID: newID(), ExecutionID: executionID, Sequence: sequence, BaseCommitSHA: baseSHA, WorkspaceHeadSHA: headSHA, PatchChecksum: checksum, PatchBytes: len([]byte(patch)), ChangedFilesJSON: changedJSON, PatchText: patch, CreatedAt: now}
-	_, err = r.db.ExecContext(ctx, `INSERT INTO patch_checkpoints (id,execution_id,sequence,base_commit_sha,workspace_head_sha,patch_checksum,patch_bytes,changed_files_json,patch_text,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`, item.ID, item.ExecutionID, item.Sequence, item.BaseCommitSHA, item.WorkspaceHeadSHA, item.PatchChecksum, item.PatchBytes, string(changedJSON), item.PatchText, now.UnixMilli())
+	item := Checkpoint{ID: newID(), ExecutionID: executionID, Sequence: sequence, BaseCommitSHA: baseSHA, WorkspaceHeadSHA: headSHA, PatchChecksum: checksum, PatchBytes: len([]byte(patch)), ChangedFilesJSON: changedJSON, PatchText: patch, ArtifactKey: strings.TrimSpace(artifactKey), CreatedAt: now}
+	_, err = r.db.ExecContext(ctx, `INSERT INTO patch_checkpoints (id,execution_id,sequence,base_commit_sha,workspace_head_sha,patch_checksum,patch_bytes,changed_files_json,patch_text,artifact_key,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, item.ID, item.ExecutionID, item.Sequence, item.BaseCommitSHA, item.WorkspaceHeadSHA, item.PatchChecksum, item.PatchBytes, string(changedJSON), item.PatchText, item.ArtifactKey, now.UnixMilli())
 	if err != nil {
 		if existing, getErr := r.latestCheckpoint(ctx, executionID); getErr == nil && existing.PatchChecksum == checksum {
 			return existing, nil
@@ -290,7 +313,7 @@ func (r *Repository) SaveCheckpoint(ctx context.Context, executionID, baseSHA, h
 }
 
 func (r *Repository) ListCheckpoints(ctx context.Context, executionID string) ([]Checkpoint, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id,execution_id,sequence,base_commit_sha,workspace_head_sha,patch_checksum,patch_bytes,changed_files_json,patch_text,created_at FROM patch_checkpoints WHERE execution_id=? ORDER BY sequence`, executionID)
+	rows, err := r.db.QueryContext(ctx, `SELECT id,execution_id,sequence,base_commit_sha,workspace_head_sha,patch_checksum,patch_bytes,changed_files_json,patch_text,artifact_key,created_at FROM patch_checkpoints WHERE execution_id=? ORDER BY sequence`, executionID)
 	if err != nil {
 		return nil, err
 	}
@@ -298,10 +321,18 @@ func (r *Repository) ListCheckpoints(ctx context.Context, executionID string) ([
 	items := make([]Checkpoint, 0)
 	for rows.Next() {
 		var item Checkpoint
+		var changedFiles string
+		var artifactKey sql.NullString
 		var created int64
-		if err := rows.Scan(&item.ID, &item.ExecutionID, &item.Sequence, &item.BaseCommitSHA, &item.WorkspaceHeadSHA, &item.PatchChecksum, &item.PatchBytes, &item.ChangedFilesJSON, &item.PatchText, &created); err != nil {
+		if err := rows.Scan(
+			&item.ID, &item.ExecutionID, &item.Sequence, &item.BaseCommitSHA,
+			&item.WorkspaceHeadSHA, &item.PatchChecksum, &item.PatchBytes,
+			&changedFiles, &item.PatchText, &artifactKey, &created,
+		); err != nil {
 			return nil, err
 		}
+		item.ChangedFilesJSON = json.RawMessage(changedFiles)
+		item.ArtifactKey = artifactKey.String
 		item.CreatedAt = time.UnixMilli(created).UTC()
 		items = append(items, item)
 	}
@@ -351,13 +382,20 @@ func scanExecution(row interface{ Scan(...any) error }) (Execution, error) {
 }
 func scanToolRun(row interface{ Scan(...any) error }) (ToolRun, error) {
 	var item ToolRun
+	var inputSummary, outputSummary string
 	var code, message sql.NullString
 	var started, completed sql.NullInt64
 	var created, updated int64
-	err := row.Scan(&item.ID, &item.ExecutionID, &item.Sequence, &item.Tool, &item.Status, &item.InputSummaryJSON, &item.OutputSummaryJSON, &code, &message, &started, &completed, &created, &updated)
+	err := row.Scan(
+		&item.ID, &item.ExecutionID, &item.Sequence, &item.Tool, &item.Status,
+		&inputSummary, &outputSummary, &code, &message,
+		&started, &completed, &created, &updated,
+	)
 	if err != nil {
 		return ToolRun{}, err
 	}
+	item.InputSummaryJSON = json.RawMessage(inputSummary)
+	item.OutputSummaryJSON = json.RawMessage(outputSummary)
 	item.ErrorCode = code.String
 	item.ErrorMessage = message.String
 	item.CreatedAt = time.UnixMilli(created).UTC()

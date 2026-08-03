@@ -57,6 +57,7 @@ func init() {
 			patch_bytes INTEGER NOT NULL CHECK (patch_bytes >= 0),
 			changed_files_json TEXT NOT NULL DEFAULT '[]',
 			patch_text TEXT NOT NULL,
+			artifact_key TEXT NOT NULL DEFAULT '',
 			created_at INTEGER NOT NULL,
 			FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE CASCADE,
 			UNIQUE (execution_id, sequence),

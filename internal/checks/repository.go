@@ -164,6 +164,9 @@ func (r *Repository) ListWorkflow(ctx context.Context, workflowID string) ([]Run
 }
 
 func (r *Repository) Start(ctx context.Context, id string, profiles []Profile) (Run, error) {
+	if len(profiles) == 0 {
+		return Run{}, fmt.Errorf("%w: at least one required check profile is required", ErrInvalid)
+	}
 	now := r.now().UTC()
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -262,6 +265,45 @@ func (r *Repository) CancelStep(ctx context.Context, stepID string, message stri
 		return err
 	}
 	return requireChanged(update)
+}
+
+// Cancel marks an interrupted check run and all work that has not completed
+// as cancelled. It is deliberately separate from RecoverInterrupted: a
+// durable user cancellation must remain terminal, while a daemon shutdown
+// should leave the run recoverable on the next attempt.
+func (r *Repository) Cancel(ctx context.Context, runID string, message string) (Run, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return Run{}, ErrInvalid
+	}
+	now := r.now().UTC()
+	message = bound(message, 1024)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Run{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE check_steps
+		SET status = 'CANCELLED', error_message = ?, completed_at = COALESCE(completed_at, ?), updated_at = ?
+		WHERE check_run_id = ? AND status IN ('PENDING', 'RUNNING')
+	`, nullable(message), now.UnixMilli(), now.UnixMilli(), runID); err != nil {
+		return Run{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE check_runs
+		SET status = 'CANCELLED',
+			passed_steps = (SELECT COUNT(*) FROM check_steps WHERE check_run_id = ? AND status = 'PASSED'),
+			failed_steps = (SELECT COUNT(*) FROM check_steps WHERE check_run_id = ? AND status = 'FAILED'),
+			completed_at = COALESCE(completed_at, ?), updated_at = ?
+		WHERE id = ? AND status IN ('PENDING', 'RUNNING', 'CANCELLED')
+	`, runID, runID, now.UnixMilli(), now.UnixMilli(), runID); err != nil {
+		return Run{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Run{}, err
+	}
+	return r.Get(ctx, runID)
 }
 
 func (r *Repository) Finish(ctx context.Context, runID string) (Run, error) {

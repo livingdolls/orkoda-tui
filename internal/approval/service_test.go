@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/livingdolls/orkoda-tui/internal/checks"
 	"github.com/livingdolls/orkoda-tui/internal/execution"
 	"github.com/livingdolls/orkoda-tui/internal/reviewer"
 	"github.com/livingdolls/orkoda-tui/internal/workflowjob"
@@ -30,6 +31,7 @@ func (s *memoryDecisionStore) CreateOrGet(_ context.Context, input CreateInput) 
 		PatchChecksum: input.PatchChecksum, Kind: input.Kind, Status: StatusPending,
 		Note: input.Note, RevisionInstructions: input.RevisionInstructions,
 		ReviewOverride: input.ReviewOverride, ReviewerVerdict: input.ReviewerVerdict,
+		CheckStatus: input.CheckStatus, FailedSteps: input.FailedSteps,
 		WorkflowVersionBefore: input.WorkflowVersionBefore,
 		RevisionCountBefore:   input.RevisionCountBefore, CreatedAt: now, UpdatedAt: now,
 	}
@@ -119,6 +121,12 @@ func (s fixedReviewStore) GetByVersion(context.Context, string, int) (reviewer.R
 	return s.item, nil
 }
 
+type fixedCheckStore struct{ item checks.Run }
+
+func (s fixedCheckStore) GetByVersion(context.Context, string, int) (checks.Run, error) {
+	return s.item, nil
+}
+
 func approvalFixture(verdict reviewer.Verdict) (*Service, *memoryDecisionStore, *memoryWorkflowStore) {
 	decisions := &memoryDecisionStore{}
 	workflows := &memoryWorkflowStore{job: workflowjob.Job{
@@ -140,7 +148,8 @@ func approvalFixture(verdict reviewer.Verdict) (*Service, *memoryDecisionStore, 
 		ExecutionVersion: 1, CheckpointID: "checkpoint-1", Status: reviewer.StatusCompleted,
 		Verdict: verdict,
 	}}
-	service, err := NewService(decisions, workflows, executionStore, reviewStore, nil)
+	checkStore := fixedCheckStore{item: checks.Run{ID: "check-1", Status: checks.StatusPassed}}
+	service, err := NewService(decisions, workflows, executionStore, reviewStore, checkStore, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -199,6 +208,33 @@ func TestServiceRequiresExplicitReviewerOverride(t *testing.T) {
 	outcome, err := service.Decide(context.Background(), "workflow-1", KindApprove, input)
 	if err != nil || outcome.Workflow.Status != workflowjob.StatusApproved {
 		t.Fatalf("outcome=%#v error=%v", outcome, err)
+	}
+}
+
+func TestServiceRejectsApprovalWhenChecksFailed(t *testing.T) {
+	service, decisions, _ := approvalFixture(reviewer.VerdictApprove)
+	service.checks = fixedCheckStore{item: checks.Run{ID: "check-1", Status: checks.StatusFailed, FailedSteps: 1}}
+	_, err := service.Decide(context.Background(), "workflow-1", KindApprove, boundInput())
+	if !errors.Is(err, ErrChecksNotPassed) {
+		t.Fatalf("error = %v", err)
+	}
+	if decisions.item != nil {
+		t.Fatal("failed-check approval was persisted")
+	}
+}
+
+func TestServiceRejectsOverrideWhenChecksAreIncomplete(t *testing.T) {
+	service, decisions, _ := approvalFixture(reviewer.VerdictApprove)
+	service.checks = fixedCheckStore{item: checks.Run{ID: "check-1", Status: checks.StatusRunning}}
+	input := boundInput()
+	input.ReviewOverride = true
+	input.Note = "I accept the risk."
+	_, err := service.Decide(context.Background(), "workflow-1", KindApprove, input)
+	if !errors.Is(err, ErrChecksNotPassed) {
+		t.Fatalf("error = %v", err)
+	}
+	if decisions.item != nil {
+		t.Fatal("incomplete-check approval was persisted")
 	}
 }
 

@@ -53,8 +53,8 @@ func (CommandRunner) Run(ctx context.Context, root string, profile Profile) Resu
 	if root == "" || !filepath.IsAbs(root) {
 		return invalid("absolute workspace path is required")
 	}
-	info, err := os.Stat(root)
-	if err != nil || !info.IsDir() {
+	info, err := os.Lstat(root)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return invalid("workspace path is not a directory")
 	}
 
@@ -68,7 +68,7 @@ func (CommandRunner) Run(ctx context.Context, root string, profile Profile) Resu
 	command.Env = constrainedEnvironment()
 	command.WaitDelay = 2 * time.Second
 
-	runErr := command.Run()
+	runErr := runProcess(commandCtx, command)
 	result := Result{
 		Passed: true, ExitCode: 0, Duration: time.Since(started), Output: buffer.String(),
 		OutputLimit: limit, Truncated: buffer.truncated,
@@ -101,24 +101,28 @@ func (CommandRunner) Run(ctx context.Context, root string, profile Profile) Resu
 }
 
 func constrainedEnvironment() []string {
-	allowed := []string{"PATH", "HOME", "TMPDIR", "TMP", "TEMP", "GOCACHE", "GOMODCACHE"}
-	environment := make([]string, 0, len(allowed)+9)
-	for _, key := range allowed {
-		if value := os.Getenv(key); value != "" {
-			environment = append(environment, key+"="+value)
-		}
+	path := os.Getenv("PATH")
+	if path == "" {
+		path = "/usr/bin:/bin"
 	}
-	return append(environment,
+	return []string{
+		"PATH=" + path,
+		"HOME=/tmp/orkoda-home",
+		"TMPDIR=/tmp",
+		"TMP=/tmp",
+		"TEMP=/tmp",
 		"CI=1",
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_OPTIONAL_LOCKS=0",
 		"GONOSUMDB=*",
 		"GOSUMDB=off",
 		"GOPROXY=off",
 		"npm_config_offline=true",
 		"BUN_CONFIG_NO_NETWORK=1",
 		"LC_ALL=C",
-	)
+	}
 }
 
 type limitedBuffer struct {

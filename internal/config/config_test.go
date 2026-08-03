@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestLoadUsesDefaults(t *testing.T) {
 	clearConfigEnvironment(t)
@@ -66,6 +70,22 @@ func TestLoadReadsWorkspaceConfig(t *testing.T) {
 	}
 }
 
+func TestLoadDerivesRuntimePathsFromCustomDataDir(t *testing.T) {
+	clearConfigEnvironment(t)
+	t.Setenv("ORKODA_DATA_DIR", "/tmp/orkoda-custom")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DatabasePath != "/tmp/orkoda-custom/orkoda.db" ||
+		cfg.ArtifactDir != "/tmp/orkoda-custom/artifacts" ||
+		cfg.WorkspaceDir != "/tmp/orkoda-custom/workspaces" ||
+		cfg.APITokenFile != "/tmp/orkoda-custom/api.token" {
+		t.Fatalf("derived runtime paths = %#v", cfg)
+	}
+}
+
 func TestLoadRejectsIncompleteLLMConfig(t *testing.T) {
 	clearConfigEnvironment(t)
 	t.Setenv("ORKODA_LLM_PROVIDER", "openrouter")
@@ -86,6 +106,28 @@ func TestLoadRejectsInvalidPort(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() expected an error")
+	}
+}
+
+func TestEnsureAPITokenCreatesPrivateStableToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "api.token")
+	first, err := EnsureAPIToken(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 64 {
+		t.Fatalf("token length = %d", len(first))
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("token permissions = %o", info.Mode().Perm())
+	}
+	second, err := EnsureAPIToken(path, "")
+	if err != nil || second != first {
+		t.Fatalf("stable token = %q error=%v", second, err)
 	}
 }
 
@@ -110,6 +152,10 @@ func clearConfigEnvironment(t *testing.T) {
 		"ORKODA_ARTIFACT_DIR",
 		"ORKODA_WORKSPACE_DIR",
 		"ORKODA_WORKSPACE_LEASE_TTL",
+		"ORKODA_API_TOKEN",
+		"ORKODA_API_TOKEN_FILE",
+		"ORKODA_SANDBOX_MODE",
+		"ORKODA_ALLOW_UNSANDBOXED_CHECKS",
 		"ORKODA_LLM_PROVIDER",
 		"ORKODA_LLM_BASE_URL",
 		"ORKODA_LLM_API_KEY",

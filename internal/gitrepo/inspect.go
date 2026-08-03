@@ -27,6 +27,7 @@ type execRunner struct{}
 func (execRunner) Run(ctx context.Context, directory string, arguments ...string) (string, error) {
 	commandArguments := append([]string{"-C", directory}, arguments...)
 	command := exec.CommandContext(ctx, "git", commandArguments...)
+	command.Env = safeGitEnvironment()
 	output, err := command.Output()
 	if err != nil {
 		var exitError *exec.ExitError
@@ -39,6 +40,22 @@ func (execRunner) Run(ctx context.Context, directory string, arguments ...string
 		return "", fmt.Errorf("git %s: %w", strings.Join(arguments, " "), err)
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+func safeGitEnvironment() []string {
+	path := os.Getenv("PATH")
+	if path == "" {
+		path = "/usr/bin:/bin"
+	}
+	return []string{
+		"PATH=" + path,
+		"HOME=/tmp/orkoda-home",
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_OPTIONAL_LOCKS=0",
+		"LC_ALL=C",
+	}
 }
 
 type Inspector struct {

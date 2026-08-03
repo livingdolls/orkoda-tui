@@ -45,6 +45,8 @@ type Decision struct {
 	RevisionInstructions  string     `json:"revision_instructions,omitempty"`
 	ReviewOverride        bool       `json:"review_override"`
 	ReviewerVerdict       string     `json:"reviewer_verdict"`
+	CheckStatus           string     `json:"check_status"`
+	FailedSteps           int        `json:"failed_steps"`
 	WorkflowVersionBefore int        `json:"workflow_version_before"`
 	WorkflowVersionAfter  int        `json:"workflow_version_after,omitempty"`
 	RevisionCountBefore   int        `json:"revision_count_before"`
@@ -66,6 +68,8 @@ type CreateInput struct {
 	RevisionInstructions  string
 	ReviewOverride        bool
 	ReviewerVerdict       string
+	CheckStatus           string
+	FailedSteps           int
 	WorkflowVersionBefore int
 	RevisionCountBefore   int
 }
@@ -120,6 +124,8 @@ func (r *Repository) CreateOrGet(ctx context.Context, input CreateInput) (Decisi
 		RevisionInstructions:  input.RevisionInstructions,
 		ReviewOverride:        input.ReviewOverride,
 		ReviewerVerdict:       input.ReviewerVerdict,
+		CheckStatus:           input.CheckStatus,
+		FailedSteps:           input.FailedSteps,
 		WorkflowVersionBefore: input.WorkflowVersionBefore,
 		RevisionCountBefore:   input.RevisionCountBefore,
 		CreatedAt:             now,
@@ -135,12 +141,13 @@ func (r *Repository) CreateOrGet(ctx context.Context, input CreateInput) (Decisi
 			id, workflow_job_id, review_run_id, execution_id, execution_version,
 			checkpoint_id, base_commit_sha, patch_checksum, decision, status,
 			note, review_override, reviewer_verdict, workflow_version_before,
-			revision_count_before, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, ?)
+			revision_count_before, check_status, failed_steps, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, item.ID, item.WorkflowJobID, item.ReviewRunID, item.ExecutionID,
 		item.ExecutionVersion, item.CheckpointID, item.BaseCommitSHA, item.PatchChecksum,
 		item.Kind, item.Note, boolInt(item.ReviewOverride), item.ReviewerVerdict,
-		item.WorkflowVersionBefore, item.RevisionCountBefore, now.UnixMilli(), now.UnixMilli())
+		item.WorkflowVersionBefore, item.RevisionCountBefore, item.CheckStatus, item.FailedSteps,
+		now.UnixMilli(), now.UnixMilli())
 	if err != nil {
 		if existing, getErr := r.GetByVersion(ctx, input.WorkflowJobID, input.ExecutionVersion); getErr == nil {
 			if !sameDecision(existing, input) {
@@ -228,7 +235,8 @@ const decisionColumns = `
 	d.checkpoint_id, d.base_commit_sha, d.patch_checksum, d.decision, d.status,
 	d.note, COALESCE(rr.instructions, ''), d.review_override, d.reviewer_verdict,
 	d.workflow_version_before, COALESCE(d.workflow_version_after, 0),
-	d.revision_count_before, d.created_at, d.applied_at, d.updated_at`
+	d.revision_count_before, COALESCE(d.check_status, ''), COALESCE(d.failed_steps, 0),
+	d.created_at, d.applied_at, d.updated_at`
 
 func scanDecision(scanner interface{ Scan(...any) error }) (Decision, error) {
 	var item Decision
@@ -241,7 +249,8 @@ func scanDecision(scanner interface{ Scan(...any) error }) (Decision, error) {
 		&item.PatchChecksum, &item.Kind, &item.Status, &item.Note,
 		&item.RevisionInstructions, &override, &item.ReviewerVerdict,
 		&item.WorkflowVersionBefore, &item.WorkflowVersionAfter,
-		&item.RevisionCountBefore, &createdAt, &appliedAt, &updatedAt,
+		&item.RevisionCountBefore, &item.CheckStatus, &item.FailedSteps,
+		&createdAt, &appliedAt, &updatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Decision{}, ErrNotFound
@@ -270,6 +279,7 @@ func normalizeInput(input CreateInput) CreateInput {
 	input.Note = strings.TrimSpace(input.Note)
 	input.RevisionInstructions = strings.TrimSpace(input.RevisionInstructions)
 	input.ReviewerVerdict = strings.ToUpper(strings.TrimSpace(input.ReviewerVerdict))
+	input.CheckStatus = strings.ToUpper(strings.TrimSpace(input.CheckStatus))
 	return input
 }
 
@@ -298,6 +308,8 @@ func validateInput(input CreateInput) error {
 }
 
 func sameDecision(item Decision, input CreateInput) bool {
+	checkSnapshotMatches := input.CheckStatus == "" || item.CheckStatus == "" ||
+		(item.CheckStatus == input.CheckStatus && item.FailedSteps == input.FailedSteps)
 	return item.WorkflowJobID == input.WorkflowJobID &&
 		item.ReviewRunID == input.ReviewRunID &&
 		item.ExecutionID == input.ExecutionID &&
@@ -310,6 +322,7 @@ func sameDecision(item Decision, input CreateInput) bool {
 		item.RevisionInstructions == input.RevisionInstructions &&
 		item.ReviewOverride == input.ReviewOverride &&
 		item.ReviewerVerdict == input.ReviewerVerdict &&
+		checkSnapshotMatches &&
 		item.WorkflowVersionBefore == input.WorkflowVersionBefore &&
 		item.RevisionCountBefore == input.RevisionCountBefore
 }

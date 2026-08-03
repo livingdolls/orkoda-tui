@@ -88,3 +88,21 @@ func TestReplayEventsRejectsInvalidQuery(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
+
+func TestAPIRoutesRequireBearerTokenWhenConfigured(t *testing.T) {
+	router := NewRouterWithServices("development", &fakeEventReader{}, nil, RouterServices{APIToken: "token-012345678901234567890123456789"})
+
+	unauthorized := httptest.NewRecorder()
+	router.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/api/v1/status", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d", unauthorized.Code)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	request.Header.Set("Authorization", "Bearer token-012345678901234567890123456789")
+	authorized := httptest.NewRecorder()
+	router.ServeHTTP(authorized, request)
+	if authorized.Code != http.StatusOK {
+		t.Fatalf("authorized status = %d body=%s", authorized.Code, authorized.Body.String())
+	}
+}

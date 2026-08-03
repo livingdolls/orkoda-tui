@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/livingdolls/orkoda-tui/internal/agentconfig"
+	"github.com/livingdolls/orkoda-tui/internal/gitstate"
 )
 
 var (
@@ -50,6 +51,10 @@ func (PathGuard) Resolve(root, requested string, allowMissing bool) (string, err
 }
 
 func rejectSymlinkEscape(root, candidate string, allowMissing bool) error {
+	rootInfo, err := os.Lstat(root)
+	if err != nil || rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return ErrUnsafePath
+	}
 	current := root
 	relative, err := filepath.Rel(root, candidate)
 	if err != nil {
@@ -92,16 +97,20 @@ func (t Toolset) Read(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	info, err := os.Stat(resolved)
+	file, info, err := openRegularFile(resolved)
 	if err != nil {
 		return "", err
 	}
-	if !info.Mode().IsRegular() || info.Size() > int64(t.Policy.MaxFileBytes) {
+	defer file.Close()
+	if info.Size() > int64(t.Policy.MaxFileBytes) {
 		return "", ErrSizeLimit
 	}
-	content, err := os.ReadFile(resolved)
+	content, err := io.ReadAll(io.LimitReader(file, int64(t.Policy.MaxFileBytes)+1))
 	if err != nil {
 		return "", err
+	}
+	if len(content) > t.Policy.MaxFileBytes {
+		return "", ErrSizeLimit
 	}
 	return string(content), nil
 }
@@ -109,6 +118,10 @@ func (t Toolset) Read(path string) (string, error) {
 func (t Toolset) Search(query string, maxResults int) ([]string, error) {
 	if err := t.allow(agentconfig.ToolFileSearch, false); err != nil {
 		return nil, err
+	}
+	rootInfo, err := os.Lstat(filepath.Clean(t.Root))
+	if err != nil || rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return nil, ErrUnsafePath
 	}
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -118,7 +131,7 @@ func (t Toolset) Search(query string, maxResults int) ([]string, error) {
 		maxResults = 50
 	}
 	matches := make([]string, 0)
-	err := filepath.WalkDir(t.Root, func(path string, entry fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(t.Root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -128,18 +141,17 @@ func (t Toolset) Search(query string, maxResults int) ([]string, error) {
 		if entry.IsDir() {
 			return nil
 		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() || info.Size() > int64(t.Policy.MaxFileBytes) {
+		if entry.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
-		file, err := os.Open(path)
+		file, info, err := openRegularFile(path)
 		if err != nil {
 			return nil
 		}
 		defer file.Close()
+		if !info.Mode().IsRegular() || info.Size() > int64(t.Policy.MaxFileBytes) {
+			return nil
+		}
 		scanner := bufio.NewScanner(io.LimitReader(file, int64(t.Policy.MaxFileBytes)))
 		line := 0
 		for scanner.Scan() {
@@ -179,7 +191,18 @@ func (t Toolset) Create(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(resolved, []byte(content), 0o644)
+	if err := rejectSymlinkEscape(t.Root, filepath.Dir(resolved), false); err != nil {
+		return err
+	}
+	file, err := createRegularFile(resolved, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write([]byte(content)); err != nil {
+		file.Close()
+		return err
+	}
+	return file.Close()
 }
 
 func (t Toolset) Patch(path, expected, replacement string) error {
@@ -193,7 +216,12 @@ func (t Toolset) Patch(path, expected, replacement string) error {
 	if err != nil {
 		return err
 	}
-	content, err := os.ReadFile(resolved)
+	file, info, err := openRegularFile(resolved)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, int64(t.Policy.MaxFileBytes)+1))
 	if err != nil {
 		return err
 	}
@@ -207,9 +235,33 @@ func (t Toolset) Patch(path, expected, replacement string) error {
 	if len(updated) > t.Policy.MaxFileBytes {
 		return ErrSizeLimit
 	}
-	temporary := resolved + ".orkoda-tmp"
-	if err := os.WriteFile(temporary, updated, 0o644); err != nil {
+	temporaryFile, err := os.CreateTemp(filepath.Dir(resolved), ".orkoda-patch-*")
+	if err != nil {
 		return err
+	}
+	temporary := temporaryFile.Name()
+	defer os.Remove(temporary)
+	if err := temporaryFile.Chmod(info.Mode().Perm()); err != nil {
+		temporaryFile.Close()
+		return err
+	}
+	if _, err := temporaryFile.Write(updated); err != nil {
+		temporaryFile.Close()
+		return err
+	}
+	if err := temporaryFile.Sync(); err != nil {
+		temporaryFile.Close()
+		return err
+	}
+	if err := temporaryFile.Close(); err != nil {
+		return err
+	}
+	if err := rejectSymlinkEscape(t.Root, resolved, false); err != nil {
+		return err
+	}
+	currentInfo, err := os.Lstat(resolved)
+	if err != nil || currentInfo.Mode()&os.ModeSymlink != 0 || !currentInfo.Mode().IsRegular() {
+		return ErrUnsafePath
 	}
 	return os.Rename(temporary, resolved)
 }
@@ -242,7 +294,14 @@ func (t Toolset) GitDiff(ctx context.Context) (string, error) {
 	if err := t.allow(agentconfig.ToolGitDiff, false); err != nil {
 		return "", err
 	}
-	return t.git(ctx, "diff", "--binary", "--no-ext-diff", "--no-color")
+	snapshot, err := gitstate.Capture(ctx, t.Root, t.Policy.MaxPatchBytes)
+	if err != nil {
+		if errors.Is(err, gitstate.ErrPatchTooLarge) {
+			return "", ErrSizeLimit
+		}
+		return "", err
+	}
+	return snapshot.Patch, nil
 }
 func (t Toolset) Head(ctx context.Context) (string, error) {
 	output, err := t.git(ctx, "rev-parse", "HEAD")
@@ -276,7 +335,7 @@ func (t Toolset) ChangedFiles(ctx context.Context) ([]string, error) {
 
 func (t Toolset) git(ctx context.Context, args ...string) (string, error) {
 	command := exec.CommandContext(ctx, "git", append([]string{"-C", t.Root}, args...)...)
-	command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"}
+	command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=/tmp/orkoda-home", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "LC_ALL=C"}
 	output, err := command.CombinedOutput()
 	if len(output) > t.Policy.MaxPatchBytes && t.Policy.MaxPatchBytes > 0 {
 		return "", ErrSizeLimit

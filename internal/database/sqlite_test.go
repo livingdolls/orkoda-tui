@@ -17,6 +17,9 @@ func TestOpenAndMigrate(t *testing.T) {
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("Migrate() error = %v", err)
 	}
+	if err := CheckIntegrity(ctx, db); err != nil {
+		t.Fatalf("CheckIntegrity() error = %v", err)
+	}
 
 	var journalMode string
 	if err := db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&journalMode); err != nil {
@@ -29,5 +32,22 @@ func TestOpenAndMigrate(t *testing.T) {
 	var tableName string
 	if err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'jobs'`).Scan(&tableName); err != nil {
 		t.Fatalf("find jobs table: %v", err)
+	}
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatalf("read schema version: %v", err)
+	}
+	if version != latestSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, latestSchemaVersion)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatalf("second Migrate() error = %v", err)
+	}
+	var migrationCount int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&migrationCount); err != nil {
+		t.Fatal(err)
+	}
+	if migrationCount != latestSchemaVersion {
+		t.Fatalf("migration count = %d", migrationCount)
 	}
 }

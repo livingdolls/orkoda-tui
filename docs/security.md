@@ -35,7 +35,8 @@ Trust harus diberikan secara eksplisit dan dapat dicabut.
 
 ## 3. Authentication and Authorization
 
-- Local mode mengikat daemon ke local user dan Unix socket permission.
+- Local HTTP mode binds to loopback by default and requires a mode-0600 bearer token in `.orkoda/api.token` for every `/api/v1` route. Health liveness remains public so the TUI can detect daemon availability.
+- The token may be supplied through `ORKODA_API_TOKEN`; the daemon never logs it.
 - Remote mode menggunakan short-lived access token dan refresh rotation.
 - Token disimpan di OS keychain bila tersedia.
 - Seluruh query harus project-scoped.
@@ -65,6 +66,8 @@ Minimum controls:
 - Seccomp/AppArmor profile bila tersedia.
 - Process tree termination saat cancel atau timeout.
 - Temporary home tanpa host credential.
+
+The default check runner is Docker. Host execution is an explicit development escape hatch and requires both `ORKODA_SANDBOX_MODE=host` and `ORKODA_ALLOW_UNSANDBOXED_CHECKS=true`.
 
 ## 6. Command Policy
 
@@ -105,6 +108,7 @@ Controls:
 - Direct push ke protected branch ditolak secara default.
 - Force push disabled.
 - Publication mengikat approval, execution version, base SHA, dan patch checksum.
+- Publication rechecks the current workspace snapshot, uses a local commit marker for idempotent retry, and refuses a changed or stale workspace.
 - Perubahan diff setelah approval membatalkan approval.
 - Commit signing dapat diaktifkan melalui credential broker.
 - Pull request dibuat draft pada MVP.
@@ -120,7 +124,7 @@ Approval menyimpan:
 - Base commit SHA.
 - Patch checksum.
 - Check result snapshot.
-- Override reason bila ada.
+- Override reason bila ada. A failed-check override requires the same explicit human acknowledgement and non-empty reason; publication reuses that persisted acknowledgement.
 
 ## 11. Queue and Event Security
 

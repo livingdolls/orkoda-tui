@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/livingdolls/orkoda-tui/internal/execution"
+	"github.com/livingdolls/orkoda-tui/internal/gitstate"
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
 	"github.com/livingdolls/orkoda-tui/internal/workflowjob"
 	"github.com/livingdolls/orkoda-tui/internal/workspace"
@@ -113,6 +113,9 @@ func (h *Handler) handle(ctx context.Context, queueJob jobqueue.Job, payload dis
 	if job.Status != workflowjob.StatusChecking {
 		return nil
 	}
+	if job.CancellationRequested {
+		return context.Canceled
+	}
 	if job.ExecutionVersion < 1 {
 		return fmt.Errorf("workflow execution version is not initialized")
 	}
@@ -149,6 +152,16 @@ func (h *Handler) handle(ctx context.Context, queueJob jobqueue.Job, payload dis
 	if err != nil {
 		return err
 	}
+	if len(profiles) == 0 {
+		return ErrNoProfiles
+	}
+	baseline, err := gitstate.Capture(ctx, workspaceItem.Path, gitstate.DefaultMaxPatchBytes)
+	if err != nil {
+		return err
+	}
+	if job.BaseCommitSHA != "" && baseline.Head != job.BaseCommitSHA {
+		return fmt.Errorf("workspace HEAD %s does not match workflow base commit %s", baseline.Head, job.BaseCommitSHA)
+	}
 
 	lease, err := h.workspaces.AcquireWrite(ctx, workspaceItem.ID, h.workerID+":checks", h.leaseTTL)
 	if err != nil {
@@ -164,10 +177,18 @@ func (h *Handler) handle(ctx context.Context, queueJob jobqueue.Job, payload dis
 		}
 	}()
 
-	leaseCtx, cancelLease := context.WithCancel(ctx)
+	leaseCtx, cancelLease := workflowjob.WithWallClock(ctx, job)
 	defer cancelLease()
 	renewErrors := make(chan error, 1)
 	go h.renewLease(leaseCtx, lease.Workspace.ID, lease.Token, cancelLease, renewErrors)
+	cancellationErrors := make(chan error, 1)
+	cancellationDone := workflowjob.StartCancellationWatcher(
+		leaseCtx, job.ID, 500*time.Millisecond, h.workflows.Get, cancelLease, cancellationErrors,
+	)
+	defer func() {
+		cancelLease()
+		<-cancellationDone
+	}()
 
 	run, err = h.checks.Start(leaseCtx, run.ID, profiles)
 	if err != nil {
@@ -202,6 +223,13 @@ func (h *Handler) handle(ctx context.Context, queueJob jobqueue.Job, payload dis
 			return err
 		}
 		result := h.runner.Run(leaseCtx, workspaceItem.Path, profile)
+		if cancellation, ok := takeCancellationError(cancellationErrors); ok {
+			if errors.Is(cancellation, context.Canceled) {
+				h.cancelRun(context.WithoutCancel(ctx), run.ID, "check run cancelled")
+			}
+			_ = h.checks.CancelStep(context.WithoutCancel(ctx), step.ID, cancellation.Error())
+			return cancellation
+		}
 		if result.Cancelled || leaseCtx.Err() != nil {
 			_ = h.checks.CancelStep(
 				context.WithoutCancel(ctx),
@@ -211,7 +239,26 @@ func (h *Handler) handle(ctx context.Context, queueJob jobqueue.Job, payload dis
 			if err := leaseContextError(leaseCtx, renewErrors); err != nil {
 				return err
 			}
+			if err := leaseContextError(leaseCtx, cancellationErrors); err != nil {
+				if errors.Is(err, context.Canceled) && ctx.Err() == nil {
+					h.cancelRun(context.WithoutCancel(ctx), run.ID, "check run cancelled")
+				}
+				return err
+			}
 			return context.Canceled
+		}
+		if err := leaseContextError(leaseCtx, cancellationErrors); err != nil {
+			if errors.Is(err, context.Canceled) && ctx.Err() == nil {
+				h.cancelRun(context.WithoutCancel(ctx), run.ID, "check run cancelled")
+			}
+			return err
+		}
+		after, snapshotErr := gitstate.Capture(leaseCtx, workspaceItem.Path, gitstate.DefaultMaxPatchBytes)
+		if snapshotErr != nil {
+			return snapshotErr
+		}
+		if after.Head != baseline.Head || after.Checksum != baseline.Checksum {
+			return fmt.Errorf("check profile %q modified the workspace", profile.Name)
 		}
 		if err := h.checks.CompleteStep(context.WithoutCancel(ctx), step.ID, result); err != nil {
 			return err
@@ -349,28 +396,20 @@ func (h *Handler) renewLease(
 }
 
 func (h *Handler) releaseLease(ctx context.Context, lease workspace.Lease) error {
-	head, dirty, err := inspectWorkspace(lease.Workspace.Path)
+	snapshot, err := gitstate.Capture(ctx, lease.Workspace.Path, gitstate.DefaultMaxPatchBytes)
 	if err != nil {
 		return err
 	}
-	_, err = h.workspaces.ReleaseWrite(ctx, lease.Workspace.ID, lease.Token, head, dirty)
+	_, err = h.workspaces.ReleaseWrite(ctx, lease.Workspace.ID, lease.Token, snapshot.Head, snapshot.Dirty)
 	return err
 }
 
 func inspectWorkspace(root string) (string, bool, error) {
-	headCommand := exec.Command("git", "-C", root, "rev-parse", "HEAD")
-	headCommand.Env = constrainedEnvironment()
-	headOutput, err := headCommand.Output()
+	snapshot, err := gitstate.Capture(context.Background(), root, gitstate.DefaultMaxPatchBytes)
 	if err != nil {
-		return "", false, fmt.Errorf("read checks workspace HEAD: %w", err)
+		return "", false, err
 	}
-	statusCommand := exec.Command("git", "-C", root, "status", "--porcelain=v1", "--untracked-files=all")
-	statusCommand.Env = constrainedEnvironment()
-	statusOutput, err := statusCommand.Output()
-	if err != nil {
-		return "", false, fmt.Errorf("read checks workspace status: %w", err)
-	}
-	return strings.TrimSpace(string(headOutput)), len(statusOutput) > 0, nil
+	return snapshot.Head, snapshot.Dirty, nil
 }
 
 func leaseContextError(ctx context.Context, renewErrors <-chan error) error {
@@ -380,6 +419,26 @@ func leaseContextError(ctx context.Context, renewErrors <-chan error) error {
 	default:
 	}
 	return ctx.Err()
+}
+
+func takeCancellationError(cancellationErrors <-chan error) (error, bool) {
+	select {
+	case err := <-cancellationErrors:
+		if err == nil {
+			return nil, false
+		}
+		return err, true
+	default:
+		return nil, false
+	}
+}
+
+func (h *Handler) cancelRun(ctx context.Context, runID, message string) {
+	if store, ok := h.checks.(interface {
+		Cancel(context.Context, string, string) (Run, error)
+	}); ok {
+		_, _ = store.Cancel(ctx, runID, message)
+	}
 }
 
 func (h *Handler) record(

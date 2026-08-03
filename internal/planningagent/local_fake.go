@@ -137,14 +137,17 @@ func extractNormalizedPlan(request llm.Request) (planningcontext.NormalizedPlan,
 		if message.Role != llm.RoleUser {
 			continue
 		}
-		marker := "Create a safe, testable implementation plan for this context:\n"
+		marker := "<UNTRUSTED_PLANNING_CONTEXT>\n"
 		position := strings.Index(message.Content, marker)
 		if position < 0 {
 			continue
 		}
 		payload := message.Content[position+len(marker):]
-		if answersPosition := strings.Index(payload, "\n\nResolved questions supplied by the user:\n"); answersPosition >= 0 {
+		if answersPosition := strings.Index(payload, "\n\n<UNTRUSTED_RESOLVED_QUESTIONS>"); answersPosition >= 0 {
 			payload = payload[:answersPosition]
+		}
+		if endPosition := strings.Index(payload, "\n</UNTRUSTED_PLANNING_CONTEXT>"); endPosition >= 0 {
+			payload = payload[:endPosition]
 		}
 		var normalized planningcontext.NormalizedPlan
 		if err := json.Unmarshal([]byte(payload), &normalized); err != nil {

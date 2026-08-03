@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -159,20 +160,23 @@ func (s *FileScanner) Scan(ctx context.Context, rootPath, headSHA string) (Snaps
 			important.Add(relativePath)
 		}
 
-		fileInfo, err := entry.Info()
+		if !shouldReadForMetadata(relativePath) {
+			return nil
+		}
+
+		file, fileInfo, err := openRepositoryFile(path)
 		if err != nil {
 			skippedFiles++
 			return nil
 		}
-		if fileInfo.Size() > maxReadSize || !shouldReadForMetadata(relativePath) {
-			if fileInfo.Size() > maxReadSize && shouldReadForMetadata(relativePath) {
-				skippedFiles++
-			}
+		if fileInfo.Size() > maxReadSize {
+			_ = file.Close()
+			skippedFiles++
 			return nil
 		}
-
-		content, err := os.ReadFile(path)
-		if err != nil {
+		content, err := io.ReadAll(io.LimitReader(file, maxReadSize+1))
+		_ = file.Close()
+		if err != nil || int64(len(content)) > maxReadSize {
 			skippedFiles++
 			return nil
 		}

@@ -1,4 +1,4 @@
-import { daemonBaseURL } from "./daemon"
+import { daemonBaseURL, requestWithDaemonAuth } from "./daemon"
 
 export type CheckStatus = "PENDING" | "RUNNING" | "PASSED" | "FAILED" | "CANCELLED"
 
@@ -44,7 +44,7 @@ async function request<T>(path: string, fetcher: CheckFetch): Promise<T> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 5000)
   try {
-    const response = await fetcher(`${daemonBaseURL}${path}`, {
+    const response = await requestWithDaemonAuth(fetcher, `${daemonBaseURL}${path}`, {
       method: "GET",
       headers: { accept: "application/json" },
       signal: controller.signal,

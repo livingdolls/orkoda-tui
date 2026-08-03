@@ -109,9 +109,13 @@ The durable handler accepts `QUEUED` and crash-resume `EXECUTING` states.
 - A final queue attempt failure moves the workflow to `FAILED`.
 - A non-final failure remains retryable through the durable queue.
 
-## Scripted runner
+## Executor runner
 
-The daemon currently registers a deterministic read-only `ScriptedRunner`. It records `git_status` and `git_diff`, creates a checkpoint, and advances the workflow to checks. This validates durability and security boundaries before an autonomous LLM Executor loop is introduced.
+The daemon runs the policy-bounded LLM Executor loop. It records every tool call
+and iteration, exposes only the allowlisted workspace tools, and persists the
+final patch checkpoint. The checkpoint patch is also stored under the local
+artifact root when artifact storage is enabled. A failed or cancelled stage is
+durable and can be retried without silently reusing a changed snapshot.
 
 ## Read-only API
 

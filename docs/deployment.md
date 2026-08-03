@@ -52,6 +52,8 @@ Daemon menjalankan migration idempotent pada startup, sehingga `make migrate` be
 ├── orkoda.db-shm
 ├── artifacts/
 ├── workspaces/
+├── api.token
+├── orkoda.db.bak
 └── logs/
 ```
 
@@ -96,7 +98,7 @@ Readiness endpoint dapat ditambahkan ketika repository, provider, dan sandbox de
 
 ### Backup
 
-Saat daemon aktif dan WAL digunakan, backup harus menggunakan SQLite backup API atau checkpoint yang aman. Jangan hanya menyalin `orkoda.db` dan mengabaikan file `-wal` serta `-shm`.
+Sebelum migration startup, daemon melakukan WAL checkpoint lalu membuat backup atomik `orkoda.db.bak` dengan permission `0600`. Jangan menyalin database aktif secara manual tanpa checkpoint.
 
 ### Recovery
 
@@ -115,7 +117,7 @@ Saat daemon aktif dan WAL digunakan, backup harus menggunakan SQLite backup API 
 6. JSON Schema compatibility test.
 7. Dependency dan secret scan.
 8. Build daemon dan TUI artifact.
-9. Sandbox security suite ketika sandbox sudah tersedia.
+9. Build optional Docker sandbox image dan jalankan sandbox security suite ketika Docker tersedia.
 
 CI tidak menjalankan service container.
 
@@ -137,6 +139,11 @@ ORKODA_DATABASE_PATH
 ORKODA_ARTIFACT_DIR
 ORKODA_API_HOST
 ORKODA_API_PORT
+ORKODA_API_TOKEN
+ORKODA_API_TOKEN_FILE
+ORKODA_SANDBOX_MODE=docker
+ORKODA_SANDBOX_IMAGE=orkoda-sandbox:local
+ORKODA_ALLOW_UNSANDBOXED_CHECKS=false
 ORKODA_SHUTDOWN_TIMEOUT
 ```
 

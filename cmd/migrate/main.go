@@ -23,6 +23,9 @@ func run() error {
 	}
 
 	ctx := context.Background()
+	if err := database.Backup(ctx, cfg.DatabasePath); err != nil {
+		return err
+	}
 	db, err := database.Open(ctx, cfg.DatabasePath)
 	if err != nil {
 		return err
@@ -30,6 +33,9 @@ func run() error {
 	defer db.Close()
 
 	if err := database.Migrate(ctx, db); err != nil {
+		return err
+	}
+	if err := database.CheckIntegrity(ctx, db); err != nil {
 		return err
 	}
 	slog.Info("sqlite migrations completed", "path", cfg.DatabasePath)

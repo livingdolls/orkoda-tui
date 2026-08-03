@@ -138,6 +138,9 @@ func (h *Handler) handle(
 	if job.Status != workflowjob.StatusReviewing {
 		return "", nil
 	}
+	if job.CancellationRequested {
+		return "", context.Canceled
+	}
 	if job.ExecutionVersion < 1 {
 		return "", fmt.Errorf("workflow execution version is not initialized")
 	}
@@ -229,9 +232,26 @@ func (h *Handler) handle(
 		"model":              reviewerConfig.Model,
 		"changed_file_count": len(reviewContext.ChangedFiles),
 	}, time.Now().UTC())
-	response, err := h.gateway.Complete(ctx, reviewerConfig.Provider, request)
+	reviewCtx, cancelReview := workflowjob.WithWallClock(ctx, job)
+	defer cancelReview()
+	cancellationErrors := make(chan error, 1)
+	cancellationDone := workflowjob.StartCancellationWatcher(
+		reviewCtx, job.ID, 500*time.Millisecond, h.workflows.Get, cancelReview, cancellationErrors,
+	)
+	defer func() {
+		cancelReview()
+		<-cancellationDone
+	}()
+	response, err := h.gateway.Complete(reviewCtx, reviewerConfig.Provider, request)
 	if err != nil {
 		return run.ID, err
+	}
+	select {
+	case cancellation := <-cancellationErrors:
+		if cancellation != nil {
+			return run.ID, cancellation
+		}
+	default:
 	}
 	result, err := ParseResponse(response, validation)
 	if err != nil {

@@ -65,6 +65,16 @@ func TestCommandRunnerRejectsUnknownProfileBeforeExecution(t *testing.T) {
 	}
 }
 
+func TestDockerArgsApplySandboxRestrictions(t *testing.T) {
+	args := dockerArgs("/tmp/workspace", "orkoda:test", []string{"go", "test", "./..."})
+	joined := strings.Join(args, " ")
+	for _, required := range []string{"--network=none", "--read-only", "--cap-drop=ALL", "--pids-limit=128", "--memory=1g", "--cpus=2", "--tmpfs", "orkoda:test", "go test ./..."} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("Docker args missing %q: %v", required, args)
+		}
+	}
+}
+
 func prepareRunnerHelper(t *testing.T, mode string) string {
 	t.Helper()
 	root := t.TempDir()

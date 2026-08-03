@@ -87,6 +87,7 @@ func writeApprovalError(c *gin.Context, err error) {
 		writeError(c, http.StatusBadRequest, err.Error())
 	case errors.Is(err, approval.ErrSnapshotConflict),
 		errors.Is(err, approval.ErrBindingMismatch),
+		errors.Is(err, approval.ErrChecksNotPassed),
 		errors.Is(err, approval.ErrReviewOverrideRequired),
 		errors.Is(err, approval.ErrWorkflowNotAwaitingDecision),
 		errors.Is(err, workflowjob.ErrVersionConflict),

@@ -17,6 +17,8 @@ const (
 	DefaultOutputLimit    = 1024 * 1024
 )
 
+var ErrNoProfiles = errors.New("no supported required checks detected")
+
 type Profile struct {
 	Name               string        `json:"name"`
 	Command            []string      `json:"command"`
@@ -48,8 +50,8 @@ func (d Detector) Detect(root string) ([]Profile, error) {
 	if root == "" || !filepath.IsAbs(root) {
 		return nil, fmt.Errorf("%w: absolute workspace path is required", ErrInvalid)
 	}
-	info, err := os.Stat(root)
-	if err != nil || !info.IsDir() {
+	info, err := os.Lstat(root)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return nil, fmt.Errorf("%w: workspace path is not a directory", ErrInvalid)
 	}
 	if d.CommandTimeout <= 0 {
@@ -92,6 +94,9 @@ func (d Detector) Detect(root string) ([]Profile, error) {
 		if err := validateProfile(profile); err != nil {
 			return nil, err
 		}
+	}
+	if len(profiles) == 0 {
+		return nil, fmt.Errorf("%w in workspace", ErrNoProfiles)
 	}
 	return profiles, nil
 }
@@ -218,6 +223,12 @@ func collectGoFiles(root string, limit int) ([]string, error) {
 		if path == root {
 			return nil
 		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if entry.IsDir() {
 			switch entry.Name() {
 			case ".git", ".orkoda", "vendor", "node_modules", "dist", "build":
@@ -245,6 +256,6 @@ func collectGoFiles(root string, limit int) ([]string, error) {
 }
 
 func regularFile(path string) bool {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	return err == nil && info.Mode().IsRegular()
 }

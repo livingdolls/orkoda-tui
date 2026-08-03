@@ -16,6 +16,8 @@ func init() {
 			note TEXT NOT NULL DEFAULT '',
 			review_override INTEGER NOT NULL DEFAULT 0 CHECK (review_override IN (0,1)),
 			reviewer_verdict TEXT NOT NULL CHECK (reviewer_verdict IN ('APPROVE','REQUEST_REVISION')),
+			check_status TEXT NOT NULL DEFAULT '',
+			failed_steps INTEGER NOT NULL DEFAULT 0 CHECK (failed_steps >= 0),
 			workflow_version_before INTEGER NOT NULL CHECK (workflow_version_before > 0),
 			workflow_version_after INTEGER,
 			revision_count_before INTEGER NOT NULL CHECK (revision_count_before >= 0),

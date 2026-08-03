@@ -1,4 +1,4 @@
-import { daemonBaseURL } from "./daemon"
+import { daemonBaseURL, requestWithDaemonAuth } from "./daemon"
 import type { WorkflowJob } from "./workflow-jobs"
 
 export type ApprovalKind = "APPROVE" | "REQUEST_REVISION" | "REJECT"
@@ -49,7 +49,7 @@ async function request<T>(path: string, init: RequestInit, fetcher: ApprovalFetc
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 5000)
   try {
-    const response = await fetcher(`${daemonBaseURL}${path}`, {
+    const response = await requestWithDaemonAuth(fetcher, `${daemonBaseURL}${path}`, {
       ...init,
       headers: {
         accept: "application/json",

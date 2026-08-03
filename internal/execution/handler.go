@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/livingdolls/orkoda-tui/internal/agentconfig"
+	"github.com/livingdolls/orkoda-tui/internal/artifact"
+	"github.com/livingdolls/orkoda-tui/internal/gitstate"
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
 	"github.com/livingdolls/orkoda-tui/internal/workflowjob"
 	"github.com/livingdolls/orkoda-tui/internal/workspace"
@@ -57,6 +59,7 @@ type Handler struct {
 	leaseTTL        time.Duration
 	defaultProvider string
 	defaultModel    string
+	artifactStore   artifact.Store
 }
 
 func NewHandler(
@@ -70,6 +73,7 @@ func NewHandler(
 	leaseTTL time.Duration,
 	defaultProvider string,
 	defaultModel string,
+	artifactStores ...artifact.Store,
 ) (*Handler, error) {
 	if workflows == nil || workspaces == nil || settings == nil || executions == nil || runner == nil {
 		return nil, fmt.Errorf("workflow, workspace, settings, execution, and runner dependencies are required")
@@ -77,11 +81,16 @@ func NewHandler(
 	if strings.TrimSpace(workerID) == "" || leaseTTL <= 0 {
 		return nil, fmt.Errorf("worker ID and positive write lease TTL are required")
 	}
+	var artifactStore artifact.Store
+	if len(artifactStores) > 0 {
+		artifactStore = artifactStores[0]
+	}
 	return &Handler{
 		workflows: workflows, workspaces: workspaces, settings: settings,
 		executions: executions, runner: runner, recorder: recorder,
 		workerID: workerID, leaseTTL: leaseTTL,
 		defaultProvider: defaultProvider, defaultModel: defaultModel,
+		artifactStore: artifactStore,
 	}, nil
 }
 
@@ -107,6 +116,9 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 	}
 	if job.Status != workflowjob.StatusQueued && job.Status != workflowjob.StatusExecuting {
 		return nil
+	}
+	if job.CancellationRequested {
+		return context.Canceled
 	}
 
 	job, err = h.ensureExecuting(ctx, job, payload, queueJob.ID)
@@ -161,14 +173,27 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 	released := false
 	defer func() {
 		if !released {
-			_ = h.workspaces.Release(context.WithoutCancel(ctx), item.ID, lease.Token)
+			persistCtx := context.WithoutCancel(ctx)
+			if snapshot, snapshotErr := gitstate.Capture(persistCtx, item.Path, policy.MaxPatchBytes); snapshotErr == nil {
+				_, _ = h.workspaces.ReleaseWrite(persistCtx, item.ID, lease.Token, snapshot.Head, snapshot.Dirty)
+			} else {
+				_ = h.workspaces.Release(persistCtx, item.ID, lease.Token)
+			}
 		}
 	}()
 
-	runCtx, cancel := context.WithCancel(ctx)
+	runCtx, cancel := workflowjob.WithWallClock(ctx, job)
 	defer cancel()
 	leaseErr := make(chan error, 1)
 	go h.renewLease(runCtx, item.ID, lease.Token, cancel, leaseErr)
+	cancellationErr := make(chan error, 1)
+	cancellationDone := workflowjob.StartCancellationWatcher(
+		runCtx, job.ID, 500*time.Millisecond, h.workflows.Get, cancel, cancellationErr,
+	)
+	defer func() {
+		cancel()
+		<-cancellationDone
+	}()
 
 	executionItem, err = h.executions.Start(ctx, executionItem.ID)
 	if err != nil {
@@ -187,6 +212,7 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 	}, time.Now().UTC())
 
 	runErr := h.runner.Run(runCtx, RunContext{Execution: executionItem, Workspace: item, Tools: tools})
+	durableCancelled := false
 	select {
 	case renewalErr := <-leaseErr:
 		if renewalErr != nil {
@@ -194,29 +220,77 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 		}
 	default:
 	}
+	select {
+	case cancellation := <-cancellationErr:
+		if cancellation != nil {
+			durableCancelled = errors.Is(cancellation, context.Canceled)
+			runErr = cancellation
+		}
+	default:
+	}
 	if runErr != nil {
-		_ = h.executions.Fail(context.WithoutCancel(ctx), executionItem.ID, "EXECUTOR_FAILED", runErr.Error())
+		persistCtx := context.WithoutCancel(ctx)
+		if durableCancelled {
+			_ = h.executions.Cancel(persistCtx, executionItem.ID, "execution cancelled")
+		} else if ctx.Err() != nil {
+			// The daemon is shutting down. Leave the durable execution RUNNING so
+			// stale-job recovery can resume it on the next startup.
+			return runErr
+		} else {
+			_ = h.executions.Fail(persistCtx, executionItem.ID, "EXECUTOR_FAILED", runErr.Error())
+		}
+		if durableCancelled {
+			return runErr
+		}
 		return h.failWorkflowOnLastAttempt(context.WithoutCancel(ctx), job, queueJob, runErr)
 	}
 
-	patch, err := tools.toolset.GitDiff(ctx)
-	if err != nil {
-		return err
-	}
-	if policy.MaxPatchBytes > 0 && len([]byte(patch)) > policy.MaxPatchBytes {
+	snapshot, err := gitstate.Capture(ctx, item.Path, policy.MaxPatchBytes)
+	if errors.Is(err, gitstate.ErrPatchTooLarge) {
 		return ErrSizeLimit
 	}
-	changed, err := tools.toolset.ChangedFiles(ctx)
 	if err != nil {
 		return err
 	}
-	head, err := tools.toolset.Head(ctx)
-	if err != nil {
-		return err
+	if job.BaseCommitSHA != "" && snapshot.Head != job.BaseCommitSHA {
+		return fmt.Errorf("workspace HEAD %s does not match workflow base commit %s", snapshot.Head, job.BaseCommitSHA)
 	}
-	checkpoint, err := h.executions.SaveCheckpoint(
-		ctx, executionItem.ID, job.BaseCommitSHA, head, patch, changed,
-	)
+	select {
+	case cancellation := <-cancellationErr:
+		if cancellation != nil {
+			if errors.Is(cancellation, context.Canceled) {
+				_ = h.executions.Cancel(context.WithoutCancel(ctx), executionItem.ID, "execution cancelled")
+				return cancellation
+			}
+			_ = h.executions.Fail(context.WithoutCancel(ctx), executionItem.ID, "EXECUTOR_FAILED", cancellation.Error())
+			return h.failWorkflowOnLastAttempt(context.WithoutCancel(ctx), job, queueJob, cancellation)
+		}
+	default:
+	}
+	if err := runCtx.Err(); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		_ = h.executions.Fail(context.WithoutCancel(ctx), executionItem.ID, "EXECUTOR_FAILED", err.Error())
+		return h.failWorkflowOnLastAttempt(context.WithoutCancel(ctx), job, queueJob, err)
+	}
+	artifactKey := ""
+	if h.artifactStore != nil {
+		artifactKey = fmt.Sprintf("workflows/%s/executions/%d/patch.diff", job.ID, executionItem.ExecutionVersion)
+		if err := h.artifactStore.Save(ctx, artifactKey, strings.NewReader(snapshot.Patch)); err != nil {
+			return fmt.Errorf("save execution patch artifact: %w", err)
+		}
+	}
+	var checkpoint Checkpoint
+	if artifactKey == "" {
+		checkpoint, err = h.executions.SaveCheckpoint(
+			ctx, executionItem.ID, job.BaseCommitSHA, snapshot.Head, snapshot.Patch, snapshot.ChangedFiles,
+		)
+	} else {
+		checkpoint, err = h.executions.SaveCheckpointArtifact(
+			ctx, executionItem.ID, job.BaseCommitSHA, snapshot.Head, snapshot.Patch, snapshot.ChangedFiles, artifactKey,
+		)
+	}
 	if err != nil {
 		return err
 	}
@@ -224,7 +298,7 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 	if err != nil {
 		return err
 	}
-	if _, err := h.workspaces.ReleaseWrite(ctx, item.ID, lease.Token, head, len(changed) > 0); err != nil {
+	if _, err := h.workspaces.ReleaseWrite(ctx, item.ID, lease.Token, snapshot.Head, snapshot.Dirty); err != nil {
 		return err
 	}
 	released = true
@@ -232,7 +306,7 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 		"execution_id":       executionItem.ID,
 		"tool_calls":         executionItem.ToolCalls,
 		"patch_checksum":     checkpoint.PatchChecksum,
-		"changed_file_count": len(changed),
+		"changed_file_count": len(snapshot.ChangedFiles),
 	}, time.Now().UTC())
 	return h.finishWorkflow(ctx, job, executionItem, queueJob.ID)
 }

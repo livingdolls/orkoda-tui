@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -58,5 +59,20 @@ func TestLocalStoreRejectsTraversal(t *testing.T) {
 		if !errors.Is(err, ErrInvalidKey) {
 			t.Fatalf("Save(%q) error = %v", key, err)
 		}
+	}
+}
+
+func TestLocalStoreRejectsSymlinkedKeyPath(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	store, err := NewLocalStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(context.Background(), "escape/secret.txt", strings.NewReader("secret")); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("Save() through symlink error = %v", err)
 	}
 }

@@ -8,11 +8,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/livingdolls/orkoda-tui/internal/activity"
 	"github.com/livingdolls/orkoda-tui/internal/agentconfig"
 	"github.com/livingdolls/orkoda-tui/internal/approval"
+	"github.com/livingdolls/orkoda-tui/internal/artifact"
 	"github.com/livingdolls/orkoda-tui/internal/checks"
 	"github.com/livingdolls/orkoda-tui/internal/config"
 	"github.com/livingdolls/orkoda-tui/internal/database"
@@ -20,6 +23,7 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/execution"
 	"github.com/livingdolls/orkoda-tui/internal/gitrepo"
 	"github.com/livingdolls/orkoda-tui/internal/httpapi"
+	"github.com/livingdolls/orkoda-tui/internal/instance"
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
 	"github.com/livingdolls/orkoda-tui/internal/llm"
 	"github.com/livingdolls/orkoda-tui/internal/llm/openaicompat"
@@ -27,6 +31,7 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/planningcontext"
 	"github.com/livingdolls/orkoda-tui/internal/plans"
 	"github.com/livingdolls/orkoda-tui/internal/projects"
+	"github.com/livingdolls/orkoda-tui/internal/publication"
 	"github.com/livingdolls/orkoda-tui/internal/repositorysummary"
 	"github.com/livingdolls/orkoda-tui/internal/reviewer"
 	"github.com/livingdolls/orkoda-tui/internal/scheduler"
@@ -51,6 +56,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	cfg.APIToken, err = config.EnsureAPIToken(cfg.APITokenFile, cfg.APIToken)
+	if err != nil {
+		return err
+	}
+	instanceLock, err := instance.Acquire(filepath.Join(cfg.DataDir, "daemon.lock"))
+	if err != nil {
+		return err
+	}
+	defer instanceLock.Release()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
@@ -60,12 +74,22 @@ func run() error {
 	runtimeCtx, stopRuntime := context.WithCancel(signalCtx)
 	defer stopRuntime()
 
+	if err := database.Backup(runtimeCtx, cfg.DatabasePath); err != nil {
+		return err
+	}
 	db, err := database.Open(runtimeCtx, cfg.DatabasePath)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 	if err := database.Migrate(runtimeCtx, db); err != nil {
+		return err
+	}
+	if err := database.CheckIntegrity(runtimeCtx, db); err != nil {
+		return err
+	}
+	artifactStore, err := artifact.NewLocalStore(cfg.ArtifactDir)
+	if err != nil {
 		return err
 	}
 	logger.Info("sqlite ready", "path", cfg.DatabasePath)
@@ -238,6 +262,7 @@ func run() error {
 		workflowJobRepository,
 		executionRepository,
 		reviewRepository,
+		checkRepository,
 		activityRecorder,
 	)
 	if err != nil {
@@ -278,9 +303,16 @@ func run() error {
 		cfg.WorkspaceLeaseTTL,
 		defaultProvider,
 		defaultModel,
+		artifactStore,
 	)
 	if err != nil {
 		return err
+	}
+	var checkRunner checks.Runner
+	if cfg.SandboxMode == "host" {
+		checkRunner = checks.CommandRunner{}
+	} else {
+		checkRunner = checks.NewDockerRunner(cfg.SandboxImage)
 	}
 	checkHandler, err := checks.NewHandler(
 		workflowJobRepository,
@@ -288,7 +320,7 @@ func run() error {
 		workspaceRepository,
 		checkRepository,
 		checks.NewDetector(),
-		checks.CommandRunner{},
+		checkRunner,
 		activityRecorder,
 		workerID,
 		cfg.WorkspaceLeaseTTL,
@@ -311,6 +343,23 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	publicationRepository, err := publication.NewRepository(db)
+	if err != nil {
+		return err
+	}
+	publicationHandler, err := publication.NewHandler(
+		workflowJobRepository,
+		workspaceRepository,
+		approvalRepository,
+		checkRepository,
+		publicationRepository,
+		activityRecorder,
+		workerID,
+		cfg.WorkspaceLeaseTTL,
+	)
+	if err != nil {
+		return err
+	}
 	logger.Info(
 		"workspace runtime ready",
 		"root", workspaceRepository.Root(),
@@ -329,6 +378,7 @@ func run() error {
 			"workflow.execute":           executeHandler.HandleDurable,
 			"workflow.run_checks":        checkHandler.HandleDurable,
 			"workflow.review":            reviewHandler.HandleDurable,
+			"workflow.publish":           publicationHandler.HandleDurable,
 		},
 		activityRecorder,
 		logger,
@@ -359,9 +409,14 @@ func run() error {
 				LLMPolicy:           llmGateway,
 				DefaultLLMProvider:  defaultProvider,
 				DefaultLLMModel:     defaultModel,
+				APIToken:            cfg.APIToken,
 			},
 		),
-		ReadHeaderTimeout: 5 * cfg.ShutdownTimeout / 10,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    64 * 1024,
 	}
 
 	results := make(chan componentResult, 2)

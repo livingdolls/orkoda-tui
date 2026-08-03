@@ -1,4 +1,4 @@
-import { daemonBaseURL } from "./daemon"
+import { daemonBaseURL, requestWithDaemonAuth } from "./daemon"
 
 export type LLMProviderInfo = {
   name: string
@@ -54,7 +54,7 @@ async function requestLLMData<T>(path: string, fetcher: LLMProviderFetch): Promi
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10000)
   try {
-    const response = await fetcher(`${daemonBaseURL}${path}`, {
+    const response = await requestWithDaemonAuth(fetcher, `${daemonBaseURL}${path}`, {
       method: "GET",
       headers: { accept: "application/json" },
       signal: controller.signal,

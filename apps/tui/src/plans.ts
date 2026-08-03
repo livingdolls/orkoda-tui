@@ -1,4 +1,4 @@
-import { daemonBaseURL } from "./daemon"
+import { daemonBaseURL, requestWithDaemonAuth } from "./daemon"
 
 export type PlanStatus = "DRAFT" | "READY" | "PLANNING" | "NEEDS_INPUT" | "APPROVED" | "ARCHIVED"
 
@@ -45,7 +45,7 @@ async function request<T>(path: string, init: RequestInit, fetcher: PlanFetch): 
     if (init.body) {
       headers.set("content-type", "application/json")
     }
-    const response = await fetcher(`${daemonBaseURL}${path}`, {
+    const response = await requestWithDaemonAuth(fetcher, `${daemonBaseURL}${path}`, {
       ...init,
       headers,
       signal: controller.signal,

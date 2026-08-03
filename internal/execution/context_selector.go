@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -87,12 +88,16 @@ func (s *ContextSelector) Select(ctx context.Context, execution Execution, root,
 			break
 		}
 		path := filepath.Join(root, filepath.FromSlash(relative))
-		info, err := os.Stat(path)
-		if err != nil || !info.Mode().IsRegular() || info.Size() > int64(s.maxFileSize) {
+		file, info, err := openRegularFile(path)
+		if err != nil || info.Size() > int64(s.maxFileSize) {
 			continue
 		}
-		content, err := os.ReadFile(path)
+		content, err := io.ReadAll(io.LimitReader(file, int64(s.maxFileSize)+1))
+		_ = file.Close()
 		if err != nil {
+			continue
+		}
+		if len(content) > s.maxFileSize {
 			continue
 		}
 		value := string(content)
@@ -108,12 +113,22 @@ func (s *ContextSelector) Select(ctx context.Context, execution Execution, root,
 
 func collectContextFiles(root string, limit int) ([]string, error) {
 	root = filepath.Clean(root)
+	rootInfo, err := os.Lstat(root)
+	if err != nil || rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return nil, fmt.Errorf("scan executor context files: unsafe workspace root")
+	}
 	files := make([]string, 0, min(limit, 128))
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if path == root {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		relative, err := filepath.Rel(root, path)

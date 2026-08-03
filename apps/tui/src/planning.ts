@@ -1,4 +1,4 @@
-import { daemonBaseURL } from "./daemon"
+import { daemonBaseURL, requestWithDaemonAuth } from "./daemon"
 
 export type RepositoryCommands = Record<string, string[]>
 
@@ -71,7 +71,7 @@ async function request<T>(path: string, init: RequestInit, fetcher: PlanningFetc
   try {
     const headers = new Headers(init.headers)
     headers.set("accept", "application/json")
-    const response = await fetcher(`${daemonBaseURL}${path}`, {
+    const response = await requestWithDaemonAuth(fetcher, `${daemonBaseURL}${path}`, {
       ...init,
       headers,
       signal: controller.signal,

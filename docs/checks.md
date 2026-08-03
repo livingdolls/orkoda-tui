@@ -5,7 +5,7 @@
 ## Safety model
 
 - Commands come only from built-in profiles; the LLM, API, and user input cannot provide arbitrary commands.
-- Processes run directly without a shell.
+- Profiles are executed without a shell inside the default networkless Docker sandbox; explicit host mode uses the same allowlist and process-tree cancellation controls.
 - Network-dependent package resolution is disabled through the command environment.
 - Each command has a timeout and a bounded combined stdout/stderr buffer.
 - The workspace is protected by the existing write lease during checks.
@@ -36,4 +36,4 @@ Persistence, lease, cancellation, and dispatch failures are infrastructure failu
 
 ## Recovery
 
-A check run is unique for `(workflow_job_id, execution_version)`. Passed and failed steps are terminal. Steps interrupted while `RUNNING`, or cancelled during shutdown, are reset to `PENDING` after the next worker acquires the workspace lease.
+A check run is unique for `(workflow_job_id, execution_version)`. Passed and failed steps are terminal. Steps interrupted while `RUNNING`, or cancelled during daemon shutdown, are reset to `PENDING` after the next worker acquires the workspace lease. A durable user cancellation marks the run `CANCELLED` and is not resumed.

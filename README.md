@@ -27,7 +27,7 @@ Product and implementation documents are available in [`docs/`](./docs/README.md
 - Go 1.26+
 - Bun 1.3.14+
 
-Docker is optional and will only be needed by the future command sandbox, not by the Orkoda daemon itself.
+Docker is required for the default isolated check runner. Host check execution is available only as an explicit development escape hatch with `ORKODA_SANDBOX_MODE=host` and `ORKODA_ALLOW_UNSANDBOXED_CHECKS=true`.
 
 ## Getting started
 
@@ -43,7 +43,7 @@ Run the local daemon:
 make api
 ```
 
-The daemon also applies idempotent SQLite migrations automatically during startup. Planning, execution, checks, and review will run as background goroutines inside this same process as their workflow handlers are implemented.
+The daemon also applies idempotent SQLite migrations automatically during startup. Planning, execution, checks, review, and publication run as durable background jobs inside this same process.
 
 In another terminal, run the TUI:
 
@@ -59,6 +59,9 @@ GET /api/v1/status
 GET /api/v1/llm/providers
 GET /api/v1/llm/policy
 ```
+
+`/health/live` is public. Every `/api/v1` request requires the bearer token in
+`.orkoda/api.token` (or the token configured through `ORKODA_API_TOKEN`).
 
 ## LLM providers
 
@@ -134,6 +137,8 @@ Runtime data is stored under `.orkoda/` by default:
 ├── orkoda.db-shm
 ├── artifacts/
 ├── workspaces/
+├── api.token
+├── orkoda.db.bak
 └── logs/
 ```
 
@@ -143,6 +148,9 @@ Configuration:
 ORKODA_DATA_DIR=.orkoda
 ORKODA_DATABASE_PATH=.orkoda/orkoda.db
 ORKODA_ARTIFACT_DIR=.orkoda/artifacts
+ORKODA_API_TOKEN_FILE=.orkoda/api.token
+ORKODA_SANDBOX_MODE=docker
+ORKODA_SANDBOX_IMAGE=orkoda-sandbox:local
 ```
 
 The entire `.orkoda/` directory is ignored by Git. Run `make clean-data` only when you intentionally want to delete all local Orkoda state.
@@ -173,4 +181,4 @@ docs/                  Product, architecture, and implementation docs
 
 ## Safety boundary
 
-Orkoda must never edit a developer's source repository directly. Future execution workspaces will use Git worktrees or isolated clones tied to an immutable base commit. Commit, push, or pull-request publication remains blocked until explicit human approval.
+Orkoda never edits a developer's source repository directly. Execution uses an isolated Git worktree tied to an immutable base commit. Local commit publication remains blocked until explicit human approval; remote push and pull-request adapters remain outside the MVP.

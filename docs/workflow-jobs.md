@@ -145,7 +145,7 @@ Repository content, prompts, credentials, patches, and large execution context a
 
 The scheduler asks the SQLite queue only for job types that have registered handlers. A workflow dispatch whose capability has not been implemented remains `QUEUED` and is not consumed as an unknown job.
 
-The current daemon registers only `system.noop`. Therefore workspace, executor, checks, reviewer, and publication dispatches are persisted but intentionally remain queued until their handlers are added.
+The daemon registers `system.noop` plus the workspace preparation, executor, checks, reviewer, and publication handlers. Each stage validates the workflow version/status before doing work, and stale dispatches become successful no-ops.
 
 Future handlers must validate both:
 

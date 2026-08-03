@@ -96,6 +96,34 @@ func TestToolsetEnforcesPolicyAndLimits(t *testing.T) {
 	}
 }
 
+func TestToolsetPatchDoesNotFollowPreexistingTemporarySymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	outsidePath := filepath.Join(outside, "outside.txt")
+	if err := os.WriteFile(outsidePath, []byte("outside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "file.txt")
+	if err := os.WriteFile(path, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsidePath, path+".orkoda-tmp"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := (Toolset{Root: root, Policy: writablePolicy()}).Patch("file.txt", "before", "after"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil || string(updated) != "after\n" {
+		t.Fatalf("workspace file = %q error=%v", updated, err)
+	}
+	untouched, err := os.ReadFile(outsidePath)
+	if err != nil || string(untouched) != "outside\n" {
+		t.Fatalf("outside file = %q error=%v", untouched, err)
+	}
+}
+
 func TestGitToolsUseWorkspaceRepository(t *testing.T) {
 	root := t.TempDir()
 	commands := [][]string{

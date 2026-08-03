@@ -1,0 +1,27 @@
+# Runtime image for the built-in check profiles. The daemon still applies
+# runtime limits (network, read-only base, pids, memory, CPU, and tmpfs).
+FROM golang:1.26-bookworm
+
+COPY --from=oven/bun:1.3.14 /usr/local/bin/bun /usr/local/bin/bun
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes git ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /go/pkg/mod /tmp/go-build /tmp/orkoda-home \
+    && chmod 0777 /go/pkg/mod /tmp/go-build /tmp/orkoda-home
+
+ENV GOCACHE=/tmp/go-build \
+    GOMODCACHE=/go/pkg/mod \
+    GOPROXY=off \
+    GOSUMDB=off \
+    HOME=/tmp/orkoda-home \
+    CI=1
+
+COPY go.mod go.sum /tmp/orkoda-mod/
+RUN cd /tmp/orkoda-mod && GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org go mod download
+
+WORKDIR /workspace
+COPY package.json bun.lock /workspace/
+COPY apps/tui/package.json /workspace/apps/tui/package.json
+COPY packages/protocol/package.json /workspace/packages/protocol/package.json
+RUN bun install --frozen-lockfile --ignore-scripts

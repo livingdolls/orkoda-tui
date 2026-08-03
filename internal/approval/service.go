@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/livingdolls/orkoda-tui/internal/checks"
 	"github.com/livingdolls/orkoda-tui/internal/execution"
 	"github.com/livingdolls/orkoda-tui/internal/reviewer"
 	"github.com/livingdolls/orkoda-tui/internal/workflowjob"
@@ -16,6 +17,7 @@ var (
 	ErrWorkflowNotAwaitingDecision = errors.New("workflow is not awaiting a human decision")
 	ErrBindingMismatch             = errors.New("approval binding does not match the persisted execution snapshot")
 	ErrReviewOverrideRequired      = errors.New("review override acknowledgement is required")
+	ErrChecksNotPassed             = errors.New("approval requires all required checks to pass")
 )
 
 type WorkflowStore interface {
@@ -30,6 +32,10 @@ type ExecutionStore interface {
 
 type ReviewStore interface {
 	GetByVersion(context.Context, string, int) (reviewer.Run, error)
+}
+
+type CheckStore interface {
+	GetByVersion(context.Context, string, int) (checks.Run, error)
 }
 
 type EventRecorder interface {
@@ -55,6 +61,7 @@ type Service struct {
 	workflows  WorkflowStore
 	executions ExecutionStore
 	reviews    ReviewStore
+	checks     CheckStore
 	recorder   EventRecorder
 }
 
@@ -63,14 +70,15 @@ func NewService(
 	workflows WorkflowStore,
 	executions ExecutionStore,
 	reviews ReviewStore,
+	checkStore CheckStore,
 	recorder EventRecorder,
 ) (*Service, error) {
-	if decisions == nil || workflows == nil || executions == nil || reviews == nil {
-		return nil, fmt.Errorf("decision, workflow, execution, and review stores are required")
+	if decisions == nil || workflows == nil || executions == nil || reviews == nil || checkStore == nil {
+		return nil, fmt.Errorf("decision, workflow, execution, review, and check stores are required")
 	}
 	return &Service{
 		decisions: decisions, workflows: workflows, executions: executions,
-		reviews: reviews, recorder: recorder,
+		reviews: reviews, checks: checkStore, recorder: recorder,
 	}, nil
 }
 
@@ -111,6 +119,15 @@ func (s *Service) Decide(ctx context.Context, workflowID string, kind Kind, inpu
 	}
 	if reviewRun.Status != reviewer.StatusCompleted {
 		return Outcome{}, fmt.Errorf("%w: review is not completed", ErrBindingMismatch)
+	}
+	checkRun, err := s.checks.GetByVersion(ctx, workflowID, input.ExecutionVersion)
+	if err != nil {
+		return Outcome{}, fmt.Errorf("%w: check run is missing", ErrBindingMismatch)
+	}
+	if kind == KindApprove && checkRun.Status != checks.StatusPassed {
+		if checkRun.Status != checks.StatusFailed || !input.ReviewOverride || input.Note == "" {
+			return Outcome{}, fmt.Errorf("%w: check status is %s", ErrChecksNotPassed, checkRun.Status)
+		}
 	}
 	checkpoints, err := s.executions.ListCheckpoints(ctx, executionItem.ID)
 	if err != nil {
@@ -162,6 +179,8 @@ func (s *Service) Decide(ctx context.Context, workflowID string, kind Kind, inpu
 		Note:                  input.Note,
 		ReviewOverride:        input.ReviewOverride,
 		ReviewerVerdict:       string(reviewRun.Verdict),
+		CheckStatus:           string(checkRun.Status),
+		FailedSteps:           checkRun.FailedSteps,
 		WorkflowVersionBefore: input.ExpectedVersion,
 		RevisionCountBefore:   revisionCountBefore,
 	}

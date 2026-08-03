@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Intentional local examples and deterministic test fixtures"
+paths = [
+  '''\.env\.example$''',
+  '''internal/llm/.*_test\.go$''',
+]
