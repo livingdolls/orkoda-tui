@@ -53,7 +53,7 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 - [x] Migration check runs dan check steps.
 - [ ] Tambahkan check log artifact untuk output besar.
 - [x] Migration review runs dan review issues.
-- [ ] Migration revisions dan approvals.
+- [x] Migration approval decisions dan revision requests.
 - [ ] Migration Git publications dan artifact metadata.
 - [ ] Tambahkan indexes, foreign keys, dan integrity rules.
 
@@ -103,6 +103,7 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Tambahkan crash-recovery dan duplicate-processing boundary untuk execution.
 - [x] Tambahkan crash-recovery dan duplicate-processing tests untuk checks.
 - [x] Tambahkan crash-recovery dan duplicate-processing tests untuk reviewer.
+- [x] Tambahkan crash-recovery boundary untuk human revision decisions.
 - [ ] Tambahkan crash-recovery dan duplicate-processing tests untuk publication.
 
 ## Epic 9 — Tools and Sandbox
@@ -134,8 +135,10 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [ ] Buat changed-file tree dan unified diff viewer.
 - [x] Buat check matrix pada Jobs screen.
 - [x] Buat review issue panel read-only pada Jobs screen.
-- [ ] Implementasikan approve, revision, reject, dan take over.
-- [ ] Bind approval ke execution version, base SHA, dan patch checksum.
+- [x] Implementasikan approve, request revision, dan reject.
+- [ ] Implementasikan take over dan manual workspace editing.
+- [x] Bind approval ke execution version, base SHA, dan patch checksum.
+- [x] Tambahkan decision composer dan Reviewer override acknowledgement pada Jobs screen.
 - [ ] Implementasikan local commit dan commit message editor.
 - [ ] Buat optional GitHub adapter untuk branch push dan draft PR.
 - [ ] Tambahkan publication idempotency dan conflict handling.

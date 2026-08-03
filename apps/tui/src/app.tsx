@@ -26,6 +26,7 @@ export function App() {
   const [activeScreen, setActiveScreen] = useState<Screen>("projects")
   const [connection, setConnection] = useState<DaemonConnection>(initialDaemonConnection)
   const [projectInteractionActive, setProjectInteractionActive] = useState(false)
+  const [jobsInteractionActive, setJobsInteractionActive] = useState(false)
 
   useKeyboard((key) => {
     if (activeScreen === "projects") {
@@ -49,6 +50,25 @@ export function App() {
     }
 
     if (activeScreen === "agents") {
+      const shortcut = screenFromShortcut(key.name)
+      if (shortcut) {
+        setActiveScreen(shortcut)
+        return
+      }
+      if (key.name === "right" || key.name === "l") {
+        setActiveScreen((current) => moveScreen(current, 1))
+        return
+      }
+      if (key.name === "left" || key.name === "h") {
+        setActiveScreen((current) => moveScreen(current, -1))
+      }
+      return
+    }
+
+    if (activeScreen === "jobs") {
+      if (jobsInteractionActive) {
+        return
+      }
       const shortcut = screenFromShortcut(key.name)
       if (shortcut) {
         setActiveScreen(shortcut)
@@ -111,7 +131,9 @@ export function App() {
     footerHelp =
       "↑↓/jk project • Tab role • e enabled • n network • f filesystem • s save • h/l screen"
   } else if (activeScreen === "jobs") {
-    footerHelp = "Workflow jobs refresh when the daemon connection changes • h/l screen"
+    footerHelp = jobsInteractionActive
+      ? "Decision composer active • Ctrl+S apply • Esc cancel • o Reviewer override"
+      : "↑↓/jk job • a approve • v revision • x reject • r reload • h/l screen"
   }
 
   return (
@@ -165,7 +187,11 @@ export function App() {
               onInteractionChange={setProjectInteractionActive}
             />
           ) : (
-            <ScreenContent screen={activeScreen} connection={connection} />
+            <ScreenContent
+              screen={activeScreen}
+              connection={connection}
+              onJobsInteractionChange={setJobsInteractionActive}
+            />
           )}
         </box>
       </box>
@@ -186,13 +212,21 @@ export function App() {
   )
 }
 
-function ScreenContent({ screen, connection }: { screen: Screen; connection: DaemonConnection }) {
+function ScreenContent({
+  screen,
+  connection,
+  onJobsInteractionChange,
+}: {
+  screen: Screen
+  connection: DaemonConnection
+  onJobsInteractionChange: (active: boolean) => void
+}) {
   if (screen === "agents") {
     return <AgentSettingsScreen connection={connection} />
   }
 
   if (screen === "jobs") {
-    return <JobsScreen connection={connection} />
+    return <JobsScreen connection={connection} onInteractionChange={onJobsInteractionChange} />
   }
 
   if (screen === "settings") {

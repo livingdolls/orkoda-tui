@@ -92,9 +92,6 @@ func registerWorkflowJobRoutes(api *gin.RouterGroup, registry WorkflowJobRegistr
 	registerWorkflowAction(api, registry, "/jobs/:jobID/start", workflowjob.ActionStart)
 	registerWorkflowAction(api, registry, "/jobs/:jobID/cancel", workflowjob.ActionCancel)
 	registerWorkflowAction(api, registry, "/jobs/:jobID/retry", workflowjob.ActionRetry)
-	registerWorkflowAction(api, registry, "/jobs/:jobID/approve", workflowjob.ActionApprove)
-	registerWorkflowAction(api, registry, "/jobs/:jobID/request-revision", workflowjob.ActionRequestRevision)
-	registerWorkflowAction(api, registry, "/jobs/:jobID/reject", workflowjob.ActionReject)
 	registerWorkflowAction(api, registry, "/jobs/:jobID/publish", workflowjob.ActionPublish)
 }
 
