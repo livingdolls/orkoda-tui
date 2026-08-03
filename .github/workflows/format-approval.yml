@@ -7,6 +7,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: format-version-bound-approvals
+  cancel-in-progress: true
+
 jobs:
   format:
     if: github.actor != 'github-actions[bot]'
