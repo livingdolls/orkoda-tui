@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import {
-  type ApprovalFetch,
-  listApprovalDecisions,
-  submitApprovalDecision,
-} from "./approvals"
+import { type ApprovalFetch, listApprovalDecisions, submitApprovalDecision } from "./approvals"
 
 describe("approval API client", () => {
   test("lists decisions and posts bound approval", async () => {
