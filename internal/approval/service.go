@@ -135,6 +135,21 @@ func (s *Service) Decide(ctx context.Context, workflowID string, kind Kind, inpu
 		}
 	}
 
+	revisionCountBefore := job.RevisionCount
+	existingDecision, existingErr := s.decisions.GetByVersion(ctx, workflowID, input.ExecutionVersion)
+	switch {
+	case existingErr == nil:
+		revisionCountBefore = existingDecision.RevisionCountBefore
+	case errors.Is(existingErr, ErrNotFound):
+		if job.Status != workflowjob.StatusWaitingApproval ||
+			job.Version != input.ExpectedVersion ||
+			job.ExecutionVersion != input.ExecutionVersion {
+			return Outcome{}, ErrWorkflowNotAwaitingDecision
+		}
+	default:
+		return Outcome{}, existingErr
+	}
+
 	createInput := CreateInput{
 		WorkflowJobID:         workflowID,
 		ReviewRunID:           reviewRun.ID,
@@ -148,7 +163,7 @@ func (s *Service) Decide(ctx context.Context, workflowID string, kind Kind, inpu
 		ReviewOverride:        input.ReviewOverride,
 		ReviewerVerdict:       string(reviewRun.Verdict),
 		WorkflowVersionBefore: input.ExpectedVersion,
-		RevisionCountBefore:   job.RevisionCount,
+		RevisionCountBefore:   revisionCountBefore,
 	}
 	if kind == KindRequestRevision {
 		createInput.RevisionInstructions = input.Note
@@ -161,9 +176,9 @@ func (s *Service) Decide(ctx context.Context, workflowID string, kind Kind, inpu
 		s.record(ctx, workflowID, "approval.decision_recorded", map[string]any{
 			"decision_id": decision.ID, "decision": decision.Kind,
 			"execution_version": decision.ExecutionVersion,
-			"base_commit_sha": decision.BaseCommitSHA,
-			"patch_checksum": decision.PatchChecksum,
-			"review_override": decision.ReviewOverride,
+			"base_commit_sha":   decision.BaseCommitSHA,
+			"patch_checksum":    decision.PatchChecksum,
+			"review_override":   decision.ReviewOverride,
 		}, decision.CreatedAt)
 	}
 	if decision.Status == StatusApplied {
@@ -181,7 +196,7 @@ func (s *Service) Decide(ctx context.Context, workflowID string, kind Kind, inpu
 	s.record(ctx, workflowID, "approval.decision_applied", map[string]any{
 		"decision_id": decision.ID, "decision": decision.Kind,
 		"execution_version": decision.ExecutionVersion,
-		"workflow_version": job.Version, "workflow_status": job.Status,
+		"workflow_version":  job.Version, "workflow_status": job.Status,
 	}, time.Now().UTC())
 	return Outcome{Decision: decision, Workflow: job}, nil
 }
@@ -200,11 +215,11 @@ func (s *Service) apply(ctx context.Context, job workflowjob.Job, decision Decis
 	}
 	details := map[string]any{
 		"approval_decision_id": decision.ID,
-		"execution_version": decision.ExecutionVersion,
-		"base_commit_sha": decision.BaseCommitSHA,
-		"patch_checksum": decision.PatchChecksum,
-		"review_run_id": decision.ReviewRunID,
-		"review_override": decision.ReviewOverride,
+		"execution_version":    decision.ExecutionVersion,
+		"base_commit_sha":      decision.BaseCommitSHA,
+		"patch_checksum":       decision.PatchChecksum,
+		"review_run_id":        decision.ReviewRunID,
+		"review_override":      decision.ReviewOverride,
 	}
 
 	switch decision.Kind {
