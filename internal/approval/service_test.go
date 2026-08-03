@@ -31,7 +31,7 @@ func (s *memoryDecisionStore) CreateOrGet(_ context.Context, input CreateInput) 
 		Note: input.Note, RevisionInstructions: input.RevisionInstructions,
 		ReviewOverride: input.ReviewOverride, ReviewerVerdict: input.ReviewerVerdict,
 		WorkflowVersionBefore: input.WorkflowVersionBefore,
-		RevisionCountBefore: input.RevisionCountBefore, CreatedAt: now, UpdatedAt: now,
+		RevisionCountBefore:   input.RevisionCountBefore, CreatedAt: now, UpdatedAt: now,
 	}
 	s.item = &item
 	return item, true, nil
@@ -243,5 +243,33 @@ func TestServiceResumesRevisionAfterFirstTransition(t *testing.T) {
 	if outcome.Workflow.Status != workflowjob.StatusQueued || len(workflows.actions) != 1 ||
 		workflows.actions[0] != workflowjob.ActionQueueRevision {
 		t.Fatalf("outcome=%#v actions=%#v", outcome, workflows.actions)
+	}
+}
+
+func TestServiceMarksAlreadyQueuedRevisionApplied(t *testing.T) {
+	service, decisions, workflows := approvalFixture(reviewer.VerdictRequestRevision)
+	input := boundInput()
+	input.Note = "Fix the blocking issue."
+	decisions.item = &Decision{
+		ID: "decision-1", WorkflowJobID: "workflow-1", ReviewRunID: "review-1",
+		ExecutionID: "execution-1", ExecutionVersion: 1, CheckpointID: "checkpoint-1",
+		BaseCommitSHA: "abc123", PatchChecksum: "sha256:patch",
+		Kind: KindRequestRevision, Status: StatusPending, Note: input.Note,
+		RevisionInstructions: input.Note, ReviewerVerdict: "REQUEST_REVISION",
+		WorkflowVersionBefore: 8, RevisionCountBefore: 0,
+	}
+	workflows.job.Status = workflowjob.StatusQueued
+	workflows.job.Version = 10
+	workflows.job.RevisionCount = 1
+
+	outcome, err := service.Decide(context.Background(), "workflow-1", KindRequestRevision, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Workflow.Status != workflowjob.StatusQueued || len(workflows.actions) != 0 {
+		t.Fatalf("outcome=%#v actions=%#v", outcome, workflows.actions)
+	}
+	if outcome.Decision.Status != StatusApplied || outcome.Decision.WorkflowVersionAfter != 10 {
+		t.Fatalf("decision = %#v", outcome.Decision)
 	}
 }
