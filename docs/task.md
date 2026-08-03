@@ -50,7 +50,8 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 - [x] Migration workflow jobs.
 - [x] Migration workspaces.
 - [x] Migration executions, tool runs, dan patch checkpoints.
-- [ ] Migration checks dan check artifacts.
+- [x] Migration check runs dan check steps.
+- [ ] Tambahkan check log artifact untuk output besar.
 - [ ] Migration reviews, revisions, dan approvals.
 - [ ] Migration Git publications dan artifact metadata.
 - [ ] Tambahkan indexes, foreign keys, dan integrity rules.
@@ -91,12 +92,14 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Hubungkan workflow ke SQLite queue.
 - [x] Tambahkan idempotency pada handler `workflow.prepare_workspace`.
 - [x] Tambahkan idempotency pada handler `workflow.execute`.
-- [ ] Tambahkan idempotency pada checks, reviewer, dan publication handler.
+- [x] Tambahkan idempotency pada handler `workflow.run_checks`.
+- [ ] Tambahkan idempotency pada reviewer dan publication handler.
 - [ ] Implementasikan polling, backoff, cancellation, dan manual retry.
 - [x] Pulihkan stale running job saat daemon startup.
 - [ ] Tambahkan revision, attempt, dan wall-clock guards.
 - [x] Tambahkan crash-recovery dan duplicate-processing tests untuk workspace preparation.
 - [x] Tambahkan crash-recovery dan duplicate-processing boundary untuk execution.
+- [x] Tambahkan crash-recovery dan duplicate-processing tests untuk checks.
 - [ ] Tambahkan crash-recovery dan duplicate-processing tests untuk tahap lain.
 
 ## Epic 9 — Tools and Sandbox
@@ -105,19 +108,20 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Implementasikan Git status dan diff.
 - [x] Validasi canonical path, symlink, special file, dan file size.
 - [ ] Buat Docker sandbox adapter.
-- [ ] Tambahkan command profiles dan argument validation.
-- [ ] Tambahkan CPU, memory, process, disk, timeout, dan output limits.
+- [x] Tambahkan command profiles dan argument validation.
+- [x] Tambahkan timeout, output limit, process cancellation, dan environment allowlist.
+- [ ] Tambahkan CPU, memory, process-count, dan disk limits.
 - [x] Disable network secara default melalui persisted tool policy.
-- [ ] Implementasikan process-tree cancellation dan environment allowlist.
 
 ## Epic 10 — Executor, Checks, and Reviewer
 
 - [x] Buat execution snapshot dan deterministic scripted Executor foundation.
-- [ ] Buat context selector dan autonomous LLM Executor loop.
+- [x] Buat context selector dan autonomous LLM Executor loop.
 - [x] Simpan tool runs, checkpoints, changed files, dan patch.
 - [ ] Simpan execution token/cost usage.
-- [ ] Implementasikan formatter, linter, type check, test, dan build runner.
-- [ ] Simpan check summary dan log artifact.
+- [x] Implementasikan formatter, linter, type check, test, dan build runner.
+- [x] Simpan check summary dan bounded check output.
+- [ ] Simpan check log sebagai artifact terpisah.
 - [ ] Buat Reviewer prompt dan structured review schema.
 - [ ] Validasi file reference, severity, blocking flag, dan criteria.
 - [ ] Publish live progress setelah durable event tersimpan.
@@ -125,7 +129,8 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 ## Epic 11 — Approval and Git Publication
 
 - [ ] Buat changed-file tree dan unified diff viewer.
-- [ ] Buat check matrix dan review issue panel.
+- [x] Buat check matrix pada Jobs screen.
+- [ ] Buat review issue panel.
 - [ ] Implementasikan approve, revision, reject, dan take over.
 - [ ] Bind approval ke execution version, base SHA, dan patch checksum.
 - [ ] Implementasikan local commit dan commit message editor.

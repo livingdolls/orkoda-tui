@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 
+import { type CheckRun, type CheckStep, listCheckSteps, listChecks } from "./checks"
 import type { DaemonConnection } from "./daemon"
 import { type Execution, listExecutions } from "./executions"
 import { listProjects } from "./projects"
@@ -18,6 +19,8 @@ type JobEntry = {
   job: WorkflowJob
   workspace?: Workspace
   execution?: Execution
+  check?: CheckRun
+  checkSteps: CheckStep[]
 }
 
 export function JobsScreen({ connection }: { connection: DaemonConnection }) {
@@ -49,12 +52,19 @@ export function JobsScreen({ connection }: { connection: DaemonConnection }) {
             )
             return Promise.all(
               jobs.map(async (job) => {
-                const executions = await listExecutions(job.id)
+                const [executions, checkRuns] = await Promise.all([
+                  listExecutions(job.id),
+                  listChecks(job.id),
+                ])
+                const check = checkRuns[0]
+                const checkSteps = check ? await listCheckSteps(check.id) : []
                 return {
                   projectName: project.name,
                   job,
                   workspace: workspaceByJob.get(job.id),
                   execution: executions[0],
+                  check,
+                  checkSteps,
                 }
               }),
             )
@@ -91,12 +101,12 @@ export function JobsScreen({ connection }: { connection: DaemonConnection }) {
     <box flexDirection="column" gap={1}>
       <text fg="#E2E8F0">Versioned workflow jobs</text>
       <text fg="#64748B">
-        Business state, execution snapshots, durable dispatch, and isolated workspaces are persisted
-        separately.
+        Business state, execution snapshots, durable dispatch, checks, and isolated workspaces are
+        persisted separately.
       </text>
       {state === "loading" ? <text fg="#FACC15">Loading workflow jobs...</text> : null}
       {message ? <text fg={state === "error" ? "#F87171" : "#94A3B8"}>{message}</text> : null}
-      {entries.slice(0, 20).map(({ projectName, job, workspace, execution }) => (
+      {entries.slice(0, 20).map(({ projectName, job, workspace, execution, check, checkSteps }) => (
         <box
           key={job.id}
           flexDirection="column"
@@ -133,6 +143,20 @@ export function JobsScreen({ connection }: { connection: DaemonConnection }) {
             </box>
           ) : (
             <text fg="#64748B">Execution has not started.</text>
+          )}
+          {check ? (
+            <box flexDirection="column">
+              <text fg={checkStatusColor(check.status)}>
+                {`Checks v${check.execution_version} ${check.status} • ${check.passed_steps} passed • ${check.failed_steps} failed`}
+              </text>
+              {checkSteps.map((step) => (
+                <text key={step.id} fg={checkStatusColor(step.status)}>
+                  {`${step.profile}: ${step.status}${step.exit_code === undefined ? "" : ` (exit ${step.exit_code})`} • ${step.duration_ms} ms${step.output_truncated ? " • output truncated" : ""}`}
+                </text>
+              ))}
+            </box>
+          ) : (
+            <text fg="#64748B">Checks have not started.</text>
           )}
           {workspace ? (
             <box flexDirection="column">
@@ -173,6 +197,20 @@ function statusColor(status: WorkflowStatus): string {
       return "#F87171"
     case "WAITING_FOR_APPROVAL":
     case "REVISION_REQUIRED":
+      return "#FACC15"
+    default:
+      return "#7DD3FC"
+  }
+}
+
+function checkStatusColor(status: CheckRun["status"]): string {
+  switch (status) {
+    case "PASSED":
+      return "#4ADE80"
+    case "FAILED":
+    case "CANCELLED":
+      return "#F87171"
+    case "RUNNING":
       return "#FACC15"
     default:
       return "#7DD3FC"
