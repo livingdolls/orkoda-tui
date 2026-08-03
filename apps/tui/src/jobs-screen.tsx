@@ -2,7 +2,7 @@
 
 import type { TextareaRenderable } from "@opentui/core"
 import { useKeyboard } from "@opentui/react"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react"
 
 import {
   type ApprovalDecision,
@@ -12,12 +12,7 @@ import {
 } from "./approvals"
 import { type CheckRun, type CheckStep, listCheckSteps, listChecks } from "./checks"
 import type { DaemonConnection } from "./daemon"
-import {
-  type Execution,
-  type PatchCheckpoint,
-  listCheckpoints,
-  listExecutions,
-} from "./executions"
+import { type Execution, listCheckpoints, listExecutions, type PatchCheckpoint } from "./executions"
 import { listProjects } from "./projects"
 import {
   listReviewIssues,
@@ -144,7 +139,9 @@ export function JobsScreen({
 
   const openComposer = (kind: ApprovalKind) => {
     if (!selectedEntry || !canDecide(selectedEntry)) {
-      setMessage("Select a workflow that is waiting for approval and has a completed review snapshot.")
+      setMessage(
+        "Select a workflow that is waiting for approval and has a completed review snapshot.",
+      )
       return
     }
     const existing = selectedEntry.decision
@@ -305,9 +302,7 @@ export function JobsScreen({
       {entries.length > 20 ? (
         <text fg="#64748B">{`${entries.length - 20} older jobs are not shown.`}</text>
       ) : null}
-      <text fg="#64748B">
-        ↑↓/jk select • a approve • v request revision • x reject • r reload
-      </text>
+      <text fg="#64748B">↑↓/jk select • a approve • v request revision • x reject • r reload</text>
     </box>
   )
 }
@@ -325,7 +320,7 @@ function DecisionPanel({
   entry: JobEntry
   kind: ApprovalKind
   note: string
-  noteRef: React.RefObject<TextareaRenderable | null>
+  noteRef: RefObject<TextareaRenderable | null>
   reviewOverride: boolean
   submitting: boolean
   message: string
@@ -478,7 +473,9 @@ function JobCard({ entry, selected }: { entry: JobEntry; selected: boolean }) {
             {`Human decision ${decision.decision} • ${decision.status} • execution v${decision.execution_version}`}
           </text>
           <text fg="#64748B">{`Bound ${decision.base_commit_sha.slice(0, 12)} • ${decision.patch_checksum}`}</text>
-          {decision.review_override ? <text fg="#FACC15">Reviewer verdict override recorded.</text> : null}
+          {decision.review_override ? (
+            <text fg="#FACC15">Reviewer verdict override recorded.</text>
+          ) : null}
         </box>
       ) : job.status === "WAITING_FOR_APPROVAL" ? (
         <text fg="#FACC15">Awaiting a version-bound human decision.</text>
