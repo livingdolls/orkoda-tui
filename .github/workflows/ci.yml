@@ -43,9 +43,10 @@ jobs:
         run: |
           git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
           rm scripts/apply_planning_run_lifecycle_fix.py
+          rm docs/.planning-lifecycle-fix-trigger
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/tui/src/planning-agent.ts apps/tui/src/board-screen.tsx internal/planningagent/service.go internal/planningagent/service_test.go cmd/api/main.go .github/workflows/ci.yml scripts/apply_planning_run_lifecycle_fix.py
+          git add apps/tui/src/planning-agent.ts apps/tui/src/board-screen.tsx internal/planningagent/service.go internal/planningagent/service_test.go cmd/api/main.go .github/workflows/ci.yml scripts/apply_planning_run_lifecycle_fix.py docs/.planning-lifecycle-fix-trigger
           git commit -m "fix: complete and recover planning run lifecycle"
           git push origin HEAD:fix/planning-run-lifecycle
 
