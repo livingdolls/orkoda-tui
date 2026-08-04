@@ -29,13 +29,13 @@ make install
 make migrate
 ```
 
-Jalankan daemon:
+Jalankan daemon. Target Make akan otomatis memuat `.env` jika file tersebut ada:
 
 ```bash
 make api
 ```
 
-Jalankan OpenTUI pada terminal lain:
+Jalankan OpenTUI pada terminal lain. Target ini juga memuat `.env`:
 
 ```bash
 make tui

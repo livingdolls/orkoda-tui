@@ -1,5 +1,7 @@
 SHELL := /bin/sh
 
+ENV_FILE ?= .env
+
 .PHONY: help install api migrate tui protocol sandbox-image release fmt lint security test check clean-data
 
 help:
@@ -22,13 +24,13 @@ install:
 	go mod download
 
 api:
-	go run ./cmd/api
+	@set -a; env_file="$(ENV_FILE)"; case "$$env_file" in /*|./*|../*) ;; *) env_file="./$$env_file";; esac; if [ -f "$$env_file" ]; then . "$$env_file"; fi; set +a; go run ./cmd/api
 
 migrate:
-	go run ./cmd/migrate
+	@set -a; env_file="$(ENV_FILE)"; case "$$env_file" in /*|./*|../*) ;; *) env_file="./$$env_file";; esac; if [ -f "$$env_file" ]; then . "$$env_file"; fi; set +a; go run ./cmd/migrate
 
 tui:
-	bun run dev:tui
+	@set -a; env_file="$(ENV_FILE)"; case "$$env_file" in /*|./*|../*) ;; *) env_file="./$$env_file";; esac; if [ -f "$$env_file" ]; then . "$$env_file"; fi; set +a; bun run dev:tui
 
 protocol:
 	bun run scripts/generate-protocol.ts

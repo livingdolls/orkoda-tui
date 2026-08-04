@@ -37,7 +37,7 @@ make install
 make migrate
 ```
 
-Run the local daemon:
+Run the local daemon. The Make target automatically loads `.env` when it exists:
 
 ```bash
 make api
@@ -45,7 +45,7 @@ make api
 
 The daemon also applies idempotent SQLite migrations automatically during startup. Planning, execution, checks, review, and publication run as durable background jobs inside this same process.
 
-In another terminal, run the TUI:
+In another terminal, run the TUI (it also loads `.env` for client-side settings such as the daemon URL):
 
 ```bash
 make tui
