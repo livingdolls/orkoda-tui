@@ -6,9 +6,36 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  format-board:
+    name: Format Board
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install
+      - name: Apply Biome formatting and safe fixes
+        run: bunx biome check --write apps packages
+      - name: Commit formatted source
+        run: |
+          if git diff --quiet; then
+            echo "Source is already formatted"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps packages
+          git commit -m "style(tui): apply Biome fixes to unified board"
+          git push origin HEAD:${{ github.head_ref }}
+
   go:
     name: Go
     runs-on: ubuntu-latest
@@ -47,16 +74,6 @@ jobs:
         with:
           bun-version: "1.3.14"
       - run: bun install
-      - name: Generate exact Biome-formatted source
-        run: |
-          bunx biome check --write apps packages
-          tar -czf /tmp/biome-formatted.tar.gz apps/tui/src
-      - name: Upload exact Biome-formatted source
-        uses: actions/upload-artifact@v4
-        with:
-          name: biome-formatted-source
-          path: /tmp/biome-formatted.tar.gz
-          retention-days: 1
       - run: bun run lint:ts
       - run: bun run typecheck
       - run: bun run test:ts
