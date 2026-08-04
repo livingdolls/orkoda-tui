@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { boardKeyRoute } from "./board-keyboard"
 
 describe("Board keyboard routing", () => {
-  test("keeps modal controls active while the Board is otherwise busy", () => {
+  test("keeps action-menu controls active while the Board is otherwise busy", () => {
     expect(boardKeyRoute({ mode: "board", actionMenuOpen: true, busy: true })).toBe("menu")
   })
 
