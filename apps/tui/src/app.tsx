@@ -69,6 +69,7 @@ export function App() {
 
   useKeyboard((key) => {
     if (showPalette) return
+    if (boardInteractionActive) return
     if (showHelp) {
       if (key.name === "escape" || key.name === "?") setShowHelp(false)
       return
@@ -88,7 +89,7 @@ export function App() {
       return
     }
 
-    if (activeScreen === "board" || boardInteractionActive) return
+    if (activeScreen === "board") return
 
     if (key.name === "right" || key.name === "down" || key.name === "j" || key.name === "l") {
       setActiveScreen((current) => moveScreen(current, 1))
