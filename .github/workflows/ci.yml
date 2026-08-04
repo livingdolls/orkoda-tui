@@ -84,36 +84,51 @@ jobs:
               '        })\n'
               '        const detailFrame = await waitForTUIFrame('
           )
-          new_test = (
-              '        await act(async () => {\n'
-              '          setup.mockInput.pressKey(" ")\n'
-              '        })\n'
-              '        const actionMenuFrame = await waitForTUIFrame(\n'
-              '          setup,\n'
-              '          (frame) =>\n'
-              '            frame.includes("What do you want to do?") &&\n'
-              '            frame.includes("Kanban approval flow"),\n'
-              '        )\n'
-              '        expect(actionMenuFrame).toContain("run action")\n\n'
-              '        await act(async () => {\n'
-              '          setup.mockInput.pressEscape()\n'
-              '        })\n'
-              '        await waitForTUIFrame(\n'
-              '          setup,\n'
-              '          (frame) => !frame.includes("What do you want to do?"),\n'
-              '        )\n\n'
-              '        await act(async () => {\n'
-              '          setup.mockInput.pressKey(" ")\n'
-              '        })\n'
-              '        await waitForTUIFrame(\n'
-              '          setup,\n'
-              '          (frame) => frame.includes("What do you want to do?"),\n'
-              '        )\n'
-              '        await act(async () => {\n'
-              '          setup.mockInput.pressEnter()\n'
-              '        })\n'
-              '        const detailFrame = await waitForTUIFrame('
-          )
+          key_event = '''{
+            name,
+            ctrl: false,
+            meta: false,
+            shift: false,
+            option: false,
+            sequence,
+            number: false,
+            raw: sequence,
+            eventType: "press" as const,
+            source: "raw" as const,
+          }'''
+          new_test = f'''        const emitBoardKey = (name: string, sequence: string) =>
+          setup.renderer.keyInput.processParsedKey({key_event})
+
+        await act(async () => {{
+          emitBoardKey("space", " ")
+        }})
+        const actionMenuFrame = await waitForTUIFrame(
+          setup,
+          (frame) =>
+            frame.includes("What do you want to do?") &&
+            frame.includes("Kanban approval flow"),
+        )
+        expect(actionMenuFrame).toContain("run action")
+
+        await act(async () => {{
+          emitBoardKey("escape", "\\x1b")
+        }})
+        await waitForTUIFrame(
+          setup,
+          (frame) => !frame.includes("What do you want to do?"),
+        )
+
+        await act(async () => {{
+          emitBoardKey("space", " ")
+        }})
+        await waitForTUIFrame(
+          setup,
+          (frame) => frame.includes("What do you want to do?"),
+        )
+        await act(async () => {{
+          emitBoardKey("return", "\\r")
+        }})
+        const detailFrame = await waitForTUIFrame('''
           if test_source.count(old_test) != 1:
               raise SystemExit(f"expected one E2E detail block, found {test_source.count(old_test)}")
           e2e.write_text(test_source.replace(old_test, new_test, 1))
