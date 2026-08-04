@@ -47,6 +47,19 @@ Test ini membuat repository Git sementara, menyalakan daemon/API, menjalankan wo
 commit publikasi, dan menghapus fixture setelah selesai. Runner check host hanya dipakai untuk
 test lokal; deployment normal tetap menggunakan sandbox Docker.
 
+E2E TUI menggunakan OpenTUI test renderer, daemon nyata, dan fixture Git sementara. Test ini
+menavigasi ke Jobs, membuka approval composer, mengirim `Ctrl+S`, lalu memverifikasi status job
+`APPROVED` melalui API:
+
+```sh
+cd apps/tui
+ORKODA_TUI_E2E=1 \
+ORKODA_E2E_GO_BIN=/path/to/go \
+bun test src/app.e2e.test.tsx
+```
+
+Tanpa `ORKODA_TUI_E2E=1`, test tersebut otomatis di-skip agar suite TUI biasa tetap cepat.
+
 ## 3. OpenTUI Tests
 
 - Keyboard-only navigation.

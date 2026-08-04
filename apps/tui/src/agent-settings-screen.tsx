@@ -12,6 +12,7 @@ import {
 } from "./agent-settings"
 import type { DaemonConnection } from "./daemon"
 import { listProjects, type Project } from "./projects"
+import { colors, Metric, PageIntro, Panel, ShortcutBar, StatusBadge } from "./ui"
 
 const roles: AgentRole[] = ["PLANNER", "EXECUTOR", "REVIEWER"]
 
@@ -183,74 +184,112 @@ export function AgentSettingsScreen({ connection }: { connection: DaemonConnecti
   }, [connection.state, selectedProjectID])
 
   return (
-    <box flexDirection="row" gap={1} flexGrow={1}>
-      <box
-        width={28}
-        flexDirection="column"
-        borderStyle="rounded"
-        borderColor="#334155"
-        padding={1}
-      >
-        <text fg="#E2E8F0">Projects</text>
-        {projects.length === 0 ? <text fg="#94A3B8">No projects available.</text> : null}
-        {projects.map((project, index) => (
-          <text key={project.id} fg={index === projectIndex ? "#7DD3FC" : "#94A3B8"}>
-            {index === projectIndex ? `› ${project.name}` : `  ${project.name}`}
-          </text>
-        ))}
-      </box>
-
-      <box flexGrow={1} flexDirection="column" gap={1}>
-        <text fg="#E2E8F0">
-          {selectedProject
-            ? `${selectedProject.name} • settings v${settings?.version ?? "-"}`
-            : "Agent settings"}
-        </text>
-        <box flexDirection="row" gap={2}>
-          {roles.map((role, index) => (
-            <text key={role} fg={index === roleIndex ? "#7DD3FC" : "#64748B"}>
-              {index === roleIndex ? `[${role}]` : role}
-            </text>
+    <box flexDirection="column" gap={1} flexGrow={1}>
+      <PageIntro
+        kicker="AGENT CONTROL"
+        title={selectedProject?.name ?? "Agent settings"}
+        description="Tune each role without losing the guardrails that keep execution bounded and reviewable."
+        meta={settings ? `settings v${settings.version}` : "no project selected"}
+      />
+      <box flexDirection="row" gap={1} flexGrow={1}>
+        <Panel width={29} title={`PROJECTS  ${projects.length}`} borderColor={colors.lineStrong}>
+          {projects.length === 0 ? <text fg={colors.dim}>No projects available.</text> : null}
+          {projects.map((project, index) => (
+            <box
+              key={project.id}
+              flexDirection="column"
+              gap={1}
+              padding={1}
+              backgroundColor={index === projectIndex ? colors.surfaceAccent : colors.surface}
+              borderStyle="rounded"
+              borderColor={index === projectIndex ? colors.accent : colors.line}
+            >
+              <text fg={index === projectIndex ? colors.accent : colors.text}>
+                {`${index === projectIndex ? "›" : " "} ${project.name}`}
+              </text>
+            </box>
           ))}
+        </Panel>
+
+        <box flexGrow={1} flexDirection="column" gap={1}>
+          <Panel title="ROLE" borderColor={colors.accent} backgroundColor={colors.surfaceAccent}>
+            <box flexDirection="row" gap={1}>
+              {roles.map((role, index) => (
+                <StatusBadge
+                  key={role}
+                  label={role}
+                  tone={index === roleIndex ? "accent" : "neutral"}
+                />
+              ))}
+            </box>
+            {loading ? <text fg={colors.warning}>Loading persisted agent settings...</text> : null}
+          </Panel>
+
+          {selectedAgent && selectedPolicy ? (
+            <Panel
+              title={`${selectedRole} PROFILE`}
+              borderColor={selectedAgent.enabled ? colors.success : colors.danger}
+            >
+              <box flexDirection="row" gap={1}>
+                <Metric
+                  label="Enabled"
+                  value={selectedAgent.enabled ? "YES" : "NO"}
+                  tone={selectedAgent.enabled ? "success" : "danger"}
+                />
+                <Metric
+                  label="Provider"
+                  value={selectedAgent.provider || "daemon default"}
+                  tone="accent"
+                />
+                <Metric label="Model" value={selectedAgent.model || "daemon default"} />
+              </box>
+              <box flexDirection="row" gap={1}>
+                <Metric label="Temperature" value={String(selectedAgent.temperature)} />
+                <Metric
+                  label="Max output"
+                  value={`${selectedAgent.max_output_tokens.toLocaleString("en-US")} tokens`}
+                />
+              </box>
+              <box flexDirection="row" gap={1}>
+                <StatusBadge
+                  label={`Network ${selectedPolicy.network_access}`}
+                  tone={selectedPolicy.network_access === "DISABLED" ? "success" : "warning"}
+                />
+                <StatusBadge
+                  label={`Filesystem ${selectedPolicy.filesystem_access}`}
+                  tone="accent"
+                />
+              </box>
+              <text
+                fg={colors.muted}
+              >{`Tools: ${selectedPolicy.allowed_tools.length > 0 ? selectedPolicy.allowed_tools.join(", ") : "none"}`}</text>
+              <text
+                fg={colors.muted}
+              >{`Command profiles: ${selectedPolicy.allowed_command_profiles.length > 0 ? selectedPolicy.allowed_command_profiles.join(", ") : "none"}`}</text>
+              <text
+                fg={colors.dim}
+              >{`Limits: ${formatBytes(selectedPolicy.max_file_bytes)} file · ${formatBytes(selectedPolicy.max_patch_bytes)} patch · ${formatDuration(selectedPolicy.command_timeout_ms)} command`}</text>
+            </Panel>
+          ) : null}
+
+          {message ? <text fg={colors.warning}>{message}</text> : null}
+          <text fg={colors.dim}>
+            Provider, model, tools, command profiles, and numeric limits remain editable through the
+            local API.
+          </text>
         </box>
-
-        {loading ? <text fg="#FACC15">Loading persisted agent settings...</text> : null}
-        {selectedAgent && selectedPolicy ? (
-          <box flexDirection="column" gap={1}>
-            <text fg={selectedAgent.enabled ? "#4ADE80" : "#F87171"}>
-              {`Enabled: ${selectedAgent.enabled ? "yes" : "no"}`}
-            </text>
-            <text fg="#94A3B8">
-              {`Provider: ${selectedAgent.provider || "daemon default"} • model: ${selectedAgent.model || "daemon default"}`}
-            </text>
-            <text fg="#94A3B8">
-              {`Temperature: ${selectedAgent.temperature} • max output: ${selectedAgent.max_output_tokens.toLocaleString("en-US")} tokens`}
-            </text>
-            <text fg={selectedPolicy.network_access === "DISABLED" ? "#4ADE80" : "#FACC15"}>
-              {`Network: ${selectedPolicy.network_access}`}
-            </text>
-            <text fg="#94A3B8">{`Filesystem: ${selectedPolicy.filesystem_access}`}</text>
-            <text fg="#94A3B8">
-              {`Tools: ${selectedPolicy.allowed_tools.length > 0 ? selectedPolicy.allowed_tools.join(", ") : "none"}`}
-            </text>
-            <text fg="#94A3B8">
-              {`Command profiles: ${selectedPolicy.allowed_command_profiles.length > 0 ? selectedPolicy.allowed_command_profiles.join(", ") : "none"}`}
-            </text>
-            <text fg="#64748B">
-              {`Limits: ${formatBytes(selectedPolicy.max_file_bytes)} file • ${formatBytes(selectedPolicy.max_patch_bytes)} patch • ${formatDuration(selectedPolicy.command_timeout_ms)} command`}
-            </text>
-          </box>
-        ) : null}
-
-        {message ? <text fg="#FACC15">{message}</text> : null}
-        <text fg="#64748B">
-          Tab role • e enabled • n executor network • f executor filesystem • s save • r reload
-        </text>
-        <text fg="#64748B">
-          Provider, model, tools, command profiles, and numeric limits remain fully editable through
-          the local API.
-        </text>
       </box>
+      <ShortcutBar
+        shortcuts={[
+          { key: "↑↓", label: "project" },
+          { key: "Tab", label: "role" },
+          { key: "E", label: "toggle" },
+          { key: "N", label: "network" },
+          { key: "F", label: "filesystem" },
+          { key: "S", label: "save" },
+          { key: "R", label: "reload" },
+        ]}
+      />
     </box>
   )
 }

@@ -5,6 +5,7 @@ import { useKeyboard } from "@opentui/react"
 import { useRef, useState } from "react"
 
 import { createPlan, type Plan, splitPlanLines } from "./plans"
+import { colors, PageIntro, Panel, ShortcutBar } from "./ui"
 
 type EditorField = "title" | "requirement" | "criteria" | "constraints"
 
@@ -28,6 +29,7 @@ export function PlanEditor({
   const [constraints, setConstraints] = useState("")
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
+  const fieldIndex = editorFields.indexOf(field)
 
   const requirementRef = useRef<TextareaRenderable>(null)
   const criteriaRef = useRef<TextareaRenderable>(null)
@@ -85,74 +87,89 @@ export function PlanEditor({
 
   return (
     <box flexDirection="column" flexGrow={1} gap={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text fg="#E2E8F0">New plan for {projectName}</text>
-        <text fg="#64748B">DRAFT</text>
-      </box>
-
-      <text fg={field === "title" ? "#7DD3FC" : "#64748B"}>Title</text>
-      <input
-        value={title}
-        placeholder="Example: Add Markdown blog"
-        focused={field === "title"}
-        onInput={setTitle}
-        onSubmit={() => setField("requirement")}
+      <PageIntro
+        kicker="PLAN DRAFT"
+        title={`New plan for ${projectName}`}
+        description="Move through the fields with Tab. Keep the requirement concrete; one acceptance criterion per line."
+        meta={`field ${fieldIndex + 1} / ${editorFields.length}`}
       />
 
-      <text fg={field === "requirement" ? "#7DD3FC" : "#64748B"}>Requirement</text>
-      <textarea
-        ref={requirementRef}
-        width="100%"
-        height={6}
-        initialValue={requirement}
-        placeholder="Describe the feature, expected behavior, and important context..."
-        focused={field === "requirement"}
-        wrapMode="word"
-        backgroundColor="#11182B"
-        focusedBackgroundColor="#172036"
-        onContentChange={() => setRequirement(requirementRef.current?.plainText ?? "")}
+      <Panel
+        title="PLAN CONTENT"
+        borderColor={colors.accent}
+        backgroundColor={colors.surfaceAccent}
+      >
+        <text fg={field === "title" ? colors.accent : colors.dim}>1 Title</text>
+        <input
+          value={title}
+          placeholder="Example: Add Markdown blog"
+          focused={field === "title"}
+          onInput={setTitle}
+          onSubmit={() => setField("requirement")}
+        />
+
+        <text fg={field === "requirement" ? colors.accent : colors.dim}>2 Requirement</text>
+        <textarea
+          ref={requirementRef}
+          width="100%"
+          height={6}
+          initialValue={requirement}
+          placeholder="Describe the feature, expected behavior, and important context..."
+          focused={field === "requirement"}
+          wrapMode="word"
+          backgroundColor={colors.surface}
+          focusedBackgroundColor={colors.surfaceRaised}
+          onContentChange={() => setRequirement(requirementRef.current?.plainText ?? "")}
+        />
+
+        <box flexDirection="row" gap={2} flexGrow={1}>
+          <box width="50%" flexDirection="column" gap={1}>
+            <text fg={field === "criteria" ? colors.accent : colors.dim}>
+              3 Acceptance criteria — one per line
+            </text>
+            <textarea
+              ref={criteriaRef}
+              width="100%"
+              height={5}
+              initialValue={criteria}
+              placeholder={"User can list articles\nUser can open article details"}
+              focused={field === "criteria"}
+              wrapMode="word"
+              backgroundColor={colors.surface}
+              focusedBackgroundColor={colors.surfaceRaised}
+              onContentChange={() => setCriteria(criteriaRef.current?.plainText ?? "")}
+            />
+          </box>
+
+          <box width="50%" flexDirection="column" gap={1}>
+            <text fg={field === "constraints" ? colors.accent : colors.dim}>
+              4 Constraints — one per line
+            </text>
+            <textarea
+              ref={constraintsRef}
+              width="100%"
+              height={5}
+              initialValue={constraints}
+              placeholder={"Use the existing stack\nDo not add an external database"}
+              focused={field === "constraints"}
+              wrapMode="word"
+              backgroundColor={colors.surface}
+              focusedBackgroundColor={colors.surfaceRaised}
+              onContentChange={() => setConstraints(constraintsRef.current?.plainText ?? "")}
+            />
+          </box>
+        </box>
+      </Panel>
+
+      <ShortcutBar
+        shortcuts={[
+          { key: "Tab", label: "next field" },
+          { key: "Shift+Tab", label: "previous" },
+          { key: "Ctrl+S", label: "save draft" },
+          { key: "Esc", label: "cancel" },
+        ]}
       />
-
-      <box flexDirection="row" gap={2} flexGrow={1}>
-        <box width="50%" flexDirection="column" gap={1}>
-          <text fg={field === "criteria" ? "#7DD3FC" : "#64748B"}>
-            Acceptance criteria — one per line
-          </text>
-          <textarea
-            ref={criteriaRef}
-            width="100%"
-            height={5}
-            initialValue={criteria}
-            placeholder={"User can list articles\nUser can open article details"}
-            focused={field === "criteria"}
-            wrapMode="word"
-            backgroundColor="#11182B"
-            focusedBackgroundColor="#172036"
-            onContentChange={() => setCriteria(criteriaRef.current?.plainText ?? "")}
-          />
-        </box>
-
-        <box width="50%" flexDirection="column" gap={1}>
-          <text fg={field === "constraints" ? "#7DD3FC" : "#64748B"}>
-            Constraints — one per line
-          </text>
-          <textarea
-            ref={constraintsRef}
-            width="100%"
-            height={5}
-            initialValue={constraints}
-            placeholder={"Use the existing stack\nDo not add an external database"}
-            focused={field === "constraints"}
-            wrapMode="word"
-            backgroundColor="#11182B"
-            focusedBackgroundColor="#172036"
-            onContentChange={() => setConstraints(constraintsRef.current?.plainText ?? "")}
-          />
-        </box>
-      </box>
-
-      <text fg="#64748B">Tab/Shift+Tab switch field • Ctrl+S save draft • Esc cancel</text>
-      {message ? <text fg={busy ? "#FACC15" : "#F87171"}>{message}</text> : null}
+      {message ? <text fg={busy ? colors.warning : colors.danger}>{message}</text> : null}
     </box>
   )
 }

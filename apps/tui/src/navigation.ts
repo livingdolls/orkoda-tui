@@ -1,9 +1,9 @@
 export const screenDefinitions = [
-  { id: "projects", label: "Projects" },
-  { id: "agents", label: "Agents" },
-  { id: "jobs", label: "Jobs" },
-  { id: "settings", label: "Settings" },
-  { id: "diagnostics", label: "Diagnostics" },
+  { id: "projects", label: "Projects", description: "Repositories & plans" },
+  { id: "agents", label: "Agents", description: "Roles & guardrails" },
+  { id: "jobs", label: "Jobs", description: "Runs & approvals" },
+  { id: "settings", label: "Settings", description: "Providers & policy" },
+  { id: "diagnostics", label: "Diagnostics", description: "Daemon health" },
 ] as const
 
 export const screens = screenDefinitions.map((screen) => screen.id)

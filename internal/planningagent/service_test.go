@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,6 +53,48 @@ func TestPlanningAgentQuestionFlow(t *testing.T) {
 			ID: "response-plan",
 			Content: `{
 				"summary":"Implement the Markdown blog.",
+				"steps":[{
+					"id":"step-1",
+					"title":"Add content loader",
+					"description":"Load Markdown files from the selected directory.",
+					"affected_files":["internal/blog/loader.go"],
+					"acceptance_criteria":["Articles are loaded deterministically"]
+				}],
+				"open_questions":[],
+				"risks":[]
+			}`,
+			Usage: llm.Usage{InputTokens: 140, OutputTokens: 60},
+		}},
+		llm.FakeResult{Response: llm.Response{
+			ID: "response-rerun",
+			Content: `{
+				"summary":"Implement the Markdown blog again.",
+				"steps":[{
+					"id":"step-1",
+					"title":"Add content loader",
+					"description":"Load Markdown files from the selected directory.",
+					"affected_files":["internal/blog/loader.go"],
+					"acceptance_criteria":["Articles are loaded deterministically"]
+				}],
+				"open_questions":[],
+				"risks":[]
+			}`,
+			Usage: llm.Usage{InputTokens: 140, OutputTokens: 60},
+		}},
+		llm.FakeResult{Response: llm.Response{
+			ID: "response-rerun-question",
+			Content: `{
+				"summary":"More information is required again.",
+				"steps":[],
+				"open_questions":["Which directory should store Markdown files?"],
+				"risks":[]
+			}`,
+			Usage: llm.Usage{InputTokens: 140, OutputTokens: 25},
+		}},
+		llm.FakeResult{Response: llm.Response{
+			ID: "response-auto-resolved",
+			Content: `{
+				"summary":"Automatically reused the previous answer.",
 				"steps":[{
 					"id":"step-1",
 					"title":"Add content loader",
@@ -132,6 +175,37 @@ func TestPlanningAgentQuestionFlow(t *testing.T) {
 	}
 	if current.ID != completed.ID {
 		t.Fatalf("expected current run %s, got %s", completed.ID, current.ID)
+	}
+
+	rerun, err := service.Start(ctx, planningContext.PlanID, "fake", "fake-planner-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rerun.Status != RunStatusCompleted || rerun.Result == nil || len(rerun.Result.OpenQuestions) != 0 {
+		t.Fatalf("expected rerun to reuse the answered question, got %#v", rerun)
+	}
+	requests := provider.Requests()
+	if len(requests) != 3 || !strings.Contains(requests[2].Messages[1].Content, "Store them under content/blog.") {
+		t.Fatalf("rerun did not include the persisted answer: %#v", requests)
+	}
+
+	duplicate, err := service.Start(ctx, planningContext.PlanID, "fake", "fake-planner-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duplicate.Status != RunStatusNeedsInput {
+		t.Fatalf("expected duplicate question run, got %#v", duplicate)
+	}
+	autoResolved, err := service.Start(ctx, planningContext.PlanID, "fake", "fake-planner-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if autoResolved.Status != RunStatusCompleted || autoResolved.ParentRunID != duplicate.ID {
+		t.Fatalf("expected active duplicate to be auto-resolved, got %#v", autoResolved)
+	}
+	requests = provider.Requests()
+	if len(requests) != 5 || !strings.Contains(requests[4].Messages[1].Content, "Store them under content/blog.") {
+		t.Fatalf("auto-resolved run did not include the persisted answer: %#v", requests)
 	}
 }
 

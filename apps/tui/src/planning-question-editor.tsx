@@ -5,6 +5,7 @@ import { useKeyboard } from "@opentui/react"
 import { useRef, useState } from "react"
 
 import { answerPlanningRun, type PlanningAnswer, type PlanningRun } from "./planning-agent"
+import { colors, EmptyState, PageIntro, Panel, ShortcutBar } from "./ui"
 
 export function PlanningQuestionEditor({
   run,
@@ -86,27 +87,32 @@ export function PlanningQuestionEditor({
 
   if (!selectedQuestion) {
     return (
-      <box flexDirection="column" gap={1}>
-        <text fg="#FACC15">This planning run has no open questions.</text>
-        <text fg="#64748B">Esc returns to the project.</text>
-      </box>
+      <EmptyState
+        title="No open questions"
+        detail="This planning run is already complete."
+        action="Esc back to project"
+      />
     )
   }
 
   return (
     <box flexDirection="column" flexGrow={1} gap={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text fg="#E2E8F0">Planning needs your input</text>
-        <text fg="#FACC15">
-          {selectedIndex + 1}/{openQuestions.length}
-        </text>
-      </box>
+      <PageIntro
+        kicker="PLANNING INPUT"
+        title="Planning needs your input"
+        description="Answer each open question, then submit the complete set to regenerate the plan."
+        meta={`${selectedIndex + 1} / ${openQuestions.length}`}
+      />
 
-      <box borderStyle="rounded" borderColor="#334155" padding={1} flexDirection="column">
-        <text fg="#7DD3FC">{selectedQuestion.question}</text>
-      </box>
+      <Panel
+        title={`QUESTION ${selectedIndex + 1}`}
+        borderColor={colors.warning}
+        backgroundColor="#211E14"
+      >
+        <text fg={colors.warning}>{selectedQuestion.question}</text>
+      </Panel>
 
-      <text fg="#64748B">Your answer</text>
+      <text fg={colors.accent}>Your answer</text>
       <textarea
         key={selectedQuestion.id}
         ref={answerRef}
@@ -116,27 +122,35 @@ export function PlanningQuestionEditor({
         placeholder="Provide the decision or missing context..."
         focused
         wrapMode="word"
-        backgroundColor="#11182B"
-        focusedBackgroundColor="#172036"
+        backgroundColor={colors.surface}
+        focusedBackgroundColor={colors.surfaceRaised}
         onContentChange={() => {
           const value = answerRef.current?.plainText ?? ""
           setAnswers((current) => ({ ...current, [selectedQuestion.id]: value }))
         }}
       />
 
-      <box flexDirection="column" marginTop={1}>
+      <Panel title="PROGRESS" borderColor={colors.line}>
         {openQuestions.map((question, index) => {
           const answered = (answers[question.id] ?? "").trim() !== ""
           return (
-            <text key={question.id} fg={index === selectedIndex ? "#7DD3FC" : "#64748B"}>
-              {`${index === selectedIndex ? "›" : " "} ${answered ? "✓" : "○"} Question ${index + 1}`}
-            </text>
+            <text
+              key={question.id}
+              fg={index === selectedIndex ? colors.accent : answered ? colors.success : colors.dim}
+            >{`${index === selectedIndex ? "›" : " "} ${answered ? "✓" : "○"} Question ${index + 1}`}</text>
           )
         })}
-      </box>
+      </Panel>
 
-      <text fg="#64748B">Tab/Shift+Tab switch question • Ctrl+S submit all • Esc cancel</text>
-      {message ? <text fg={busy ? "#FACC15" : "#F87171"}>{message}</text> : null}
+      <ShortcutBar
+        shortcuts={[
+          { key: "Tab", label: "next question" },
+          { key: "Shift+Tab", label: "previous" },
+          { key: "Ctrl+S", label: "submit all" },
+          { key: "Esc", label: "cancel" },
+        ]}
+      />
+      {message ? <text fg={busy ? colors.warning : colors.danger}>{message}</text> : null}
     </box>
   )
 }

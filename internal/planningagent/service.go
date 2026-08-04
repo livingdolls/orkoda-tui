@@ -139,6 +139,19 @@ func (s *Service) Start(ctx context.Context, planID, provider, model string) (Ru
 	if err != nil {
 		return Run{}, err
 	}
+	resolved, err := s.resolvedAnswers(ctx, planningContext)
+	if err != nil {
+		return Run{}, err
+	}
+	active, err := s.activeRun(ctx, planID)
+	if err != nil {
+		return Run{}, err
+	}
+	if active.Status == RunStatusNeedsInput {
+		if inputs, ok := answerInputsForRun(active, resolved); ok {
+			return s.Answer(ctx, active.ID, inputs)
+		}
+	}
 
 	run, err := s.createRun(ctx, planningContext, "", provider, model)
 	if err != nil {
@@ -152,7 +165,7 @@ func (s *Service) Start(ctx context.Context, planID, provider, model string) (Ru
 		"run_id": run.ID, "plan_id": run.PlanID, "plan_version_id": run.PlanVersionID,
 		"planning_context_id": run.PlanningContextID, "provider": provider, "model": model,
 	}, run.CreatedAt)
-	return s.execute(ctx, run, planningContext, nil, plan)
+	return s.execute(ctx, run, planningContext, resolved, plan)
 }
 
 func (s *Service) Answer(ctx context.Context, runID string, inputs []AnswerInput) (Run, error) {
@@ -254,6 +267,85 @@ func (s *Service) Current(ctx context.Context, planID string) (Run, error) {
 		return Run{}, fmt.Errorf("read current planning run: %w", err)
 	}
 	return s.Get(ctx, runID)
+}
+
+func (s *Service) resolvedAnswers(ctx context.Context, planningContext planningcontext.Context) ([]ResolvedQuestion, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT q.question, q.answer
+		FROM planning_questions q
+		JOIN planning_runs r ON r.id = q.run_id
+		WHERE r.plan_id = ?
+			AND r.plan_version_id = ?
+			AND r.planning_context_id = ?
+			AND q.status = ?
+			AND TRIM(COALESCE(q.answer, '')) <> ''
+		ORDER BY r.created_at DESC, q.answered_at DESC, q.position ASC, q.id DESC
+	`, planningContext.PlanID, planningContext.PlanVersionID, planningContext.ID, QuestionStatusAnswered)
+	if err != nil {
+		return nil, fmt.Errorf("read resolved planning answers: %w", err)
+	}
+	defer rows.Close()
+
+	answers := make([]ResolvedQuestion, 0)
+	seenQuestions := make(map[string]struct{})
+	for rows.Next() {
+		var question, answer string
+		if err := rows.Scan(&question, &answer); err != nil {
+			return nil, fmt.Errorf("scan resolved planning answer: %w", err)
+		}
+		question = strings.TrimSpace(question)
+		answer = strings.TrimSpace(answer)
+		if question == "" || answer == "" {
+			continue
+		}
+		if _, exists := seenQuestions[question]; exists {
+			continue
+		}
+		seenQuestions[question] = struct{}{}
+		answers = append(answers, ResolvedQuestion{Question: question, Answer: answer})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate resolved planning answers: %w", err)
+	}
+	return answers, nil
+}
+
+func (s *Service) activeRun(ctx context.Context, planID string) (Run, error) {
+	run, err := s.Current(ctx, planID)
+	if errors.Is(err, ErrRunNotFound) {
+		return Run{}, nil
+	}
+	if err != nil {
+		return Run{}, fmt.Errorf("read active planning run: %w", err)
+	}
+	if run.Status != RunStatusRunning && run.Status != RunStatusNeedsInput {
+		return Run{}, nil
+	}
+	return run, nil
+}
+
+func answerInputsForRun(run Run, resolved []ResolvedQuestion) ([]AnswerInput, bool) {
+	answersByQuestion := make(map[string]string, len(resolved))
+	for _, answer := range resolved {
+		question := strings.TrimSpace(answer.Question)
+		value := strings.TrimSpace(answer.Answer)
+		if question != "" && value != "" {
+			answersByQuestion[question] = value
+		}
+	}
+
+	inputs := make([]AnswerInput, 0, len(run.Questions))
+	for _, question := range run.Questions {
+		if question.Status != QuestionStatusOpen {
+			continue
+		}
+		answer, ok := answersByQuestion[strings.TrimSpace(question.Question)]
+		if !ok {
+			return nil, false
+		}
+		inputs = append(inputs, AnswerInput{QuestionID: question.ID, Answer: answer})
+	}
+	return inputs, len(inputs) > 0
 }
 
 func (s *Service) Get(ctx context.Context, runID string) (Run, error) {

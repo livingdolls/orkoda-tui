@@ -10,6 +10,7 @@ import {
   type LLMProviderInfo,
   listLLMProviders,
 } from "./llm-providers"
+import { colors, Metric, PageIntro, Panel, ShortcutBar, StatusBadge } from "./ui"
 
 export function SettingsScreen({ connection }: { connection: DaemonConnection }) {
   const [providers, setProviders] = useState<LLMProviderInfo[]>([])
@@ -59,59 +60,102 @@ export function SettingsScreen({ connection }: { connection: DaemonConnection })
       : "none"
 
   return (
-    <box flexDirection="column" gap={1}>
-      <text fg="#E2E8F0">Local daemon endpoint</text>
-      <text fg="#7DD3FC">{daemonBaseURL}</text>
-      <text fg="#94A3B8">Override with ORKODA_DAEMON_URL before running the TUI.</text>
-
-      <text fg="#E2E8F0">LLM providers</text>
-      {loading ? <text fg="#FACC15">Loading LLM configuration...</text> : null}
-      {!loading && providers.length === 0 && message === "" ? (
-        <text fg="#94A3B8">No provider metadata is available.</text>
-      ) : null}
-      {providers.map((provider) => (
-        <box key={provider.name} flexDirection="column">
-          <text fg={provider.configured ? "#4ADE80" : "#F87171"}>
-            {`${provider.default ? "★" : "•"} ${provider.name}${provider.default ? " (default)" : ""}`}
-          </text>
-          <text fg="#94A3B8">
-            {`  model: ${provider.default_model || "not configured"} • structured output: ${provider.structured_output ? "yes" : "prompt only"}`}
-          </text>
+    <box flexDirection="column" gap={1} flexGrow={1}>
+      <PageIntro
+        kicker="RUNTIME SETTINGS"
+        title="Providers & execution policy"
+        description="Inspect the local daemon contract and the safety budget applied to every agent run."
+        meta="read-only view"
+      />
+      <Panel
+        title="LOCAL DAEMON"
+        borderColor={colors.accent}
+        backgroundColor={colors.surfaceAccent}
+      >
+        <box flexDirection="row" gap={1}>
+          <Metric label="Endpoint" value={daemonBaseURL} tone="accent" />
+          <Metric label="Mode" value="local" />
+          <Metric label="Auth" value="bearer token" tone="success" />
         </box>
-      ))}
+        <text fg={colors.dim}>Override with ORKODA_DAEMON_URL before running the TUI.</text>
+      </Panel>
+
+      <Panel title="LLM PROVIDERS" flexGrow={1}>
+        {loading ? <text fg={colors.warning}>Loading LLM configuration...</text> : null}
+        {!loading && providers.length === 0 && message === "" ? (
+          <text fg={colors.dim}>No provider metadata is available.</text>
+        ) : null}
+        {providers.map((provider) => (
+          <box
+            key={provider.name}
+            flexDirection="row"
+            justifyContent="space-between"
+            gap={1}
+            padding={1}
+            backgroundColor={provider.default ? colors.surfaceAccent : colors.surface}
+          >
+            <box flexDirection="column" gap={1}>
+              <text
+                fg={provider.default ? colors.accent : colors.text}
+              >{`${provider.default ? "★ " : "  "}${provider.name}`}</text>
+              <text
+                fg={colors.muted}
+              >{`model: ${provider.default_model || "not configured"}`}</text>
+            </box>
+            <box flexDirection="row" gap={1}>
+              <StatusBadge
+                label={provider.configured ? "configured" : "not configured"}
+                tone={provider.configured ? "success" : "danger"}
+              />
+              <StatusBadge
+                label={provider.structured_output ? "structured" : "prompt only"}
+                tone={provider.structured_output ? "accent" : "warning"}
+              />
+            </box>
+          </box>
+        ))}
+      </Panel>
 
       {policy ? (
-        <box flexDirection="column">
-          <text fg="#E2E8F0">LLM execution policy</text>
-          <text fg="#94A3B8">
-            {`Attempts: ${policy.max_attempts} • attempt timeout: ${formatDuration(policy.attempt_timeout_ms)} • wall clock: ${formatDuration(policy.max_wall_clock_ms)}`}
-          </text>
-          <text fg="#94A3B8">
-            {`Backoff: ${formatDuration(policy.initial_backoff_ms)} → ${formatDuration(policy.max_backoff_ms)} • jitter: ${Math.round(policy.jitter * 100)}%`}
-          </text>
-          <text fg="#94A3B8">
-            {`Token budget: ${formatNumber(policy.budget.max_input_tokens)} input / ${formatNumber(policy.budget.max_output_tokens)} output / ${formatNumber(policy.budget.max_total_tokens)} total`}
-          </text>
-          <text fg="#94A3B8">{`Fallbacks: ${fallbackLabel}`}</text>
-
-          <text fg="#E2E8F0">LLM safety</text>
-          <text fg={policy.redaction_mode === "strict" ? "#4ADE80" : "#FACC15"}>
-            {`Prompt redaction: ${policy.redaction_mode}`}
-          </text>
-          <text fg="#94A3B8">
-            {`Structured validation: ${policy.structured_validation ? "enabled" : "disabled"} • repair attempts: ${policy.max_repair_attempts}`}
-          </text>
-          <text fg="#94A3B8">
-            {`Maximum structured response: ${formatBytes(policy.max_structured_response_bytes)}`}
-          </text>
-        </box>
+        <Panel title="EXECUTION POLICY">
+          <box flexDirection="row" gap={1}>
+            <Metric label="Attempts" value={String(policy.max_attempts)} />
+            <Metric label="Attempt timeout" value={formatDuration(policy.attempt_timeout_ms)} />
+            <Metric label="Wall clock" value={formatDuration(policy.max_wall_clock_ms)} />
+          </box>
+          <box flexDirection="row" gap={1}>
+            <Metric label="Input budget" value={formatNumber(policy.budget.max_input_tokens)} />
+            <Metric label="Output budget" value={formatNumber(policy.budget.max_output_tokens)} />
+            <Metric label="Total budget" value={formatNumber(policy.budget.max_total_tokens)} />
+          </box>
+          <text
+            fg={colors.muted}
+          >{`Backoff ${formatDuration(policy.initial_backoff_ms)} → ${formatDuration(policy.max_backoff_ms)} · jitter ${Math.round(policy.jitter * 100)}% · fallbacks ${fallbackLabel}`}</text>
+          <box flexDirection="row" gap={1}>
+            <StatusBadge
+              label={`redaction ${policy.redaction_mode}`}
+              tone={policy.redaction_mode === "strict" ? "success" : "warning"}
+            />
+            <StatusBadge
+              label={`schema ${policy.structured_validation ? "enabled" : "disabled"}`}
+              tone={policy.structured_validation ? "success" : "warning"}
+            />
+            <StatusBadge label={`repair ${policy.max_repair_attempts}`} tone="accent" />
+          </box>
+          <text
+            fg={colors.dim}
+          >{`Maximum structured response: ${formatBytes(policy.max_structured_response_bytes)}`}</text>
+        </Panel>
       ) : null}
 
-      {message ? <text fg="#FACC15">{message}</text> : null}
-      <text fg="#64748B">
-        Configure provider credentials, execution policy, and safety through ORKODA_LLM_*
-        environment variables before starting the daemon.
-      </text>
+      {message ? <text fg={colors.warning}>{message}</text> : null}
+      <ShortcutBar
+        shortcuts={[
+          { key: "1–5", label: "navigate" },
+          { key: "R", label: "reconnect" },
+          { key: "?", label: "keyboard guide" },
+        ]}
+      />
     </box>
   )
 }

@@ -1,3 +1,5 @@
+import { join, resolve } from "node:path"
+
 export type DaemonConnectionState = "checking" | "connected" | "disconnected"
 
 export type DaemonConnection = {
@@ -13,13 +15,30 @@ let daemonTokenPromise: Promise<string> | undefined
 async function daemonToken(): Promise<string> {
   const configured = process.env.ORKODA_API_TOKEN?.trim()
   if (configured) return configured
-  const dataDir = process.env.ORKODA_DATA_DIR?.trim() || ".orkoda"
-  const tokenPath = process.env.ORKODA_API_TOKEN_FILE?.trim() || `${dataDir}/api.token`
-  try {
-    return (await Bun.file(tokenPath).text()).trim()
-  } catch {
-    return ""
+  for (const tokenPath of daemonTokenPaths()) {
+    try {
+      const token = (await Bun.file(tokenPath).text()).trim()
+      if (token) return token
+    } catch {
+      // Try the next path so make tui can find the repository token after cd.
+    }
   }
+  return ""
+}
+
+function daemonTokenPaths(): string[] {
+  const configuredFile = process.env.ORKODA_API_TOKEN_FILE?.trim()
+  if (configuredFile) return pathCandidates(configuredFile)
+
+  const dataDir = process.env.ORKODA_DATA_DIR?.trim()
+  if (dataDir) return pathCandidates(join(dataDir, "api.token"))
+
+  return pathCandidates(".orkoda/api.token")
+}
+
+function pathCandidates(path: string): string[] {
+  const repositoryRootPath = resolve(import.meta.dir, "../../../", path)
+  return [...new Set([path, repositoryRootPath])]
 }
 
 export async function requestWithDaemonAuth(
@@ -32,8 +51,14 @@ export async function requestWithDaemonAuth(
   if (fetcher !== fetch) return fetcher(input, init)
   daemonTokenPromise ??= daemonToken()
   const token = await daemonTokenPromise
+  if (!token) {
+    daemonTokenPromise = undefined
+    throw new Error(
+      "Daemon API token not found. Start the daemon first or set ORKODA_API_TOKEN_FILE.",
+    )
+  }
   const headers = new Headers(init.headers)
-  if (token) headers.set("authorization", `Bearer ${token}`)
+  headers.set("authorization", `Bearer ${token}`)
   return fetcher(input, { ...init, headers })
 }
 

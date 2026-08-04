@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/livingdolls/orkoda-tui/internal/llm"
 	"github.com/livingdolls/orkoda-tui/internal/planningcontext"
 )
 
@@ -39,6 +40,7 @@ func TestLocalFakeProviderQuestionsThenPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertLocalFakePlanningResponse(t, response)
 	questionPlan, err := ParseResponse(response)
 	if err != nil {
 		t.Fatal(err)
@@ -61,6 +63,7 @@ func TestLocalFakeProviderQuestionsThenPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertLocalFakePlanningResponse(t, response)
 	completedPlan, err := ParseResponse(response)
 	if err != nil {
 		t.Fatal(err)
@@ -70,5 +73,13 @@ func TestLocalFakeProviderQuestionsThenPlan(t *testing.T) {
 	}
 	if completedPlan.Steps[0].AffectedFiles[0] != "go.mod" {
 		t.Fatalf("expected repository files in the generated plan, got %#v", completedPlan.Steps[0])
+	}
+}
+
+func assertLocalFakePlanningResponse(t *testing.T, response llm.Response) {
+	t.Helper()
+	_, issues := (llm.JSONSchemaValidator{}).Validate(ResponseSchema, response.Content)
+	if len(issues) > 0 {
+		t.Fatalf("local fake response failed the planning schema: %#v; content=%s", issues, response.Content)
 	}
 }

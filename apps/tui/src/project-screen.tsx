@@ -30,6 +30,16 @@ import {
   type Project,
   refreshProject,
 } from "./projects"
+import {
+  colors,
+  EmptyState,
+  Metric,
+  PageIntro,
+  Panel,
+  SectionHeading,
+  ShortcutBar,
+  StatusBadge,
+} from "./ui"
 
 type ProjectMode = "list" | "name" | "picker" | "delete" | "plan" | "questions"
 type ProjectLoadState = "idle" | "loading" | "ready" | "error"
@@ -246,7 +256,20 @@ export function ProjectScreen({
   }
 
   const runSelectedPlanningAgent = async () => {
-    if (!latestPlan || !planningContext || busy) {
+    if (busy) {
+      setMessage("A project operation is already running. Wait for it to finish.")
+      return
+    }
+    if (!latestPlan) {
+      setMessage("Create a plan first with P before running the planning agent.")
+      return
+    }
+    if (!repositorySummary) {
+      setMessage("Scan the current repository HEAD before running the planning agent. Press S.")
+      return
+    }
+    if (!planningContext) {
+      setMessage("Normalize the latest plan before running the planning agent. Press O.")
       return
     }
     setBusy(true)
@@ -351,7 +374,7 @@ export function ProjectScreen({
       void normalizeSelectedPlan()
       return
     }
-    if (key.name === "a" && latestPlan && planningContext) {
+    if (key.name === "a") {
       void runSelectedPlanningAgent()
       return
     }
@@ -565,19 +588,34 @@ export function ProjectScreen({
 
   if (mode === "name") {
     return (
-      <box flexDirection="column" gap={1}>
-        <text fg="#E2E8F0">Register a local Git repository</text>
-        <text fg="#7DD3FC">Project name</text>
-        <input
-          value={draftName}
-          placeholder="Example: Orkoda Website"
-          focused
-          onInput={setDraftName}
-          onSubmit={startDirectoryPicker}
+      <box flexDirection="column" flexGrow={1} gap={1}>
+        <PageIntro
+          kicker="NEW PROJECT"
+          title="Register a local Git repository"
+          description="Give this workspace a memorable name. The next step lets you choose the repository folder."
         />
-        <text fg="#94A3B8">Press Enter to choose the repository folder.</text>
-        <text fg="#64748B">Esc cancels project creation.</text>
-        {message ? <text fg="#F87171">{message}</text> : null}
+        <Panel
+          title="PROJECT NAME"
+          borderColor={colors.accent}
+          backgroundColor={colors.surfaceAccent}
+        >
+          <text fg={colors.dim}>A short name is easiest to scan in Jobs and Agents.</text>
+          <text fg={colors.accent}>Name</text>
+          <input
+            value={draftName}
+            placeholder="Example: Orkoda Website"
+            focused
+            onInput={setDraftName}
+            onSubmit={startDirectoryPicker}
+          />
+        </Panel>
+        <ShortcutBar
+          shortcuts={[
+            { key: "Enter", label: "choose folder" },
+            { key: "Esc", label: "cancel" },
+          ]}
+        />
+        {message ? <text fg={colors.danger}>{message}</text> : null}
       </box>
     )
   }
@@ -586,185 +624,315 @@ export function ProjectScreen({
     const visibleItems = visibleDirectoryItems(pickerItems, pickerIndex)
     return (
       <box flexDirection="column" flexGrow={1} gap={1}>
-        <text fg="#E2E8F0">Choose repository folder</text>
-        <text fg="#7DD3FC">{pickerListing?.currentPath ?? "Loading..."}</text>
+        <PageIntro
+          kicker="REPOSITORY FOLDER"
+          title="Choose where Orkoda should work"
+          description="Select a Git repository. The daemon will validate the folder before registering it."
+          meta={pickerListing?.currentPath ?? "Loading..."}
+        />
         {pickerListing ? (
-          <text fg={pickerListing.isGitRepository ? "#4ADE80" : "#94A3B8"}>
-            {pickerListing.isGitRepository
-              ? "Git repository detected in this folder"
-              : "No .git entry detected; the daemon will validate the selected folder"}
-          </text>
+          <StatusBadge
+            label={pickerListing.isGitRepository ? "GIT REPOSITORY DETECTED" : "NO .GIT ENTRY"}
+            tone={pickerListing.isGitRepository ? "success" : "warning"}
+          />
         ) : null}
 
-        {pickerLoading ? <text fg="#FACC15">Reading directories...</text> : null}
+        {pickerLoading ? <text fg={colors.warning}>Reading directories...</text> : null}
         {!pickerLoading && pickerListing ? (
-          <box flexDirection="column" borderStyle="rounded" borderColor="#334155" padding={1}>
+          <Panel title="FOLDERS" flexGrow={1} borderColor={colors.lineStrong}>
             {visibleItems.map(({ item, index }) => {
               let label = item.label
               if (item.kind === "select") {
-                label = `[ ${item.label} ]`
+                label = `◎ ${item.label}`
               } else if (item.kind === "directory") {
-                label = `  ${item.label}`
+                label = `▸ ${item.label}`
               }
               return (
-                <text
+                <box
                   key={`${item.kind}:${item.path}`}
-                  fg={index === pickerIndex ? "#7DD3FC" : "#94A3B8"}
+                  paddingLeft={1}
+                  paddingRight={1}
+                  backgroundColor={index === pickerIndex ? colors.surfaceAccent : colors.surface}
+                  borderStyle="rounded"
+                  borderColor={index === pickerIndex ? colors.accent : colors.line}
                 >
-                  {index === pickerIndex ? `› ${label}` : `  ${label}`}
-                </text>
+                  <text fg={index === pickerIndex ? colors.accent : colors.muted}>
+                    {index === pickerIndex ? `› ${label}` : `  ${label}`}
+                  </text>
+                </box>
               )
             })}
-          </box>
+          </Panel>
         ) : null}
 
-        <text fg="#64748B">
-          ↑↓/jk navigate • Enter open/select • Backspace/h parent • s use current • Esc back
-        </text>
-        {message ? <text fg={busy ? "#FACC15" : "#F87171"}>{message}</text> : null}
+        <ShortcutBar
+          shortcuts={[
+            { key: "↑↓", label: "select" },
+            { key: "Enter", label: "open / select" },
+            { key: "←", label: "parent" },
+            { key: "S", label: "use current" },
+            { key: "Esc", label: "back" },
+          ]}
+        />
+        {message ? <text fg={busy ? colors.warning : colors.danger}>{message}</text> : null}
       </box>
     )
   }
 
   if (mode === "delete") {
     return (
-      <box flexDirection="column" gap={1}>
-        <text fg="#FACC15">Delete project registration?</text>
-        <text fg="#E2E8F0">{selectedProject?.name ?? "Unknown project"}</text>
-        <text fg="#94A3B8">Repository files and Git history will not be modified.</text>
-        <text fg="#F87171">Press y to confirm, n or Esc to cancel.</text>
-        {message ? <text fg="#94A3B8">{message}</text> : null}
+      <box flexDirection="column" flexGrow={1} gap={1}>
+        <PageIntro
+          kicker="REMOVE REGISTRATION"
+          title="Delete this project from Orkoda?"
+          description="Only the project registration is removed. Repository files and Git history stay untouched."
+        />
+        <Panel title="CONFIRMATION" borderColor={colors.danger} backgroundColor="#24151A">
+          <text fg={colors.danger}>{selectedProject?.name ?? "Unknown project"}</text>
+          <text fg={colors.muted}>This action cannot be undone from the TUI.</text>
+        </Panel>
+        <ShortcutBar
+          shortcuts={[
+            { key: "Y", label: "delete registration" },
+            { key: "N / Esc", label: "cancel" },
+          ]}
+        />
+        {message ? <text fg={colors.muted}>{message}</text> : null}
       </box>
     )
   }
 
   if (connection.state !== "connected") {
     return (
-      <box flexDirection="column" gap={1}>
-        <text fg="#FACC15">Daemon is not connected.</text>
-        <text fg="#94A3B8">Start it in another terminal with: make api</text>
-      </box>
+      <EmptyState
+        title="Daemon is not connected"
+        detail="Projects stay local to the daemon. Start it in another terminal and press R to reconnect."
+        action="make api   →   R reconnect"
+      />
     )
   }
   if (loadState === "loading") {
-    return <text fg="#FACC15">Loading projects...</text>
+    return (
+      <Panel title="PROJECTS" borderColor={colors.accent}>
+        <text fg={colors.warning}>Loading project registry...</text>
+        <text fg={colors.dim}>Reading repositories and their latest plans.</text>
+      </Panel>
+    )
   }
   if (loadState === "error") {
     return (
-      <box flexDirection="column" gap={1}>
-        <text fg="#F87171">Failed to load projects.</text>
-        <text fg="#94A3B8">{message}</text>
-      </box>
+      <Panel title="PROJECTS" borderColor={colors.danger} backgroundColor="#24151A">
+        <text fg={colors.danger}>Failed to load projects.</text>
+        <text fg={colors.muted}>{message}</text>
+        <ShortcutBar shortcuts={[{ key: "R", label: "try again" }]} />
+      </Panel>
     )
   }
   if (projectList.length === 0) {
     return (
-      <box flexDirection="column" gap={1}>
-        <text fg="#E2E8F0">No project registered yet.</text>
-        <text fg="#7DD3FC">Press n to register a local Git repository.</text>
-        {message ? <text fg="#94A3B8">{message}</text> : null}
-      </box>
+      <EmptyState
+        title="No project registered yet"
+        detail="Connect a local Git repository to start planning and running work."
+        action="N new project"
+      />
     )
   }
 
   return (
-    <box flexDirection="row" flexGrow={1} gap={2}>
-      <box width="30%" flexDirection="column" gap={1}>
-        {projectList.map((project, index) => (
-          <text key={project.id} fg={index === selectedIndex ? "#7DD3FC" : "#94A3B8"}>
-            {index === selectedIndex ? `› ${project.name}` : `  ${project.name}`}
-          </text>
-        ))}
-      </box>
-      <box flexGrow={1} flexDirection="column" gap={1}>
-        <text fg="#E2E8F0">{selectedProject?.name}</text>
-        <text fg="#94A3B8">{selectedRepository?.local_path ?? "No repository"}</text>
-        <text fg="#94A3B8">
-          {`branch: ${selectedRepository?.current_branch || "detached"} • ${selectedRepository?.dirty ? "dirty" : "clean"}`}
-        </text>
-        <text fg="#64748B">{`HEAD ${selectedRepository?.head_sha.slice(0, 12) ?? "unknown"}`}</text>
-
-        <box marginTop={1} flexDirection="row" justifyContent="space-between">
-          <text fg="#E2E8F0">Repository context</text>
-          <text fg="#7DD3FC">s scan</text>
-        </box>
-        {repositorySummary ? (
-          <box flexDirection="column">
-            <text fg="#4ADE80">
-              {`✓ ${repositorySummary.summary.languages.join(" + ") || "stack unknown"}`}
-            </text>
-            <text fg="#94A3B8">
-              {repositorySummary.summary.frameworks.join(" + ") || "No framework detected"}
-            </text>
-            <text fg="#64748B">
-              {`${repositorySummary.summary.file_count} files • ${repositorySummary.summary.package_managers.join(", ") || "package manager unknown"}`}
-            </text>
-          </box>
-        ) : (
-          <text fg="#64748B">No summary for the current HEAD.</text>
-        )}
-
-        <box marginTop={1} flexDirection="row" justifyContent="space-between">
-          <text fg="#E2E8F0">Plans</text>
-          <text fg="#7DD3FC">p new • o normalize • a run • q answer</text>
-        </box>
-        {planLoading ? <text fg="#FACC15">Loading plans...</text> : null}
-        {!planLoading && planList.length === 0 ? (
-          <text fg="#64748B">No plan draft yet.</text>
-        ) : null}
-        {!planLoading
-          ? planList.slice(0, 3).map((plan) => (
-              <text key={plan.id} fg="#94A3B8">
-                {`${plan.status} • v${plan.current_version} • ${plan.title}`}
+    <box flexDirection="column" flexGrow={1} gap={1}>
+      <PageIntro
+        kicker="PROJECTS"
+        title={selectedProject?.name ?? "Project registry"}
+        description="Choose a repository, inspect its current HEAD, then move through the plan pipeline."
+        meta={`${selectedIndex + 1} / ${projectList.length}`}
+      />
+      <box flexDirection="row" flexGrow={1} gap={1}>
+        <Panel
+          width="30%"
+          title={`PROJECTS  ${projectList.length}`}
+          borderColor={colors.lineStrong}
+        >
+          {projectList.map((project, index) => (
+            <box
+              key={project.id}
+              flexDirection="column"
+              gap={1}
+              padding={1}
+              backgroundColor={index === selectedIndex ? colors.surfaceAccent : colors.surface}
+              borderStyle="rounded"
+              borderColor={index === selectedIndex ? colors.accent : colors.line}
+            >
+              <text fg={index === selectedIndex ? colors.accent : colors.text}>
+                {`${index === selectedIndex ? "›" : " "} ${project.name}`}
               </text>
-            ))
-          : null}
-
-        {planningContext ? (
-          <box marginTop={1} flexDirection="column">
-            <text fg="#4ADE80">{`✓ Goal: ${planningContext.normalized_plan.goal}`}</text>
-            <text fg="#94A3B8">
-              {`Scope ${planningContext.normalized_plan.scope.length} • areas ${planningContext.normalized_plan.affected_areas.join(", ") || "unknown"}`}
-            </text>
-            <text fg="#64748B">
-              {`Risks ${planningContext.normalized_plan.risks.length} • open questions ${planningContext.normalized_plan.open_questions.length}`}
-            </text>
+              <text fg={colors.dim}>{project.repositories[0]?.current_branch || "detached"}</text>
+            </box>
+          ))}
+        </Panel>
+        <box flexGrow={1} flexDirection="column" gap={1}>
+          <box flexDirection="row" gap={1}>
+            <Metric
+              label="Repository"
+              value={selectedRepository?.current_branch || "detached"}
+              tone="accent"
+            />
+            <Metric
+              label="Working tree"
+              value={selectedRepository?.dirty ? "CHANGES" : "CLEAN"}
+              tone={selectedRepository?.dirty ? "warning" : "success"}
+            />
+            <Metric label="HEAD" value={selectedRepository?.head_sha.slice(0, 12) ?? "unknown"} />
           </box>
-        ) : latestPlan ? (
-          <text fg="#64748B">Latest plan is not normalized for the current repository HEAD.</text>
-        ) : null}
+          <text fg={colors.dim}>{selectedRepository?.local_path ?? "No repository"}</text>
 
-        {planningRun ? (
-          <box marginTop={1} flexDirection="column">
-            <text fg={planningRun.status === "COMPLETED" ? "#4ADE80" : "#FACC15"}>
-              {`Agent ${planningRun.status} • ${planningRun.provider}/${planningRun.model}`}
-            </text>
-            {planningRun.status === "NEEDS_INPUT" ? (
-              <text fg="#FACC15">
-                {`${planningRun.questions.filter((question) => question.status === "OPEN").length} open question(s) • press q`}
-              </text>
-            ) : null}
-            {planningRun.result ? (
-              <box flexDirection="column">
-                <text fg="#94A3B8">{planningRun.result.summary}</text>
-                {planningRun.result.steps.slice(0, 3).map((step) => (
-                  <text key={step.id} fg="#64748B">{`• ${step.title}`}</text>
-                ))}
+          <SectionHeading
+            title="Repository context"
+            detail="latest HEAD"
+            action="S scan   G refresh"
+          />
+          <Panel borderColor={colors.line}>
+            {repositorySummary ? (
+              <box flexDirection="row" gap={1}>
+                <Metric
+                  label="Languages"
+                  value={repositorySummary.summary.languages.join(" + ") || "unknown"}
+                  tone="success"
+                />
+                <Metric
+                  label="Frameworks"
+                  value={repositorySummary.summary.frameworks.join(" + ") || "none"}
+                />
+                <Metric label="Files" value={String(repositorySummary.summary.file_count)} />
               </box>
-            ) : null}
-            {planningRun.error_message ? (
-              <text fg="#F87171">{planningRun.error_message}</text>
-            ) : null}
-            <text fg="#64748B">
-              {`tokens ${planningRun.usage.input_tokens + planningRun.usage.output_tokens}`}
-            </text>
-          </box>
-        ) : planningContext ? (
-          <text fg="#64748B">No planning agent run for this context.</text>
-        ) : null}
+            ) : (
+              <text fg={colors.dim}>No summary for the current HEAD. Press S to scan safely.</text>
+            )}
+          </Panel>
 
-        {message ? <text fg={busy ? "#FACC15" : "#4ADE80"}>{message}</text> : null}
+          <SectionHeading
+            title="Plan pipeline"
+            detail={`${planList.length} versioned plan(s)`}
+            action="P new   O normalize   A run   Q answer"
+          />
+          <Panel borderColor={colors.line}>
+            {planLoading ? <text fg={colors.warning}>Loading plans...</text> : null}
+            {!planLoading && planList.length === 0 ? (
+              <text fg={colors.dim}>No plan draft yet. Press P to create the first one.</text>
+            ) : null}
+            {!planLoading
+              ? planList.slice(0, 3).map((plan) => (
+                  <box key={plan.id} flexDirection="row" justifyContent="space-between" gap={1}>
+                    <text fg={colors.text}>{`v${plan.current_version}  ${plan.title}`}</text>
+                    <StatusBadge label={plan.status} tone={planStatusTone(plan.status)} />
+                  </box>
+                ))
+              : null}
+          </Panel>
+
+          {planningContext ? (
+            <Panel title="NORMALIZED CONTEXT" borderColor={colors.success}>
+              <text fg={colors.success}>{planningContext.normalized_plan.goal}</text>
+              <box flexDirection="row" gap={1}>
+                <Metric
+                  label="Scope"
+                  value={String(planningContext.normalized_plan.scope.length)}
+                />
+                <Metric
+                  label="Areas"
+                  value={String(planningContext.normalized_plan.affected_areas.length)}
+                />
+                <Metric
+                  label="Risks"
+                  value={String(planningContext.normalized_plan.risks.length)}
+                  tone={planningContext.normalized_plan.risks.length > 0 ? "warning" : "success"}
+                />
+                <Metric
+                  label="Questions"
+                  value={String(planningContext.normalized_plan.open_questions.length)}
+                  tone={
+                    planningContext.normalized_plan.open_questions.length > 0
+                      ? "warning"
+                      : "success"
+                  }
+                />
+              </box>
+            </Panel>
+          ) : latestPlan ? (
+            <text fg={colors.dim}>
+              Latest plan is not normalized for the current repository HEAD.
+            </text>
+          ) : null}
+
+          {planningRun ? (
+            <Panel
+              title="PLANNING AGENT"
+              borderColor={planningRun.status === "COMPLETED" ? colors.success : colors.warning}
+            >
+              <box flexDirection="row" justifyContent="space-between">
+                <text fg={planningRun.status === "COMPLETED" ? colors.success : colors.warning}>
+                  {`${planningRun.provider}/${planningRun.model}`}
+                </text>
+                <StatusBadge
+                  label={planningRun.status}
+                  tone={planningRun.status === "COMPLETED" ? "success" : "warning"}
+                />
+              </box>
+              {planningRun.status === "NEEDS_INPUT" ? (
+                <text fg={colors.warning}>
+                  {`${planningRun.questions.filter((question) => question.status === "OPEN").length} open question(s) • press Q`}
+                </text>
+              ) : null}
+              {planningRun.result ? (
+                <box flexDirection="column">
+                  <text fg={colors.muted}>{planningRun.result.summary}</text>
+                  {planningRun.result.steps.slice(0, 3).map((step) => (
+                    <text key={step.id} fg={colors.dim}>{`• ${step.title}`}</text>
+                  ))}
+                </box>
+              ) : null}
+              {planningRun.error_message ? (
+                <text fg={colors.danger}>{planningRun.error_message}</text>
+              ) : null}
+              <text fg={colors.dim}>
+                {`tokens ${planningRun.usage.input_tokens + planningRun.usage.output_tokens}`}
+              </text>
+            </Panel>
+          ) : planningContext ? (
+            <text fg={colors.dim}>No planning agent run for this context. Press A to run it.</text>
+          ) : null}
+
+          {message ? <text fg={busy ? colors.warning : colors.success}>{message}</text> : null}
+          <ShortcutBar
+            shortcuts={[
+              { key: "↑↓", label: "select" },
+              { key: "N", label: "new" },
+              { key: "P", label: "plan" },
+              { key: "S", label: "scan" },
+              { key: "O", label: "normalize" },
+              { key: "A", label: "run agent" },
+              { key: "Q", label: "answer" },
+              { key: "D", label: "delete" },
+              { key: "G", label: "refresh" },
+              { key: "R", label: "reload" },
+            ]}
+          />
+        </box>
       </box>
     </box>
   )
+}
+
+function planStatusTone(status: Plan["status"]): "neutral" | "accent" | "success" | "warning" {
+  switch (status) {
+    case "READY":
+    case "APPROVED":
+      return "success"
+    case "PLANNING":
+    case "NEEDS_INPUT":
+      return "warning"
+    case "DRAFT":
+      return "accent"
+    default:
+      return "neutral"
+  }
 }

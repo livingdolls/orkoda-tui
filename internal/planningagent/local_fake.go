@@ -163,16 +163,16 @@ func deterministicPlan(normalized planningcontext.NormalizedPlan, hasAnswers boo
 		return Plan{
 			Summary:       "Additional user input is required before implementation planning can be finalized.",
 			Steps:         []Step{},
-			OpenQuestions: append([]string(nil), normalized.OpenQuestions...),
-			Risks:         append([]string(nil), normalized.Risks...),
+			OpenQuestions: nonEmpty(normalized.OpenQuestions),
+			Risks:         nonEmpty(normalized.Risks),
 		}
 	}
 
-	scope := append([]string(nil), normalized.Scope...)
+	scope := nonEmpty(normalized.Scope)
 	if len(scope) == 0 && strings.TrimSpace(normalized.Goal) != "" {
 		scope = []string{normalized.Goal}
 	}
-	files := normalized.Repository.ImportantFiles
+	files := nonEmpty(normalized.Repository.ImportantFiles)
 	if len(files) > 3 {
 		files = files[:3]
 	}
@@ -182,7 +182,7 @@ func deterministicPlan(normalized planningcontext.NormalizedPlan, hasAnswers boo
 		if item == "" {
 			continue
 		}
-		criteria := append([]string(nil), normalized.AcceptanceCriteria...)
+		criteria := nonEmpty(normalized.AcceptanceCriteria)
 		if len(criteria) == 0 {
 			criteria = []string{"The implementation satisfies the planned scope and existing checks pass."}
 		}
@@ -190,8 +190,8 @@ func deterministicPlan(normalized planningcontext.NormalizedPlan, hasAnswers boo
 			ID:                 fmt.Sprintf("step-%d", index+1),
 			Title:              item,
 			Description:        "Implement and verify: " + item,
-			AffectedFiles:      append([]string(nil), files...),
-			AcceptanceCriteria: criteria,
+			AffectedFiles:      nonEmpty(files),
+			AcceptanceCriteria: nonEmpty(criteria),
 		})
 	}
 	if len(steps) == 0 {
@@ -199,7 +199,7 @@ func deterministicPlan(normalized planningcontext.NormalizedPlan, hasAnswers boo
 			ID:                 "step-1",
 			Title:              normalized.Goal,
 			Description:        "Implement the normalized plan using the detected repository conventions.",
-			AffectedFiles:      append([]string(nil), files...),
+			AffectedFiles:      nonEmpty(files),
 			AcceptanceCriteria: []string{"Existing validation commands pass."},
 		})
 	}
@@ -207,6 +207,6 @@ func deterministicPlan(normalized planningcontext.NormalizedPlan, hasAnswers boo
 		Summary:       "Implementation plan for " + normalized.Goal,
 		Steps:         steps,
 		OpenQuestions: []string{},
-		Risks:         append([]string(nil), normalized.Risks...),
+		Risks:         nonEmpty(normalized.Risks),
 	}
 }
