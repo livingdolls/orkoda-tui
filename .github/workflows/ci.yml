@@ -32,72 +32,76 @@ jobs:
           board = Path("apps/tui/src/board-screen.tsx")
           source = board.read_text()
 
-          old_event = '''  useEffect(() => {
-            if (!lastEvent || mode !== "board") return
-            const timeout = setTimeout(() => void reload(), 120)
-            return () => clearTimeout(timeout)
-          }, [lastEvent, mode, reload])'''
-          new_event = '''  useEffect(() => {
-            if (!lastEvent || mode !== "board" || actionMenuOpen) return
-            const timeout = setTimeout(() => void reload(), 120)
-            return () => clearTimeout(timeout)
-          }, [lastEvent, mode, actionMenuOpen, reload])'''
-          if old_event not in source:
-              raise SystemExit("SSE reload block did not match expected source")
+          old_event = (
+              '    if (!lastEvent || mode !== "board") return\n'
+              '    const timeout = setTimeout(() => void reload(), 120)\n'
+              '    return () => clearTimeout(timeout)\n'
+              '  }, [lastEvent, mode, reload])'
+          )
+          new_event = (
+              '    if (!lastEvent || mode !== "board" || actionMenuOpen) return\n'
+              '    const timeout = setTimeout(() => void reload(), 120)\n'
+              '    return () => clearTimeout(timeout)\n'
+              '  }, [lastEvent, mode, actionMenuOpen, reload])'
+          )
+          if source.count(old_event) != 1:
+              raise SystemExit(f"expected one SSE reload block, found {source.count(old_event)}")
           source = source.replace(old_event, new_event, 1)
 
-          old_keyboard = '''  useKeyboard((key) => {
-            if (mode !== "board" || busy || loadState === "loading") return
-
-            if (actionMenuOpen) {'''
-          new_keyboard = '''  useKeyboard((key) => {
-            if (mode !== "board") return
-
-            // Modal input must stay responsive even if an SSE refresh is already in flight.
-            // In particular, Escape must always provide a way out of the action menu.
-            if (actionMenuOpen) {'''
-          if old_keyboard not in source:
-              raise SystemExit("keyboard guard did not match expected source")
+          old_keyboard = (
+              '  useKeyboard((key) => {\n'
+              '    if (mode !== "board" || busy || loadState === "loading") return\n\n'
+              '    if (actionMenuOpen) {'
+          )
+          new_keyboard = (
+              '  useKeyboard((key) => {\n'
+              '    if (mode !== "board") return\n\n'
+              '    // Modal input must stay responsive even if an SSE refresh is already in flight.\n'
+              '    // In particular, Escape must always provide a way out of the action menu.\n'
+              '    if (actionMenuOpen) {'
+          )
+          if source.count(old_keyboard) != 1:
+              raise SystemExit(f"expected one keyboard guard, found {source.count(old_keyboard)}")
           source = source.replace(old_keyboard, new_keyboard, 1)
 
-          old_after_menu = '''      }
-              return
-            }
-
-            if (key.shift && key.name === "n") {'''
-          new_after_menu = '''      }
-              return
-            }
-
-            if (busy || loadState === "loading") return
-
-            if (key.shift && key.name === "n") {'''
-          if old_after_menu not in source:
-              raise SystemExit("action-menu tail did not match expected source")
-          source = source.replace(old_after_menu, new_after_menu, 1)
+          normal_input_start = '    if (key.shift && key.name === "n") {'
+          guarded_input_start = (
+              '    if (busy || loadState === "loading") return\n\n'
+              '    if (key.shift && key.name === "n") {'
+          )
+          if source.count(normal_input_start) != 1:
+              raise SystemExit(
+                  f"expected one normal input block, found {source.count(normal_input_start)}"
+              )
+          source = source.replace(normal_input_start, guarded_input_start, 1)
           board.write_text(source)
 
           e2e = Path("apps/tui/src/app.e2e.test.tsx")
           test_source = e2e.read_text()
-          old_test = '''        await act(async () => {
-                    await setup.mockInput.pressKey("enter")
-                  })
-                  const detailFrame = await waitForTUIFrame('''
-          new_test = '''        await act(async () => {
-                    await setup.mockInput.pressKey("space")
-                  })
-                  const actionMenuFrame = await waitForTUIFrame(
-                    setup,
-                    (frame) => frame.includes("What do you want to do?") && frame.includes("Open workflow evidence"),
-                  )
-                  expect(actionMenuFrame).toContain("Enter  run action")
-
-                  await act(async () => {
-                    await setup.mockInput.pressKey("enter")
-                  })
-                  const detailFrame = await waitForTUIFrame('''
-          if old_test not in test_source:
-              raise SystemExit("E2E detail-opening block did not match expected source")
+          old_test = (
+              '        await act(async () => {\n'
+              '          await setup.mockInput.pressKey("enter")\n'
+              '        })\n'
+              '        const detailFrame = await waitForTUIFrame('
+          )
+          new_test = (
+              '        await act(async () => {\n'
+              '          await setup.mockInput.pressKey("space")\n'
+              '        })\n'
+              '        const actionMenuFrame = await waitForTUIFrame(\n'
+              '          setup,\n'
+              '          (frame) =>\n'
+              '            frame.includes("What do you want to do?") &&\n'
+              '            frame.includes("Kanban approval flow"),\n'
+              '        )\n'
+              '        expect(actionMenuFrame).toContain("run action")\n\n'
+              '        await act(async () => {\n'
+              '          await setup.mockInput.pressKey("enter")\n'
+              '        })\n'
+              '        const detailFrame = await waitForTUIFrame('
+          )
+          if test_source.count(old_test) != 1:
+              raise SystemExit(f"expected one E2E detail block, found {test_source.count(old_test)}")
           e2e.write_text(test_source.replace(old_test, new_test, 1))
           PY
       - name: Format and validate TUI
