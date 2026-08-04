@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/react */
 
-import type { TextareaRenderable } from "@opentui/core"
+import type { ScrollBoxRenderable, TextareaRenderable } from "@opentui/core"
 import { useKeyboard } from "@opentui/react"
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react"
 
@@ -33,7 +33,19 @@ import {
   type ReviewRun,
   type ReviewSeverity,
 } from "./reviews"
-import { colors, EmptyState, Metric, PageIntro, Panel, ShortcutBar, StatusBadge } from "./ui"
+import {
+  Banner,
+  BOLD,
+  Card,
+  Chip,
+  colors,
+  EmptyState,
+  KeyHints,
+  PageHeader,
+  Section,
+  type StatusTone,
+  truncate,
+} from "./ui"
 import {
   listProjectWorkspaces,
   listWorkflowJobs,
@@ -84,6 +96,8 @@ export function JobsScreen({
   const [manualLease, setManualLease] = useState<ManualWorkspaceLease | null>(null)
   const [manualLeaseBusy, setManualLeaseBusy] = useState(false)
   const noteRef = useRef<TextareaRenderable>(null)
+  const listScrollRef = useRef<ScrollBoxRenderable>(null)
+  const detailScrollRef = useRef<ScrollBoxRenderable>(null)
 
   const selectedEntry = entries[selectedIndex] ?? null
 
@@ -310,6 +324,16 @@ export function JobsScreen({
       void loadJobs()
       return
     }
+    if (key.name === "pageup") {
+      listScrollRef.current?.scrollBy(-1, "viewport")
+      detailScrollRef.current?.scrollBy(-1, "viewport")
+      return
+    }
+    if (key.name === "pagedown") {
+      listScrollRef.current?.scrollBy(1, "viewport")
+      detailScrollRef.current?.scrollBy(1, "viewport")
+      return
+    }
     if ((key.name === "down" || key.name === "j") && entries.length > 0) {
       setSelectedIndex((current) => Math.min(current + 1, entries.length - 1))
       return
@@ -361,77 +385,75 @@ export function JobsScreen({
 
   return (
     <box flexDirection="column" flexGrow={1} gap={1}>
-      <PageIntro
-        kicker="WORKFLOW CONTROL"
-        title="Versioned workflow jobs"
-        description="Review execution evidence, inspect the immutable patch fingerprint, and make a deliberate human decision."
-        meta={entries.length > 0 ? `${selectedIndex + 1} / ${entries.length}` : "no jobs"}
+      <PageHeader
+        title="Jobs"
+        description="Versioned workflow jobs. Review what the agents changed, then approve, revise, or reject."
+        meta={entries.length > 0 ? `${selectedIndex + 1} of ${entries.length}` : "no jobs"}
       />
       {state === "loading" ? (
-        <Panel title="JOB REGISTRY" borderColor={colors.accent}>
+        <Card>
           <text fg={colors.warning}>Loading workflow jobs...</text>
-          <text fg={colors.dim}>Collecting executions, checks, reviews, and decisions.</text>
-        </Panel>
+          <text fg={colors.faint}>Collecting executions, checks, reviews, and decisions.</text>
+        </Card>
       ) : null}
       {state === "error" ? (
-        <Panel title="JOB REGISTRY" borderColor={colors.danger} backgroundColor="#24151A">
-          <text fg={colors.danger}>Unable to load workflow jobs.</text>
-          <text fg={colors.muted}>{message}</text>
-          <ShortcutBar shortcuts={[{ key: "R", label: "reload" }]} />
-        </Panel>
+        <box flexDirection="column" gap={1}>
+          <Banner tone="danger">
+            <text fg={colors.danger} attributes={BOLD}>
+              Unable to load workflow jobs
+            </text>
+            <text fg={colors.muted}>{message}</text>
+          </Banner>
+          <KeyHints shortcuts={[{ key: "R", label: "reload" }]} />
+        </box>
       ) : null}
       {state !== "loading" && state !== "error" && entries.length === 0 ? (
         <EmptyState
+          icon="◇"
           title="No workflow job yet"
-          detail="Start a job from the API or project workflow to see its execution evidence here."
-          action="R reload"
+          detail="Start a workflow from the Projects screen (press W there) and follow its progress here."
+          shortcut={{ key: "R", label: "reload" }}
         />
       ) : null}
       {entries.length > 0 ? (
         <box flexDirection="row" flexGrow={1} gap={1}>
-          <Panel width="32%" title={`JOBS  ${entries.length}`} borderColor={colors.lineStrong}>
-            {entries.slice(0, 20).map((entry, index) => (
-              <JobListItem key={entry.job.id} entry={entry} selected={index === selectedIndex} />
-            ))}
-            {entries.length > 20 ? (
-              <text fg={colors.dim}>{`${entries.length - 20} older jobs hidden`}</text>
-            ) : null}
-          </Panel>
-          <box flexGrow={1} flexDirection="column">
-            {selectedEntry ? (
-              <box flexDirection="row" flexGrow={1} gap={1}>
-                <box flexGrow={1} flexDirection="column">
-                  <JobCard
-                    entry={selectedEntry}
-                    selected
-                    manualLease={manualLease?.workspaceID === selectedEntry.workspace?.id}
+          <box
+            width={26}
+            flexDirection="column"
+            backgroundColor={colors.raised}
+            borderStyle="rounded"
+            borderColor={colors.line}
+          >
+            <scrollbox ref={listScrollRef} flexGrow={1} scrollY={true} padding={1}>
+              <box flexDirection="column">
+                {entries.slice(0, 20).map((entry, index) => (
+                  <JobListItem
+                    key={entry.job.id}
+                    entry={entry}
+                    selected={index === selectedIndex}
                   />
-                </box>
-                <DiffViewer
-                  executionID={selectedEntry.execution?.id}
-                  checkpoint={selectedEntry.checkpoint}
-                  artifactKey={
-                    selectedEntry.checkSteps.find((step) => step.artifact_key)?.artifact_key
-                  }
-                />
+                ))}
+                {entries.length > 20 ? (
+                  <text fg={colors.faint}>{`${entries.length - 20} older jobs hidden`}</text>
+                ) : null}
               </box>
-            ) : null}
+            </scrollbox>
           </box>
+          <scrollbox ref={detailScrollRef} flexGrow={1} scrollY={true}>
+            <box flexDirection="column" gap={1}>
+              {selectedEntry ? (
+                <JobDetail
+                  entry={selectedEntry}
+                  manualLease={manualLease?.workspaceID === selectedEntry.workspace?.id}
+                />
+              ) : null}
+            </box>
+          </scrollbox>
         </box>
       ) : null}
       {message && state !== "error" && entries.length > 0 ? (
         <text fg={colors.muted}>{message}</text>
       ) : null}
-      <ShortcutBar
-        shortcuts={[
-          { key: "↑↓", label: "select job" },
-          { key: "A", label: "approve" },
-          { key: "V", label: "revision" },
-          { key: "X", label: "reject" },
-          { key: "E", label: "edit workspace" },
-          { key: "R", label: "reload" },
-        ]}
-      />
     </box>
   )
 }
@@ -440,20 +462,202 @@ function JobListItem({ entry, selected }: { entry: JobEntry; selected: boolean }
   return (
     <box
       flexDirection="column"
-      gap={0}
-      padding={1}
-      backgroundColor={selected ? colors.surfaceAccent : colors.surface}
-      borderStyle="rounded"
-      borderColor={selected ? colors.accent : colors.line}
+      paddingLeft={1}
+      paddingRight={1}
+      backgroundColor={selected ? colors.accentTint : colors.raised}
     >
-      <text fg={selected ? colors.accent : colors.text}>
-        {`${selected ? "›" : " "} ${entry.projectName}`}
+      <text fg={selected ? colors.text : colors.muted} attributes={selected ? BOLD : 0}>
+        {`${selected ? "▸" : " "} ${truncate(entry.projectName, 19)}`}
       </text>
-      <text fg={colors.dim}>{`v${entry.job.version} / exec ${entry.job.execution_version}`}</text>
-      <text fg={statusColor(entry.job.status)}>{entry.job.status}</text>
-      {entry.review ? (
-        <text fg={colors.dim}>{`review ${entry.review.verdict || entry.review.status}`}</text>
-      ) : null}
+      <text
+        fg={statusColor(entry.job.status)}
+      >{`  ${truncate(workflowShortLabel(entry.job.status), 19)}`}</text>
+    </box>
+  )
+}
+
+function JobDetail({ entry, manualLease }: { entry: JobEntry; manualLease: boolean }) {
+  const {
+    projectName,
+    job,
+    workspace,
+    execution,
+    checkpoint,
+    check,
+    checkSteps,
+    review,
+    reviewIssues,
+    decision,
+  } = entry
+  return (
+    <box flexDirection="column" gap={1} flexGrow={1}>
+      <box flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
+        <Chip label={workflowLabel(job.status)} tone={workflowTone(job.status)} />
+        <text fg={colors.text} attributes={BOLD}>
+          {projectName}
+        </text>
+        {manualLease ? <Chip label="manual edit active" tone="warning" /> : null}
+      </box>
+      <text fg={colors.faint}>
+        {`${job.id.slice(0, 8)} · workflow v${job.version} · exec v${job.execution_version} · status ${job.status} · ${job.base_branch}@${job.base_commit_sha.slice(0, 8)} · revisions ${job.revision_count}/${job.limits.max_revisions}`}
+      </text>
+
+      <Section title="Pipeline">
+        <Card>
+          <PipelineRow
+            marker={
+              execution
+                ? execution.status === "COMPLETED"
+                  ? "done"
+                  : execution.status === "FAILED"
+                    ? "failed"
+                    : "active"
+                : "todo"
+            }
+            title={
+              execution
+                ? `Execution v${execution.execution_version} ${execution.status}`
+                : "Execution pending"
+            }
+            detail={
+              execution
+                ? `${execution.tool_calls}/${job.limits.max_tool_calls} tool calls · ${execution.provider || "daemon"} · ${execution.usage?.total_tokens ?? 0} tokens${execution.usage?.estimated_cost_usd ? ` · $${execution.usage.estimated_cost_usd.toFixed(4)}` : ""}`
+                : "The agents have not started yet"
+            }
+          />
+          <PipelineRow
+            marker={
+              check
+                ? check.status === "PASSED"
+                  ? "done"
+                  : check.status === "FAILED" || check.status === "CANCELLED"
+                    ? "failed"
+                    : "active"
+                : "todo"
+            }
+            title={
+              check
+                ? `Checks v${check.execution_version} ${check.status}`
+                : "Checks have not started"
+            }
+            detail={
+              check
+                ? `${check.passed_steps} passed · ${check.failed_steps} failed · ${checkSteps.length} steps`
+                : "Automated checks run after the agents finish"
+            }
+          />
+          {checkSteps.length > 0 ? (
+            <box flexDirection="row" gap={2} flexWrap="wrap" paddingLeft={2}>
+              {checkSteps.slice(0, 8).map((step) => (
+                <text
+                  key={step.id}
+                  fg={
+                    step.status === "PASSED"
+                      ? colors.success
+                      : step.status === "FAILED"
+                        ? colors.danger
+                        : colors.warning
+                  }
+                >
+                  {`${step.status === "PASSED" ? "✓" : step.status === "FAILED" ? "×" : "·"} ${step.profile}`}
+                </text>
+              ))}
+            </box>
+          ) : null}
+          <PipelineRow
+            marker={
+              review
+                ? review.status === "COMPLETED"
+                  ? "done"
+                  : review.status === "FAILED" || review.status === "CANCELLED"
+                    ? "failed"
+                    : "active"
+                : "todo"
+            }
+            title={
+              review
+                ? `Review v${review.execution_version} ${review.status}`
+                : "Review has not started"
+            }
+            detail={
+              review
+                ? `${review.blocking_issues}/${review.total_issues} blocking${review.verdict ? ` · verdict ${review.verdict}` : ""}`
+                : "An AI reviewer inspects the changes"
+            }
+          />
+          {review?.summary ? (
+            <text fg={colors.faint} wrapMode="word">
+              {truncate(review.summary, 120)}
+            </text>
+          ) : null}
+          {reviewIssues.length > 0 ? (
+            <text fg={severityColor(reviewIssues[0]?.severity ?? "LOW")}>
+              {`${reviewIssues.length} review issue${reviewIssues.length === 1 ? "" : "s"}`}
+            </text>
+          ) : null}
+          <PipelineRow
+            marker={decision ? (decision.status === "APPLIED" ? "done" : "active") : "active"}
+            title={
+              decision
+                ? `Human decision ${decision.decision}`
+                : canDecide(entry)
+                  ? "Awaiting human decision — press A to approve"
+                  : "Awaiting human decision"
+            }
+            detail={
+              decision
+                ? `${decision.status} · execution v${decision.execution_version}${decision.review_override ? " · reviewer override recorded" : ""}`
+                : "Nothing is published without your explicit approval"
+            }
+          />
+          {job.failure_message ? (
+            <text fg={colors.danger}>{truncate(job.failure_message, 100)}</text>
+          ) : null}
+          <text fg={colors.faint}>
+            {workspace
+              ? `Workspace ${workspace.status} · ${workspace.head_sha?.slice(0, 8) ?? "no HEAD"}`
+              : "Workspace not requested"}
+          </text>
+        </Card>
+      </Section>
+
+      <box flexDirection="row" flexGrow={1} gap={1}>
+        <DiffViewer
+          executionID={execution?.id}
+          checkpoint={checkpoint}
+          artifactKey={entry.checkSteps.find((step) => step.artifact_key)?.artifact_key}
+        />
+      </box>
+    </box>
+  )
+}
+
+function PipelineRow({
+  marker,
+  title,
+  detail,
+}: {
+  marker: "done" | "active" | "failed" | "todo"
+  title: string
+  detail?: string
+}) {
+  const symbol =
+    marker === "done" ? "✓" : marker === "failed" ? "×" : marker === "active" ? "◐" : "○"
+  const symbolColor =
+    marker === "done"
+      ? colors.success
+      : marker === "failed"
+        ? colors.danger
+        : marker === "active"
+          ? colors.warning
+          : colors.faint
+  return (
+    <box flexDirection="row" gap={1}>
+      <text fg={symbolColor}>{symbol}</text>
+      <box flexDirection="column" flexGrow={1}>
+        <text fg={marker === "todo" ? colors.faint : colors.text}>{title}</text>
+        {detail ? <text fg={colors.faint}>{detail}</text> : null}
+      </box>
     </box>
   )
 }
@@ -485,68 +689,79 @@ function DecisionPanel({
 
   return (
     <box flexDirection="column" flexGrow={1} gap={1}>
-      <PageIntro
-        kicker="HUMAN DECISION"
+      <PageHeader
         title={`Human decision: ${kind}`}
         description={`${entry.projectName} · workflow v${job.version} · execution v${execution?.execution_version ?? 0}`}
         meta="review before applying"
       />
       <box flexDirection="row" flexGrow={1} gap={1}>
-        <Panel
-          width="43%"
-          title="IMMUTABLE FINGERPRINT"
-          borderColor={colors.warning}
-          backgroundColor="#211E14"
-        >
-          <text fg={colors.warning}>Verify immutable approval fingerprint</text>
-          <Metric label="Execution" value={`v${execution?.execution_version ?? 0}`} tone="accent" />
-          <text fg={colors.dim}>Base commit</text>
-          <text fg={colors.muted}>{execution?.base_commit_sha ?? "missing"}</text>
-          <text fg={colors.dim}>Patch checksum</text>
-          <text fg={colors.muted}>{checkpoint?.patch_checksum ?? "missing"}</text>
-          <StatusBadge
-            label={`Reviewer ${review?.verdict ?? "missing"} · ${review?.blocking_issues ?? 0} blocking`}
-            tone={review?.verdict === "APPROVE" ? "success" : "warning"}
-          />
-        </Panel>
-        <Panel
-          flexGrow={1}
-          title="DECISION NOTE"
-          borderColor={colors.accent}
-          backgroundColor={colors.surfaceAccent}
-        >
-          <text fg={colors.accent}>
-            {kind === "REQUEST_REVISION"
-              ? "Revision instructions"
-              : kind === "REJECT"
-                ? "Rejection reason"
-                : "Approval note"}
-          </text>
-          <textarea
-            ref={noteRef}
-            width="100%"
-            height={9}
-            initialValue={note}
-            placeholder={
-              kind === "APPROVE"
-                ? "Optional unless overriding a REQUEST_REVISION verdict"
-                : "Explain the required change or rejection reason"
+        <box flexDirection="column" width="43%" gap={1}>
+          <Section title="Verify immutable approval fingerprint">
+            <Card tone="warning">
+              <text fg={colors.muted} wrapMode="word">
+                These values pin your decision to one exact set of changes.
+              </text>
+              <box flexDirection="row" gap={1}>
+                <text fg={colors.faint}>Execution</text>
+                <text fg={colors.accent}>{`v${execution?.execution_version ?? 0}`}</text>
+              </box>
+              <box flexDirection="column">
+                <text fg={colors.faint}>Base commit</text>
+                <text fg={colors.muted}>{compactFingerprint(execution?.base_commit_sha)}</text>
+              </box>
+              <box flexDirection="column">
+                <text fg={colors.faint}>Patch checksum</text>
+                <text fg={colors.muted}>{compactFingerprint(checkpoint?.patch_checksum)}</text>
+              </box>
+              <Chip
+                label={`Reviewer ${review?.verdict ?? "missing"} · ${review?.blocking_issues ?? 0} blocking`}
+                tone={review?.verdict === "APPROVE" ? "success" : "warning"}
+              />
+            </Card>
+          </Section>
+        </box>
+        <box flexDirection="column" flexGrow={1} gap={1}>
+          <Section
+            title={
+              kind === "REQUEST_REVISION"
+                ? "Revision instructions"
+                : kind === "REJECT"
+                  ? "Rejection reason"
+                  : "Approval note"
             }
-            focused
-            wrapMode="word"
-            backgroundColor={colors.surface}
-            focusedBackgroundColor={colors.surfaceRaised}
-            onContentChange={() => onNoteChange(noteRef.current?.plainText ?? "")}
-          />
-          {kind === "APPROVE" && review?.verdict === "REQUEST_REVISION" ? (
-            <text fg={reviewOverride ? colors.success : colors.danger}>
-              {`Reviewer override: ${reviewOverride ? "ACKNOWLEDGED" : "NOT ACKNOWLEDGED"} · press O to toggle`}
-            </text>
-          ) : null}
-        </Panel>
+          >
+            <Card tone="accent" flexGrow={1}>
+              <textarea
+                ref={noteRef}
+                width="100%"
+                height={9}
+                initialValue={note}
+                placeholder={
+                  kind === "APPROVE"
+                    ? "Optional unless overriding a REQUEST_REVISION verdict"
+                    : "Explain the required change or rejection reason"
+                }
+                focused
+                wrapMode="word"
+                backgroundColor={colors.inset}
+                focusedBackgroundColor={colors.raised}
+                onContentChange={() => onNoteChange(noteRef.current?.plainText ?? "")}
+              />
+              {kind === "APPROVE" && review?.verdict === "REQUEST_REVISION" ? (
+                <text fg={reviewOverride ? colors.success : colors.danger}>
+                  {`Reviewer override: ${reviewOverride ? "ACKNOWLEDGED" : "NOT ACKNOWLEDGED"} · press O to toggle`}
+                </text>
+              ) : null}
+            </Card>
+          </Section>
+        </box>
       </box>
-      {message ? <text fg={submitting ? colors.warning : colors.danger}>{message}</text> : null}
-      <ShortcutBar
+      {message ? (
+        <Banner tone={submitting ? "warning" : "danger"}>
+          <text fg={submitting ? colors.warning : colors.danger}>{message}</text>
+        </Banner>
+      ) : null}
+      <KeyHints
         shortcuts={[
           { key: "Ctrl+S", label: "apply decision" },
           { key: "Esc", label: "cancel" },
@@ -566,145 +781,10 @@ function canDecide(entry: JobEntry): boolean {
   )
 }
 
-function JobCard({
-  entry,
-  selected,
-  manualLease,
-}: {
-  entry: JobEntry
-  selected: boolean
-  manualLease: boolean
-}) {
-  const {
-    projectName,
-    job,
-    workspace,
-    execution,
-    checkpoint,
-    check,
-    checkSteps,
-    review,
-    reviewIssues,
-    decision,
-  } = entry
-  return (
-    <box
-      flexDirection="column"
-      borderStyle="rounded"
-      borderColor={selected ? colors.accent : colors.line}
-      backgroundColor={colors.surfaceRaised}
-      padding={1}
-    >
-      <box flexDirection="column" gap={1}>
-        <text
-          fg={selected ? colors.accent : colors.text}
-        >{`${selected ? "› " : ""}${projectName}`}</text>
-        <StatusBadge label={job.status} tone={workflowTone(job.status)} />
-      </box>
-      <text fg={colors.muted}>
-        {`${job.id.slice(0, 8)} · workflow v${job.version} · exec v${job.execution_version}`}
-      </text>
-      <text fg={colors.muted}>
-        {`${job.base_branch}@${job.base_commit_sha.slice(0, 8)} · rev ${job.revision_count}/${job.limits.max_revisions}`}
-      </text>
-      <text fg={colors.dim}>EXECUTION</text>
-      <text fg={execution?.status === "FAILED" ? colors.danger : colors.accent}>
-        {execution
-          ? `Execution v${execution.execution_version} ${execution.status}`
-          : "Execution pending"}
-      </text>
-      <text fg={colors.dim}>
-        {execution
-          ? `${execution.tool_calls}/${job.limits.max_tool_calls} calls · ${execution.provider || "daemon"} · ${execution.usage?.total_tokens ?? 0} tokens`
-          : "No execution evidence yet"}
-      </text>
-      {manualLease ? <StatusBadge label="MANUAL EDIT LEASE ACTIVE" tone="warning" /> : null}
-      {execution?.usage?.estimated_cost_usd ? (
-        <text
-          fg={colors.dim}
-        >{`estimated cost $${execution.usage.estimated_cost_usd.toFixed(4)}`}</text>
-      ) : null}
-      {checkpoint ? (
-        <text fg={colors.dim}>{`Patch ${checkpoint.patch_checksum.slice(0, 12)}`}</text>
-      ) : null}
-      <text fg={colors.dim}>CHECKS</text>
-      {check ? (
-        <text
-          fg={checkStatusColor(check.status)}
-        >{`Checks v${check.execution_version} ${check.status}`}</text>
-      ) : (
-        <text fg={colors.dim}>Checks have not started.</text>
-      )}
-      {check ? (
-        <text
-          fg={colors.muted}
-        >{`${check.passed_steps} passed · ${check.failed_steps} failed · ${checkSteps.length} steps`}</text>
-      ) : null}
-      {checkSteps.length > 0 ? (
-        <box flexDirection="column" gap={0}>
-          {checkSteps.slice(0, 8).map((step) => (
-            <box key={step.id} flexDirection="row" justifyContent="space-between">
-              <text
-                fg={
-                  step.status === "PASSED"
-                    ? colors.success
-                    : step.status === "FAILED"
-                      ? colors.danger
-                      : colors.warning
-                }
-              >
-                {`${step.status === "PASSED" ? "✓" : step.status === "FAILED" ? "×" : "·"} ${step.profile}`}
-              </text>
-              {step.artifact_key ? <text fg={colors.dim}>log artifact</text> : null}
-            </box>
-          ))}
-        </box>
-      ) : null}
-      <text fg={colors.dim}>REVIEW</text>
-      {review ? (
-        <text
-          fg={reviewStatusColor(review)}
-        >{`Review v${review.execution_version} ${review.status}`}</text>
-      ) : (
-        <text fg={colors.dim}>Review has not started.</text>
-      )}
-      {review ? (
-        <text
-          fg={colors.muted}
-        >{`${review.blocking_issues}/${review.total_issues} blocking${review.verdict ? ` · ${review.verdict}` : ""}`}</text>
-      ) : null}
-      {review?.summary ? <text fg={colors.dim}>{review.summary.slice(0, 64)}</text> : null}
-      {reviewIssues.length > 0 ? (
-        <text fg={severityColor(reviewIssues[0]?.severity ?? "LOW")}>
-          {`${reviewIssues.length} review issue${reviewIssues.length === 1 ? "" : "s"}`}
-        </text>
-      ) : null}
-      <text fg={colors.dim}>DECISION</text>
-      {decision ? (
-        <text fg={decision.status === "APPLIED" ? colors.success : colors.warning}>
-          {`Human decision ${decision.decision}`}
-        </text>
-      ) : (
-        <text fg={colors.warning}>Awaiting human decision</text>
-      )}
-      {decision ? (
-        <text fg={decision.status === "APPLIED" ? colors.success : colors.muted}>
-          {`${decision.status} · execution v${decision.execution_version}`}
-        </text>
-      ) : null}
-      {decision?.review_override ? (
-        <text fg={colors.warning}>Reviewer override recorded.</text>
-      ) : null}
-      <text fg={colors.dim}>
-        {workspace
-          ? `Workspace ${workspace.status} · ${workspace.head_sha?.slice(0, 8) ?? "no HEAD"}`
-          : "Workspace not requested"}
-      </text>
-      {job.failure_message ? (
-        <text fg={colors.danger}>{job.failure_message.slice(0, 80)}</text>
-      ) : null}
-    </box>
-  )
+function compactFingerprint(value?: string): string {
+  if (!value) return "missing"
+  if (value.length <= 32) return value
+  return `${value.slice(0, 20)}…${value.slice(-8)}`
 }
 
 function DiffViewer({
@@ -771,64 +851,150 @@ function DiffViewer({
   }, [artifactKey, executionID])
 
   return (
-    <Panel width="44%" title="CHANGED FILES / DIFF" borderColor={colors.lineStrong}>
-      {checkpoint?.changed_files?.length ? (
-        <box flexDirection="column" gap={0}>
-          <text fg={colors.dim}>FILES</text>
-          {checkpoint.changed_files.slice(0, 12).map((path) => (
-            <text key={path} fg={colors.accent}>{`› ${path}`}</text>
-          ))}
-          {checkpoint.changed_files.length > 12 ? (
-            <text fg={colors.dim}>{`${checkpoint.changed_files.length - 12} more files`}</text>
+    <box flexDirection="column" flexGrow={1} gap={1}>
+      <Section title="Changed files & diff">
+        <Card>
+          {checkpoint?.changed_files?.length ? (
+            <box flexDirection="column">
+              {checkpoint.changed_files.slice(0, 8).map((path) => (
+                <text key={path} fg={colors.accent}>{`▸ ${path}`}</text>
+              ))}
+              {checkpoint.changed_files.length > 8 ? (
+                <text fg={colors.faint}>{`${checkpoint.changed_files.length - 8} more files`}</text>
+              ) : null}
+            </box>
+          ) : (
+            <text fg={colors.faint}>No changed-file checkpoint yet.</text>
+          )}
+          {state === "loading" ? <text fg={colors.warning}>Loading diff...</text> : null}
+          {state === "error" ? <text fg={colors.danger}>{message}</text> : null}
+          {state === "ready" ? (
+            <scrollbox height={12} backgroundColor={colors.inset} padding={1}>
+              {lines.length > 0 ? (
+                keyedLines(lines, "diff").map(({ key, line }) => (
+                  <text
+                    key={key}
+                    fg={
+                      line.startsWith("+")
+                        ? colors.success
+                        : line.startsWith("-")
+                          ? colors.danger
+                          : colors.muted
+                    }
+                  >
+                    {truncate(line, 96)}
+                  </text>
+                ))
+              ) : (
+                <text fg={colors.faint}>Checkpoint has no patch content.</text>
+              )}
+            </scrollbox>
           ) : null}
-        </box>
-      ) : (
-        <text fg={colors.dim}>No changed-file checkpoint yet.</text>
-      )}
-      {state === "loading" ? <text fg={colors.warning}>Loading unified diff...</text> : null}
-      {state === "error" ? <text fg={colors.danger}>{message}</text> : null}
-      {state === "ready" ? (
-        <scrollbox height={18} flexGrow={1} backgroundColor={colors.surface}>
-          {lines.length > 0 ? (
-            lines.map((line) => (
-              <text
-                key={`diff-${line}`}
-                fg={
-                  line.startsWith("+")
-                    ? colors.success
-                    : line.startsWith("-")
-                      ? colors.danger
-                      : colors.muted
-                }
-              >
-                {line}
-              </text>
-            ))
-          ) : (
-            <text fg={colors.dim}>Checkpoint has no patch content.</text>
-          )}
-        </scrollbox>
-      ) : null}
-      {artifactKey ? <text fg={colors.dim}>{`CHECK LOG · ${artifactKey}`}</text> : null}
-      {logState === "loading" ? (
-        <text fg={colors.warning}>Loading check log artifact...</text>
-      ) : null}
-      {logState === "error" ? <text fg={colors.danger}>{message}</text> : null}
-      {logState === "ready" ? (
-        <scrollbox height={8} flexGrow={1} backgroundColor={colors.surface}>
-          {logLines.length > 0 ? (
-            logLines.map((line) => (
-              <text key={`log-${line}`} fg={colors.muted}>
-                {line}
-              </text>
-            ))
-          ) : (
-            <text fg={colors.dim}>Check log artifact is empty.</text>
-          )}
-        </scrollbox>
-      ) : null}
-    </Panel>
+          {artifactKey ? (
+            <box flexDirection="column" gap={1}>
+              <text fg={colors.faint}>{`Check log · ${artifactKey}`}</text>
+              {logState === "loading" ? (
+                <text fg={colors.warning}>Loading check log...</text>
+              ) : null}
+              {logState === "error" ? <text fg={colors.danger}>{message}</text> : null}
+              {logState === "ready" ? (
+                <scrollbox height={6} backgroundColor={colors.inset} padding={1}>
+                  {logLines.length > 0 ? (
+                    keyedLines(logLines, "log").map(({ key, line }) => (
+                      <text key={key} fg={colors.muted}>
+                        {truncate(line, 96)}
+                      </text>
+                    ))
+                  ) : (
+                    <text fg={colors.faint}>Check log artifact is empty.</text>
+                  )}
+                </scrollbox>
+              ) : null}
+            </box>
+          ) : null}
+        </Card>
+      </Section>
+    </box>
   )
+}
+
+function keyedLines(lines: string[], prefix: string): Array<{ key: string; line: string }> {
+  const occurrences = new Map<string, number>()
+  return lines.map((line) => {
+    const count = (occurrences.get(line) ?? 0) + 1
+    occurrences.set(line, count)
+    return { key: `${prefix}-${line}-${count}`, line }
+  })
+}
+
+function workflowLabel(status: WorkflowStatus): string {
+  switch (status) {
+    case "READY":
+      return "Ready to start"
+    case "WORKSPACE_PREPARING":
+      return "Preparing workspace"
+    case "QUEUED":
+      return "Queued"
+    case "EXECUTING":
+      return "Agents working…"
+    case "CHECKING":
+      return "Running checks"
+    case "REVIEWING":
+      return "Reviewing changes"
+    case "WAITING_FOR_APPROVAL":
+      return "Waiting for your approval"
+    case "REVISION_REQUIRED":
+      return "Needs revision"
+    case "APPROVED":
+      return "Approved"
+    case "PUBLISHING":
+      return "Publishing"
+    case "COMPLETED":
+      return "Completed"
+    case "FAILED":
+      return "Failed"
+    case "REJECTED":
+      return "Rejected"
+    case "CANCELLED":
+      return "Cancelled"
+    default:
+      return status
+  }
+}
+
+function workflowShortLabel(status: WorkflowStatus): string {
+  switch (status) {
+    case "READY":
+      return "ready"
+    case "WORKSPACE_PREPARING":
+      return "preparing…"
+    case "QUEUED":
+      return "queued"
+    case "EXECUTING":
+      return "working…"
+    case "CHECKING":
+      return "checking…"
+    case "REVIEWING":
+      return "reviewing…"
+    case "WAITING_FOR_APPROVAL":
+      return "needs approval"
+    case "REVISION_REQUIRED":
+      return "needs revision"
+    case "APPROVED":
+      return "approved"
+    case "PUBLISHING":
+      return "publishing…"
+    case "COMPLETED":
+      return "completed"
+    case "FAILED":
+      return "failed"
+    case "REJECTED":
+      return "rejected"
+    case "CANCELLED":
+      return "cancelled"
+    default:
+      return status
+  }
 }
 
 function statusColor(status: WorkflowStatus): string {
@@ -848,9 +1014,7 @@ function statusColor(status: WorkflowStatus): string {
   }
 }
 
-function workflowTone(
-  status: WorkflowStatus,
-): "neutral" | "accent" | "success" | "warning" | "danger" {
+function workflowTone(status: WorkflowStatus): StatusTone {
   switch (status) {
     case "COMPLETED":
     case "APPROVED":
@@ -865,33 +1029,6 @@ function workflowTone(
     default:
       return "accent"
   }
-}
-
-function checkStatusColor(status: CheckRun["status"]): string {
-  switch (status) {
-    case "PASSED":
-      return colors.success
-    case "FAILED":
-    case "CANCELLED":
-      return colors.danger
-    case "RUNNING":
-      return colors.warning
-    default:
-      return colors.accent
-  }
-}
-
-function reviewStatusColor(review: ReviewRun): string {
-  if (review.status === "FAILED" || review.status === "CANCELLED") {
-    return colors.danger
-  }
-  if (review.verdict === "APPROVE") {
-    return colors.success
-  }
-  if (review.verdict === "REQUEST_REVISION" || review.status === "RUNNING") {
-    return colors.warning
-  }
-  return colors.accent
 }
 
 function severityColor(severity: ReviewSeverity): string {

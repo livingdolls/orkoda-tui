@@ -24,22 +24,31 @@ import {
 import { ProjectScreen } from "./project-screen"
 import { SettingsScreen } from "./settings-screen"
 import {
+  BOLD,
+  Card,
+  Chip,
   CommandPalette,
   colors,
-  Metric,
-  PageIntro,
+  Info,
+  Key,
+  KeyHints,
+  PageHeader,
   type PaletteCommand,
-  Panel,
-  ShortcutBar,
-  StatusBadge,
+  Section,
+  type Shortcut,
   Toast,
-  toneColor,
 } from "./ui"
 
-const connectionTones: Record<DaemonConnection["state"], "warning" | "success" | "danger"> = {
+const connectionTone: Record<DaemonConnection["state"], "warning" | "success" | "danger"> = {
   checking: "warning",
   connected: "success",
   disconnected: "danger",
+}
+
+const connectionLabel: Record<DaemonConnection["state"], string> = {
+  checking: "connecting…",
+  connected: "connected",
+  disconnected: "offline",
 }
 
 export function App() {
@@ -52,7 +61,7 @@ export function App() {
   const [showPalette, setShowPalette] = useState(false)
   const [lastEvent, setLastEvent] = useState<ActivityEvent | null>(null)
   const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null)
-  const [sidebarWidth, setSidebarWidth] = useState(29)
+  const [sidebarWidth, setSidebarWidth] = useState(26)
   const [eventStreamState, setEventStreamState] = useState<"connected" | "reconnecting" | "closed">(
     "closed",
   )
@@ -85,7 +94,7 @@ export function App() {
       (key.name === "left" || key.name === "right")
     ) {
       setSidebarWidth((current) =>
-        Math.min(42, Math.max(22, current + (key.name === "right" ? 2 : -2))),
+        Math.min(36, Math.max(20, current + (key.name === "right" ? 2 : -2))),
       )
       setToast("Workspace panel resized")
       return
@@ -257,73 +266,136 @@ export function App() {
     { id: "help", label: "Keyboard guide", detail: "Show contextual shortcuts", shortcut: "?" },
   ]
 
-  let footerHelp = "←→ screen • 1–5 jump • ? help • Ctrl+←→ resize • Ctrl+C quit"
-  if (activeScreen === "projects") {
-    footerHelp = projectInteractionActive
-      ? "Dialog active • use the action bar • Esc cancel"
-      : "↑↓ select • N new • P plan • S scan • R reload • ? help"
-  } else if (activeScreen === "agents") {
-    footerHelp = "↑↓ project • Tab role • E toggle • N network • F filesystem • S save • ? help"
-  } else if (activeScreen === "jobs") {
-    footerHelp = jobsInteractionActive
-      ? "Composer active • Ctrl+S apply • Esc cancel • O override"
-      : "↑↓ select • A approve • V revise • X reject • E edit • R reload • ? help"
-  }
+  const footerShortcuts: Shortcut[] = (() => {
+    if (activeScreen === "projects") {
+      return projectInteractionActive
+        ? [
+            { key: "Esc", label: "cancel" },
+            { key: "?", label: "help" },
+          ]
+        : [
+            { key: "↑↓", label: "select" },
+            { key: "N", label: "new project" },
+            { key: "P", label: "new plan" },
+            { key: "W", label: "start work" },
+            { key: "?", label: "all shortcuts" },
+          ]
+    }
+    if (activeScreen === "agents") {
+      return [
+        { key: "↑↓", label: "project" },
+        { key: "Tab", label: "role" },
+        { key: "E", label: "enable / disable" },
+        { key: "S", label: "save" },
+        { key: "?", label: "all shortcuts" },
+      ]
+    }
+    if (activeScreen === "jobs") {
+      return jobsInteractionActive
+        ? [
+            { key: "Ctrl+S", label: "apply" },
+            { key: "Esc", label: "cancel" },
+          ]
+        : [
+            { key: "↑↓", label: "select" },
+            { key: "A", label: "approve" },
+            { key: "V", label: "revise" },
+            { key: "X", label: "reject" },
+            { key: "?", label: "all shortcuts" },
+          ]
+    }
+    return [
+      { key: "←→", label: "switch screen" },
+      { key: "R", label: "reconnect" },
+      { key: "?", label: "all shortcuts" },
+    ]
+  })()
+  const visibleFooterShortcuts = compactLayout
+    ? footerShortcuts.filter((shortcut) => shortcut.key !== "?")
+    : footerShortcuts
 
   return (
     <box flexDirection="column" width="100%" height="100%" backgroundColor={colors.canvas}>
       <box
-        height={4}
+        height={3}
         paddingLeft={1}
         paddingRight={1}
         flexDirection="row"
         justifyContent="space-between"
         alignItems="center"
         backgroundColor={colors.surface}
+        border={["bottom"]}
+        borderColor={colors.line}
       >
         <box flexDirection="row" gap={1} alignItems="center">
-          <text fg={colors.accent}>ORKODA</text>
-          <text fg={colors.dim}>/</text>
-          <text fg={colors.text}>{screenLabel(activeScreen)}</text>
+          <text fg={colors.accent} attributes={BOLD}>
+            ◆ ORKODA
+          </text>
+          <text fg={colors.faint}>·</text>
+          <text fg={colors.text} attributes={BOLD}>
+            {screenLabel(activeScreen)}
+          </text>
         </box>
-        <box flexDirection="row" gap={2} alignItems="center">
-          <text fg={colors.dim}>local control room</text>
-          <StatusBadge label={connection.state} tone={connectionTones[connection.state]} />
+        <box flexDirection="row" gap={1} alignItems="center">
+          <text fg={colors.faint}>{connection.protocolVersion}</text>
+          <Chip label={connectionLabel[connection.state]} tone={connectionTone[connection.state]} />
         </box>
       </box>
 
       <box flexGrow={1} flexDirection="row" padding={1} gap={1}>
         {!compactLayout ? (
-          <Panel width={sidebarWidth} title="WORKSPACE" borderColor={colors.lineStrong}>
-            <text fg={colors.dim}>SCREENS</text>
+          <box
+            width={sidebarWidth}
+            flexDirection="column"
+            gap={1}
+            padding={1}
+            backgroundColor={colors.surface}
+            borderStyle="rounded"
+            borderColor={colors.line}
+          >
             {screenDefinitions.map((item, index) => {
               const selected = item.id === activeScreen
               return (
                 <box
                   key={item.id}
                   flexDirection="column"
-                  gap={1}
-                  padding={1}
-                  backgroundColor={selected ? colors.surfaceAccent : colors.surface}
-                  borderStyle="rounded"
-                  borderColor={selected ? colors.accent : colors.line}
+                  paddingLeft={1}
+                  paddingRight={1}
+                  backgroundColor={selected ? colors.accentTint : colors.surface}
                 >
-                  <text fg={selected ? colors.accent : colors.muted}>
-                    {`${selected ? "›" : " "}  ${index + 1}  ${item.label}`}
-                  </text>
-                  <text fg={selected ? colors.text : colors.dim}>{item.description}</text>
+                  <box flexDirection="row" gap={1}>
+                    <text fg={selected ? colors.accent : colors.faint}>{selected ? "▸" : " "}</text>
+                    <text
+                      fg={selected ? colors.text : colors.muted}
+                      attributes={selected ? BOLD : 0}
+                    >
+                      {`${index + 1} ${item.label}`}
+                    </text>
+                  </box>
+                  <text
+                    fg={selected ? colors.muted : colors.faint}
+                  >{`   ${item.description}`}</text>
                 </box>
               )
             })}
-          </Panel>
+            <box flexGrow={1} />
+            <box flexDirection="row" gap={1} alignItems="center">
+              <Key>?</Key>
+              <text fg={colors.faint}>all shortcuts</text>
+            </box>
+            <box flexDirection="row" gap={1} alignItems="center">
+              <Key>/</Key>
+              <text fg={colors.faint}>search actions</text>
+            </box>
+          </box>
         ) : null}
 
         <box
           flexGrow={1}
           flexDirection="column"
-          borderStyle="rounded"
-          borderColor={colors.lineStrong}
           backgroundColor={colors.surface}
+          borderStyle="rounded"
+          borderColor={colors.line}
           padding={1}
           gap={1}
         >
@@ -332,7 +404,7 @@ export function App() {
               <ProjectScreen
                 connection={connection}
                 onInteractionChange={setProjectInteractionActive}
-                helpOpen={showHelp}
+                helpOpen
               />
             ) : (
               <HelpScreen screen={activeScreen} />
@@ -357,10 +429,10 @@ export function App() {
       {showHelp && activeScreen === "projects" ? (
         <box
           position="absolute"
-          top={5}
-          left="8%"
-          width="84%"
-          height="80%"
+          top={4}
+          left={compactLayout ? 1 : sidebarWidth + 2}
+          right={1}
+          bottom={2}
           padding={2}
           borderStyle="rounded"
           borderColor={colors.accent}
@@ -369,31 +441,15 @@ export function App() {
           <HelpScreen screen={activeScreen} />
         </box>
       ) : null}
-
       <box
-        height={3}
+        height={2}
         paddingLeft={1}
         paddingRight={1}
-        flexDirection="column"
-        justifyContent="space-between"
+        flexDirection="row"
+        alignItems="center"
         backgroundColor={colors.surface}
       >
-        <box flexDirection="row" justifyContent="space-between">
-          <text fg={colors.muted}>{footerHelp}</text>
-          <text fg={toneColor(connectionTones[connection.state])}>
-            {`${connection.protocolVersion} • ${connection.message}`}
-          </text>
-        </box>
-        <ShortcutBar
-          subdued
-          shortcuts={[
-            { key: "←→", label: "screen" },
-            { key: "1–5", label: "jump" },
-            { key: "Ctrl+←→", label: "resize" },
-            { key: "?", label: "help" },
-            { key: "Ctrl+C", label: "quit" },
-          ]}
-        />
+        <KeyHints shortcuts={visibleFooterShortcuts} />
       </box>
       {showPalette ? (
         <CommandPalette
@@ -454,82 +510,80 @@ function ScreenContent({
 
   return (
     <box flexDirection="column" gap={1} flexGrow={1}>
-      <PageIntro
-        kicker="DIAGNOSTICS"
-        title="Daemon connection"
-        description="A quick read on the local control plane and protocol handshake."
+      <PageHeader
+        title="System status"
+        description="A quick health check of the local daemon that runs your workflows."
+        meta="press R to refresh"
       />
-      <Panel title="LIVE CONNECTION" borderColor={toneColor(connectionTones[connection.state])}>
-        <StatusBadge label={connection.state} tone={connectionTones[connection.state]} />
-        <text fg={colors.muted}>{connection.message}</text>
-        <box flexDirection="row" gap={1}>
-          <Metric label="Protocol" value={connection.protocolVersion} tone="accent" />
-          <Metric label="Endpoint" value="127.0.0.1:8181" />
-        </box>
-      </Panel>
-      <Panel
-        title="DAEMON DIAGNOSTICS"
-        borderColor={diagnostics?.status === "ready" ? colors.lineStrong : colors.warning}
-      >
-        {diagnostics ? (
-          <box flexDirection="column" gap={1}>
-            <box flexDirection="row" gap={1}>
-              <StatusBadge
-                label={diagnostics.status}
-                tone={diagnostics.status === "ready" ? "success" : "warning"}
-              />
-              <text fg={colors.dim}>{`schema v${diagnostics.database.schema_version}`}</text>
-              <text fg={diagnostics.database.integrity === "ok" ? colors.success : colors.danger}>
-                {`SQLite ${diagnostics.database.integrity}`}
-              </text>
-            </box>
-            <box flexDirection="row" gap={1}>
-              <Metric label="Queue" value={`${diagnostics.queue.queued} queued`} />
-              <Metric label="Running" value={`${diagnostics.queue.running}`} />
-              <Metric
-                label="Dead"
+      <Section title="Daemon">
+        <Card>
+          <box flexDirection="row" gap={1} alignItems="center">
+            <Chip
+              label={connection.state === "connected" ? "connected" : connection.state}
+              tone={connectionTone[connection.state]}
+            />
+            <text fg={colors.muted}>{connection.message}</text>
+          </box>
+          <Info label="Address" value="127.0.0.1:8181" />
+          <Info label="Protocol" value={connection.protocolVersion} tone="accent" />
+        </Card>
+      </Section>
+      <Section title="Background work">
+        <Card>
+          {diagnostics ? (
+            <box flexDirection="column" gap={1}>
+              <box flexDirection="row" gap={1} alignItems="center">
+                <Chip
+                  label={diagnostics.status === "ready" ? "ready" : "degraded"}
+                  tone={diagnostics.status === "ready" ? "success" : "warning"}
+                />
+                <text
+                  fg={colors.faint}
+                >{`database schema v${diagnostics.database.schema_version} · SQLite ${diagnostics.database.integrity}`}</text>
+              </box>
+              <Info label="Waiting" value={`${diagnostics.queue.queued}`} />
+              <Info label="Running" value={`${diagnostics.queue.running}`} tone="accent" />
+              <Info
+                label="Failed"
                 value={`${diagnostics.queue.dead}`}
                 tone={diagnostics.queue.dead > 0 ? "danger" : "success"}
               />
-              <Metric
-                label="Leases"
+              <Info
+                label="Workspace leases"
                 value={`${diagnostics.workspaces.active_leases}/${diagnostics.workspaces.total}`}
               />
             </box>
-          </box>
-        ) : (
-          <text fg={colors.dim}>Diagnostics are temporarily unavailable.</text>
-        )}
-      </Panel>
-      <Panel
-        title="EVENT STREAM"
-        borderColor={eventStreamState === "connected" ? colors.success : colors.warning}
-      >
-        <box flexDirection="row" gap={1}>
-          <StatusBadge
-            label={eventStreamState}
-            tone={eventStreamState === "connected" ? "success" : "warning"}
-          />
-          {lastEvent ? (
-            <text fg={colors.muted}>{`#${lastEvent.sequence} ${lastEvent.type}`}</text>
           ) : (
-            <text fg={colors.dim}>Waiting for a durable activity event.</text>
+            <text fg={colors.faint}>Diagnostics are temporarily unavailable.</text>
           )}
-        </box>
-        {lastEvent ? <text fg={colors.dim}>{lastEvent.created_at}</text> : null}
-      </Panel>
+        </Card>
+      </Section>
+      <Section title="Live updates">
+        <Card>
+          <box flexDirection="row" gap={1} alignItems="center">
+            <Chip
+              label={eventStreamState === "connected" ? "streaming" : eventStreamState}
+              tone={eventStreamState === "connected" ? "success" : "warning"}
+            />
+            {lastEvent ? (
+              <text
+                fg={colors.muted}
+              >{`last update #${lastEvent.sequence} · ${lastEvent.type}`}</text>
+            ) : (
+              <text fg={colors.faint}>Waiting for the first live update.</text>
+            )}
+          </box>
+          {lastEvent ? <text fg={colors.faint}>{lastEvent.created_at}</text> : null}
+        </Card>
+      </Section>
       {connection.state === "disconnected" ? (
-        <Panel borderColor={colors.warning} backgroundColor="#211E14">
-          <text fg={colors.warning}>Daemon is offline</text>
+        <Card tone="warning">
+          <text fg={colors.warning} attributes={BOLD}>
+            The daemon is offline
+          </text>
           <text fg={colors.muted}>Start it in another terminal with: make api</text>
-        </Panel>
+        </Card>
       ) : null}
-      <ShortcutBar
-        shortcuts={[
-          { key: "R", label: "reconnect" },
-          { key: "?", label: "keyboard guide" },
-        ]}
-      />
     </box>
   )
 }
@@ -544,15 +598,22 @@ function HelpScreen({ screen }: { screen: Screen }) {
       { key: "O", label: "normalize plan" },
       { key: "A", label: "run planning agent" },
       { key: "Q", label: "answer questions" },
-      { key: "D", label: "delete registration" },
+      { key: "W", label: "create workflow" },
+      { key: "B", label: "choose base branch" },
+      { key: "T", label: "toggle repository trust" },
+      { key: "I", label: "edit ignore policy" },
       { key: "G", label: "refresh selected" },
+      { key: "D", label: "delete registration" },
       { key: "R", label: "reload list" },
     ],
     agents: [
       { key: "↑↓", label: "select project" },
       { key: "Tab", label: "switch role" },
       { key: "E", label: "toggle agent" },
+      { key: "N", label: "cycle network access" },
+      { key: "F", label: "cycle filesystem access" },
       { key: "S", label: "save settings" },
+      { key: "R", label: "reload" },
     ],
     jobs: [
       { key: "↑↓", label: "select job" },
@@ -568,33 +629,38 @@ function HelpScreen({ screen }: { screen: Screen }) {
 
   return (
     <box flexDirection="column" gap={1} flexGrow={1}>
-      <PageIntro
-        kicker="KEYBOARD GUIDE"
+      <PageHeader
         title="Everything you can do from here"
-        description="Use the arrow keys first. Letter shortcuts are shown in cyan and are always contextual to the current screen."
-        meta="Press ? or Esc to close"
+        description="Arrow keys move. Letter keys act. The current screen's shortcuts are listed below, and every key is shown next to where it works."
+        meta="press ? or Esc to close"
       />
-      <Panel title="GLOBAL" borderColor={colors.accent} backgroundColor={colors.surfaceAccent}>
-        <ShortcutBar
-          shortcuts={[
-            { key: "←→", label: "previous / next screen" },
-            { key: "1–5", label: "jump to screen" },
-            { key: "R", label: "reconnect or reload" },
-            { key: "?", label: "toggle this guide" },
-            { key: "Ctrl+C", label: "quit" },
-          ]}
-        />
-      </Panel>
-      <Panel title={`${screenLabel(screen).toUpperCase()} ACTIONS`}>
-        {screenShortcuts[screen].map((shortcut) => (
-          <box key={`${shortcut.key}-${shortcut.label}`} flexDirection="row" gap={2}>
-            <text fg={colors.accent}>{shortcut.key}</text>
-            <text fg={colors.text}>{shortcut.label}</text>
+      <Section title="GLOBAL">
+        <Card tone="accent">
+          <KeyHints
+            shortcuts={[
+              { key: "←→", label: "previous / next screen" },
+              { key: "1–5", label: "jump to screen" },
+              { key: "/", label: "search actions" },
+              { key: "?", label: "toggle this guide" },
+              { key: "Ctrl+C", label: "quit" },
+            ]}
+          />
+        </Card>
+      </Section>
+      <Section title={`${screenLabel(screen)} shortcuts`}>
+        <Card>
+          <box flexDirection="row" flexWrap="wrap" columnGap={2} rowGap={0}>
+            {screenShortcuts[screen].map((shortcut) => (
+              <box key={`${shortcut.key}-${shortcut.label}`} flexDirection="row" gap={1}>
+                <Key>{shortcut.key}</Key>
+                <text fg={colors.muted}>{shortcut.label}</text>
+              </box>
+            ))}
           </box>
-        ))}
-      </Panel>
-      <text fg={colors.dim}>
-        Focused inputs use Tab to move and Esc to cancel. Ctrl+S saves or submits.
+        </Card>
+      </Section>
+      <text fg={colors.faint}>
+        Inside text fields: Tab moves to the next field, Esc cancels, Ctrl+S saves or submits.
       </text>
     </box>
   )

@@ -5,7 +5,7 @@ import { useKeyboard } from "@opentui/react"
 import { useRef, useState } from "react"
 
 import { answerPlanningRun, type PlanningAnswer, type PlanningRun } from "./planning-agent"
-import { colors, EmptyState, PageIntro, Panel, ShortcutBar } from "./ui"
+import { Banner, BOLD, Card, colors, EmptyState, KeyHints, PageHeader, Section } from "./ui"
 
 export function PlanningQuestionEditor({
   run,
@@ -88,61 +88,66 @@ export function PlanningQuestionEditor({
   if (!selectedQuestion) {
     return (
       <EmptyState
+        icon="✓"
         title="No open questions"
         detail="This planning run is already complete."
-        action="Esc back to project"
+        shortcut={{ key: "Esc", label: "back to project" }}
       />
     )
   }
 
   return (
     <box flexDirection="column" flexGrow={1} gap={1}>
-      <PageIntro
-        kicker="PLANNING INPUT"
+      <PageHeader
         title="Planning needs your input"
-        description="Answer each open question, then submit the complete set to regenerate the plan."
-        meta={`${selectedIndex + 1} / ${openQuestions.length}`}
+        description="Answer each question, then submit the whole set. The planning agent regenerates the plan with your answers."
+        meta={`PLANNING INPUT · ${selectedIndex + 1} of ${openQuestions.length}`}
       />
 
-      <Panel
-        title={`QUESTION ${selectedIndex + 1}`}
-        borderColor={colors.warning}
-        backgroundColor="#211E14"
-      >
-        <text fg={colors.warning}>{selectedQuestion.question}</text>
-      </Panel>
+      <Section title={`Question ${selectedIndex + 1}`}>
+        <Card tone="warning">
+          <text fg={colors.text} wrapMode="word" attributes={BOLD}>
+            {selectedQuestion.question}
+          </text>
+        </Card>
+      </Section>
 
-      <text fg={colors.accent}>Your answer</text>
-      <textarea
-        key={selectedQuestion.id}
-        ref={answerRef}
-        width="100%"
-        height={8}
-        initialValue={answers[selectedQuestion.id] ?? ""}
-        placeholder="Provide the decision or missing context..."
-        focused
-        wrapMode="word"
-        backgroundColor={colors.surface}
-        focusedBackgroundColor={colors.surfaceRaised}
-        onContentChange={() => {
-          const value = answerRef.current?.plainText ?? ""
-          setAnswers((current) => ({ ...current, [selectedQuestion.id]: value }))
-        }}
-      />
+      <Section title="Your answer">
+        <textarea
+          key={selectedQuestion.id}
+          ref={answerRef}
+          width="100%"
+          height={8}
+          initialValue={answers[selectedQuestion.id] ?? ""}
+          placeholder="Provide the decision or missing context..."
+          focused
+          wrapMode="word"
+          backgroundColor={colors.inset}
+          focusedBackgroundColor={colors.raised}
+          onContentChange={() => {
+            const value = answerRef.current?.plainText ?? ""
+            setAnswers((current) => ({ ...current, [selectedQuestion.id]: value }))
+          }}
+        />
+      </Section>
 
-      <Panel title="PROGRESS" borderColor={colors.line}>
-        {openQuestions.map((question, index) => {
-          const answered = (answers[question.id] ?? "").trim() !== ""
-          return (
-            <text
-              key={question.id}
-              fg={index === selectedIndex ? colors.accent : answered ? colors.success : colors.dim}
-            >{`${index === selectedIndex ? "›" : " "} ${answered ? "✓" : "○"} Question ${index + 1}`}</text>
-          )
-        })}
-      </Panel>
+      <Section title="Progress">
+        <Card>
+          {openQuestions.map((question, index) => {
+            const answered = (answers[question.id] ?? "").trim() !== ""
+            const current = index === selectedIndex
+            return (
+              <box key={question.id} flexDirection="row" gap={1}>
+                <text fg={current ? colors.accent : answered ? colors.success : colors.faint}>
+                  {`${current ? "▸" : " "} ${answered ? "✓" : "○"} Question ${index + 1}`}
+                </text>
+              </box>
+            )
+          })}
+        </Card>
+      </Section>
 
-      <ShortcutBar
+      <KeyHints
         shortcuts={[
           { key: "Tab", label: "next question" },
           { key: "Shift+Tab", label: "previous" },
@@ -150,7 +155,11 @@ export function PlanningQuestionEditor({
           { key: "Esc", label: "cancel" },
         ]}
       />
-      {message ? <text fg={busy ? colors.warning : colors.danger}>{message}</text> : null}
+      {message ? (
+        <Banner tone={busy ? "warning" : "danger"}>
+          <text fg={busy ? colors.warning : colors.danger}>{message}</text>
+        </Banner>
+      ) : null}
     </box>
   )
 }

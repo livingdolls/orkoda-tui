@@ -1,7 +1,8 @@
 /** @jsxImportSource @opentui/react */
 
+import type { ScrollBoxRenderable } from "@opentui/core"
 import { useKeyboard } from "@opentui/react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import type { DaemonConnection } from "./daemon"
 import {
@@ -34,14 +35,18 @@ import {
   updateRepositoryTrust,
 } from "./projects"
 import {
+  Banner,
+  BOLD,
+  Card,
+  Chip,
   colors,
   EmptyState,
-  Metric,
-  PageIntro,
-  Panel,
-  SectionHeading,
-  ShortcutBar,
-  StatusBadge,
+  Key,
+  KeyHints,
+  PageHeader,
+  Section,
+  type StatusTone,
+  truncate,
 } from "./ui"
 import { createWorkflowJob, performWorkflowAction } from "./workflow-jobs"
 
@@ -84,6 +89,8 @@ export function ProjectScreen({
   const [branchIndex, setBranchIndex] = useState(0)
   const [branchesLoading, setBranchesLoading] = useState(false)
   const [ignoreDraft, setIgnoreDraft] = useState("{}")
+  const detailScrollRef = useRef<ScrollBoxRenderable>(null)
+  const listScrollRef = useRef<ScrollBoxRenderable>(null)
 
   const selectedProject = projectList[selectedIndex] ?? null
   const selectedRepository = selectedProject?.repositories[0] ?? null
@@ -600,6 +607,16 @@ export function ProjectScreen({
       void reloadProjects()
       return
     }
+    if (key.name === "pageup") {
+      detailScrollRef.current?.scrollBy(-1, "viewport")
+      listScrollRef.current?.scrollBy(-1, "viewport")
+      return
+    }
+    if (key.name === "pagedown") {
+      detailScrollRef.current?.scrollBy(1, "viewport")
+      listScrollRef.current?.scrollBy(1, "viewport")
+      return
+    }
     if ((key.name === "down" || key.name === "j") && projectList.length > 0) {
       setSelectedIndex((current) => Math.min(current + 1, projectList.length - 1))
       return
@@ -801,33 +818,34 @@ export function ProjectScreen({
   if (mode === "name") {
     return (
       <box flexDirection="column" flexGrow={1} gap={1}>
-        <PageIntro
-          kicker="NEW PROJECT"
-          title="Register a local Git repository"
-          description="Give this workspace a memorable name. The next step lets you choose the repository folder."
+        <PageHeader
+          title="New project"
+          description="Connect a Git repository you already have on this computer. Give it a short name, then pick its folder."
+          meta="step 1 of 2"
         />
-        <Panel
-          title="PROJECT NAME"
-          borderColor={colors.accent}
-          backgroundColor={colors.surfaceAccent}
-        >
-          <text fg={colors.dim}>A short name is easiest to scan in Jobs and Agents.</text>
-          <text fg={colors.accent}>Name</text>
-          <input
-            value={draftName}
-            placeholder="Example: Orkoda Website"
-            focused
-            onInput={setDraftName}
-            onSubmit={startDirectoryPicker}
-          />
-        </Panel>
-        <ShortcutBar
+        <Section title="Project name">
+          <Card tone="accent">
+            <text fg={colors.muted}>Short names are easiest to recognize later.</text>
+            <input
+              value={draftName}
+              placeholder="Example: Orkoda Website"
+              focused
+              onInput={setDraftName}
+              onSubmit={startDirectoryPicker}
+            />
+          </Card>
+        </Section>
+        <KeyHints
           shortcuts={[
-            { key: "Enter", label: "choose folder" },
+            { key: "Enter", label: "next: choose folder" },
             { key: "Esc", label: "cancel" },
           ]}
         />
-        {message ? <text fg={colors.danger}>{message}</text> : null}
+        {message ? (
+          <Banner tone="danger">
+            <text fg={colors.danger}>{message}</text>
+          </Banner>
+        ) : null}
       </box>
     )
   }
@@ -836,57 +854,68 @@ export function ProjectScreen({
     const visibleItems = visibleDirectoryItems(pickerItems, pickerIndex)
     return (
       <box flexDirection="column" flexGrow={1} gap={1}>
-        <PageIntro
-          kicker="REPOSITORY FOLDER"
-          title="Choose where Orkoda should work"
-          description="Select a Git repository. The daemon will validate the folder before registering it."
+        <PageHeader
+          title="Choose the repository folder"
+          description="Move into the folder that contains your project's code. Orkoda checks that it is a Git repository before adding it."
           meta={pickerListing?.currentPath ?? "Loading..."}
         />
         {pickerListing ? (
-          <StatusBadge
-            label={pickerListing.isGitRepository ? "GIT REPOSITORY DETECTED" : "NO .GIT ENTRY"}
+          <Chip
+            label={
+              pickerListing.isGitRepository ? "Git repository detected" : "No .git entry here yet"
+            }
             tone={pickerListing.isGitRepository ? "success" : "warning"}
           />
         ) : null}
 
-        {pickerLoading ? <text fg={colors.warning}>Reading directories...</text> : null}
+        {pickerLoading ? <text fg={colors.warning}>Reading folders...</text> : null}
         {!pickerLoading && pickerListing ? (
-          <Panel title="FOLDERS" flexGrow={1} borderColor={colors.lineStrong}>
+          <box
+            flexDirection="column"
+            flexGrow={1}
+            gap={0}
+            padding={1}
+            backgroundColor={colors.raised}
+            borderStyle="rounded"
+            borderColor={colors.line}
+          >
             {visibleItems.map(({ item, index }) => {
-              let label = item.label
-              if (item.kind === "select") {
-                label = `◎ ${item.label}`
-              } else if (item.kind === "directory") {
-                label = `▸ ${item.label}`
-              }
+              const selected = index === pickerIndex
+              const icon = item.kind === "select" ? "◎" : "▸"
               return (
                 <box
                   key={`${item.kind}:${item.path}`}
+                  flexDirection="row"
+                  gap={1}
                   paddingLeft={1}
                   paddingRight={1}
-                  backgroundColor={index === pickerIndex ? colors.surfaceAccent : colors.surface}
-                  borderStyle="rounded"
-                  borderColor={index === pickerIndex ? colors.accent : colors.line}
+                  backgroundColor={selected ? colors.accentTint : colors.raised}
                 >
-                  <text fg={index === pickerIndex ? colors.accent : colors.muted}>
-                    {index === pickerIndex ? `› ${label}` : `  ${label}`}
+                  <text fg={selected ? colors.accent : colors.faint}>{icon}</text>
+                  <text fg={selected ? colors.text : colors.muted} attributes={selected ? BOLD : 0}>
+                    {item.label}
                   </text>
+                  {item.kind === "select" ? <text fg={colors.faint}>use this folder</text> : null}
                 </box>
               )
             })}
-          </Panel>
+          </box>
         ) : null}
 
-        <ShortcutBar
+        <KeyHints
           shortcuts={[
-            { key: "↑↓", label: "select" },
+            { key: "↑↓", label: "move" },
             { key: "Enter", label: "open / select" },
-            { key: "←", label: "parent" },
-            { key: "S", label: "use current" },
+            { key: "←", label: "up one level" },
+            { key: "S", label: "use this folder" },
             { key: "Esc", label: "back" },
           ]}
         />
-        {message ? <text fg={busy ? colors.warning : colors.danger}>{message}</text> : null}
+        {message ? (
+          <Banner tone={busy ? "warning" : "danger"}>
+            <text fg={busy ? colors.warning : colors.danger}>{message}</text>
+          </Banner>
+        ) : null}
       </box>
     )
   }
@@ -894,19 +923,21 @@ export function ProjectScreen({
   if (mode === "delete") {
     return (
       <box flexDirection="column" flexGrow={1} gap={1}>
-        <PageIntro
-          kicker="REMOVE REGISTRATION"
-          title="Delete this project from Orkoda?"
-          description="Only the project registration is removed. Repository files and Git history stay untouched."
+        <PageHeader
+          title="Remove this project from Orkoda?"
+          description="This only removes the registration inside Orkoda. Your files and Git history stay exactly as they are."
         />
-        <Panel title="CONFIRMATION" borderColor={colors.danger} backgroundColor="#24151A">
-          <text fg={colors.danger}>{selectedProject?.name ?? "Unknown project"}</text>
-          <text fg={colors.muted}>This action cannot be undone from the TUI.</text>
-        </Panel>
-        <ShortcutBar
+        <Banner tone="danger">
+          <text fg={colors.danger} attributes={BOLD}>
+            {selectedProject?.name ?? "Unknown project"}
+          </text>
+          <text fg={colors.muted}>This cannot be undone from the TUI.</text>
+        </Banner>
+        <KeyHints
           shortcuts={[
-            { key: "Y", label: "delete registration" },
-            { key: "N / Esc", label: "cancel" },
+            { key: "Y", label: "yes, remove it" },
+            { key: "N", label: "cancel" },
+            { key: "Esc", label: "cancel" },
           ]}
         />
         {message ? <text fg={colors.muted}>{message}</text> : null}
@@ -917,47 +948,60 @@ export function ProjectScreen({
   if (mode === "branches") {
     return (
       <box flexDirection="column" flexGrow={1} gap={1}>
-        <PageIntro
-          kicker="BASE BRANCH"
-          title={`Select a branch for ${selectedRepository?.local_path ?? "repository"}`}
-          description="The selected branch is the immutable base used when the next workflow is created."
+        <PageHeader
+          title="Choose the base branch"
+          description="The next workflow starts from this branch. Its current commit becomes the fixed starting point."
           meta={branchesLoading ? "loading" : `${branches.length} branch(es)`}
         />
         {branchesLoading ? <text fg={colors.warning}>Reading local branches...</text> : null}
         {!branchesLoading && branches.length === 0 ? (
           <EmptyState
             title="No local branch found"
-            detail="Create a local branch before starting work."
-            action="Esc back"
+            detail="Create a local branch in the repository first, then come back."
+            shortcut={{ key: "Esc", label: "go back" }}
           />
         ) : null}
         {!branchesLoading && branches.length > 0 ? (
-          <Panel title="LOCAL BRANCHES" flexGrow={1} borderColor={colors.accent}>
-            {branches.map((branch, index) => (
-              <box
-                key={branch.name}
-                flexDirection="row"
-                justifyContent="space-between"
-                paddingLeft={1}
-                paddingRight={1}
-                backgroundColor={index === branchIndex ? colors.surfaceAccent : colors.surface}
-                borderStyle="rounded"
-                borderColor={index === branchIndex ? colors.accent : colors.line}
-              >
-                <text fg={index === branchIndex ? colors.accent : colors.text}>
-                  {`${index === branchIndex ? "›" : " "} ${branch.name}`}
-                </text>
-                <text fg={branch.current ? colors.success : colors.dim}>
-                  {branch.current ? "current" : branch.head_sha.slice(0, 8)}
-                </text>
-              </box>
-            ))}
-          </Panel>
+          <box
+            flexDirection="column"
+            flexGrow={1}
+            padding={1}
+            backgroundColor={colors.raised}
+            borderStyle="rounded"
+            borderColor={colors.line}
+          >
+            {branches.map((branch, index) => {
+              const selected = index === branchIndex
+              return (
+                <box
+                  key={branch.name}
+                  flexDirection="row"
+                  justifyContent="space-between"
+                  paddingLeft={1}
+                  paddingRight={1}
+                  backgroundColor={selected ? colors.accentTint : colors.raised}
+                >
+                  <box flexDirection="row" gap={1}>
+                    <text fg={selected ? colors.accent : colors.faint}>{selected ? "▸" : " "}</text>
+                    <text
+                      fg={selected ? colors.text : colors.muted}
+                      attributes={selected ? BOLD : 0}
+                    >
+                      {branch.name}
+                    </text>
+                  </box>
+                  <text fg={branch.current ? colors.success : colors.faint}>
+                    {branch.current ? "current branch" : branch.head_sha.slice(0, 8)}
+                  </text>
+                </box>
+              )
+            })}
+          </box>
         ) : null}
         {selectedBranch ? (
           <text fg={colors.muted}>{`Selected: ${selectedBranch.name}`}</text>
         ) : null}
-        <ShortcutBar
+        <KeyHints
           shortcuts={[
             { key: "↑↓", label: "select" },
             { key: "Enter", label: "use branch" },
@@ -971,33 +1015,34 @@ export function ProjectScreen({
   if (mode === "ignore") {
     return (
       <box flexDirection="column" flexGrow={1} gap={1}>
-        <PageIntro
-          kicker="REPOSITORY POLICY"
+        <PageHeader
           title="Edit the ignore policy"
-          description="Store a structured policy used by repository scans and future workflow context selection."
+          description="A small JSON object that tells scans and workflows which folders to skip."
           meta="JSON object"
         />
-        <Panel
-          title="IGNORE POLICY JSON"
-          borderColor={colors.accent}
-          backgroundColor={colors.surfaceAccent}
-        >
-          <input
-            value={ignoreDraft}
-            focused
-            placeholder='{"directories":["node_modules"]}'
-            onInput={setIgnoreDraft}
-            onSubmit={() => void submitIgnorePolicy()}
-          />
-          <text fg={colors.dim}>Example: {`{"directories":["node_modules","vendor"]}`}</text>
-        </Panel>
-        <ShortcutBar
+        <Section title="Ignore policy">
+          <Card tone="accent">
+            <input
+              value={ignoreDraft}
+              focused
+              placeholder='{"directories":["node_modules"]}'
+              onInput={setIgnoreDraft}
+              onSubmit={() => void submitIgnorePolicy()}
+            />
+            <text fg={colors.faint}>Example: {`{"directories":["node_modules","vendor"]}`}</text>
+          </Card>
+        </Section>
+        <KeyHints
           shortcuts={[
             { key: "Enter", label: "save policy" },
             { key: "Esc", label: "cancel" },
           ]}
         />
-        {message ? <text fg={busy ? colors.warning : colors.danger}>{message}</text> : null}
+        {message ? (
+          <Banner tone={busy ? "warning" : "danger"}>
+            <text fg={busy ? colors.warning : colors.danger}>{message}</text>
+          </Banner>
+        ) : null}
       </box>
     )
   }
@@ -1005,225 +1050,413 @@ export function ProjectScreen({
   if (connection.state !== "connected") {
     return (
       <EmptyState
-        title="Daemon is not connected"
-        detail="Projects stay local to the daemon. Start it in another terminal and press R to reconnect."
-        action="make api   →   R reconnect"
+        icon="◇"
+        title="The daemon is not running"
+        detail="Projects live inside the local daemon. Start it in another terminal with `make api`, then reconnect."
+        shortcut={{ key: "R", label: "reconnect" }}
       />
     )
   }
   if (loadState === "loading") {
     return (
-      <Panel title="PROJECTS" borderColor={colors.accent}>
-        <text fg={colors.warning}>Loading project registry...</text>
-        <text fg={colors.dim}>Reading repositories and their latest plans.</text>
-      </Panel>
+      <Card>
+        <text fg={colors.warning}>Loading projects...</text>
+        <text fg={colors.faint}>Reading repositories and their latest plans.</text>
+      </Card>
     )
   }
   if (loadState === "error") {
     return (
-      <Panel title="PROJECTS" borderColor={colors.danger} backgroundColor="#24151A">
-        <text fg={colors.danger}>Failed to load projects.</text>
-        <text fg={colors.muted}>{message}</text>
-        <ShortcutBar shortcuts={[{ key: "R", label: "try again" }]} />
-      </Panel>
+      <box flexDirection="column" gap={1} flexGrow={1}>
+        <Banner tone="danger">
+          <text fg={colors.danger} attributes={BOLD}>
+            Failed to load projects
+          </text>
+          <text fg={colors.muted}>{message}</text>
+        </Banner>
+        <KeyHints shortcuts={[{ key: "R", label: "try again" }]} />
+      </box>
     )
   }
   if (projectList.length === 0) {
     return (
       <EmptyState
-        title="No project registered yet"
-        detail="Connect a local Git repository to start planning and running work."
-        action="N new project"
+        icon="◇"
+        title="No project yet"
+        detail="Add a Git repository from this computer to start planning work with the agents."
+        shortcut={{ key: "N", label: "add your first project" }}
       />
     )
   }
 
+  const nextStep = computeNextStep({
+    repositorySummary,
+    latestPlan,
+    planningContext,
+    planningRun,
+  })
+
   return (
     <box flexDirection="column" flexGrow={1} gap={1}>
-      <PageIntro
-        kicker="PROJECTS"
-        title={selectedProject?.name ?? "Project registry"}
-        description="Choose a repository, inspect its current HEAD, then move through the plan pipeline."
-        meta={`${selectedIndex + 1} / ${projectList.length}`}
+      <PageHeader
+        title={selectedProject?.name ?? "Projects"}
+        description="Follow the setup progress below. Each step shows which key to press next."
+        meta={`${selectedIndex + 1} of ${projectList.length}`}
       />
       <box flexDirection="row" flexGrow={1} gap={1}>
-        <Panel
-          width="30%"
-          title={`PROJECTS  ${projectList.length}`}
-          borderColor={colors.lineStrong}
+        <box
+          width={26}
+          flexDirection="column"
+          backgroundColor={colors.raised}
+          borderStyle="rounded"
+          borderColor={colors.line}
         >
-          {projectList.map((project, index) => (
-            <box
-              key={project.id}
-              flexDirection="column"
-              gap={1}
-              padding={1}
-              backgroundColor={index === selectedIndex ? colors.surfaceAccent : colors.surface}
-              borderStyle="rounded"
-              borderColor={index === selectedIndex ? colors.accent : colors.line}
-            >
-              <text fg={index === selectedIndex ? colors.accent : colors.text}>
-                {`${index === selectedIndex ? "›" : " "} ${project.name}`}
-              </text>
-              <text fg={colors.dim}>{project.repositories[0]?.current_branch || "detached"}</text>
-            </box>
-          ))}
-        </Panel>
-        <box flexGrow={1} flexDirection="column" gap={1}>
-          <box flexDirection="row" gap={1}>
-            <Metric
-              label="Repository"
-              value={selectedRepository?.current_branch || "detached"}
-              tone="accent"
-            />
-            <Metric
-              label="Working tree"
-              value={selectedRepository?.dirty ? "CHANGES" : "CLEAN"}
-              tone={selectedRepository?.dirty ? "warning" : "success"}
-            />
-            <Metric label="HEAD" value={selectedRepository?.head_sha.slice(0, 12) ?? "unknown"} />
-          </box>
-          <text fg={colors.dim}>{selectedRepository?.local_path ?? "No repository"}</text>
-          <box flexDirection="row" gap={1}>
-            <StatusBadge
-              label={`trust ${selectedRepository?.trust_level ?? "UNTRUSTED"}`}
-              tone={selectedRepository?.trust_level === "TRUSTED" ? "success" : "warning"}
-            />
-            <text
-              fg={colors.dim}
-            >{`${selectedRepository?.submodules?.length ?? 0} submodule(s)`}</text>
-            {selectedBranch ? (
-              <text fg={colors.accent}>{`base ${selectedBranch.name}`}</text>
-            ) : null}
-          </box>
-          <text fg={colors.dim}>
-            {`ignore policy ${JSON.stringify(selectedRepository?.ignore_policy ?? {}).slice(0, 96)}`}
-          </text>
-
-          <SectionHeading
-            title="Repository context"
-            detail="latest HEAD"
-            action="S scan   B branch   T trust   I ignore   G refresh"
-          />
-          <Panel borderColor={colors.line}>
-            {repositorySummary ? (
-              <box flexDirection="row" gap={1}>
-                <Metric
-                  label="Languages"
-                  value={repositorySummary.summary.languages.join(" + ") || "unknown"}
-                  tone="success"
-                />
-                <Metric
-                  label="Frameworks"
-                  value={repositorySummary.summary.frameworks.join(" + ") || "none"}
-                />
-                <Metric label="Files" value={String(repositorySummary.summary.file_count)} />
-              </box>
-            ) : (
-              <text fg={colors.dim}>No summary for the current HEAD. Press S to scan safely.</text>
-            )}
-          </Panel>
-
-          <SectionHeading
-            title="Plan pipeline"
-            detail={`${planList.length} versioned plan(s)`}
-            action="P new   O normalize   A run   W workflow   Q answer"
-          />
-          <Panel borderColor={colors.line}>
-            {planLoading ? <text fg={colors.warning}>Loading plans...</text> : null}
-            {!planLoading && planList.length === 0 ? (
-              <text fg={colors.dim}>No plan draft yet. Press P to create the first one.</text>
-            ) : null}
-            {!planLoading
-              ? planList.slice(0, 3).map((plan) => (
-                  <box key={plan.id} flexDirection="row" justifyContent="space-between" gap={1}>
-                    <text fg={colors.text}>{`v${plan.current_version}  ${plan.title}`}</text>
-                    <StatusBadge label={plan.status} tone={planStatusTone(plan.status)} />
+          <scrollbox ref={listScrollRef} flexGrow={1} scrollY={true} padding={1}>
+            <box flexDirection="column">
+              {projectList.map((project, index) => {
+                const selected = index === selectedIndex
+                const repository = project.repositories[0]
+                return (
+                  <box
+                    key={project.id}
+                    flexDirection="column"
+                    paddingLeft={1}
+                    paddingRight={1}
+                    backgroundColor={selected ? colors.accentTint : colors.raised}
+                  >
+                    <text
+                      fg={selected ? colors.text : colors.muted}
+                      attributes={selected ? BOLD : 0}
+                    >
+                      {`${selected ? "▸" : " "} ${truncate(project.name, 19)}`}
+                    </text>
+                    <text fg={colors.faint}>
+                      {`  ${truncate(`${repository?.current_branch || "detached"}${repository?.dirty ? " · changes" : ""}`, 19)}`}
+                    </text>
                   </box>
-                ))
-              : null}
-          </Panel>
-
-          {planningContext ? (
-            <Panel title="NORMALIZED CONTEXT" borderColor={colors.success}>
-              <text fg={colors.success}>{planningContext.normalized_plan.goal}</text>
-              <text fg={colors.dim}>
-                {`scope ${planningContext.normalized_plan.scope.length} · areas ${planningContext.normalized_plan.affected_areas.length} · risks ${planningContext.normalized_plan.risks.length} · questions ${planningContext.normalized_plan.open_questions.length}`}
-              </text>
-            </Panel>
-          ) : latestPlan ? (
-            <text fg={colors.dim}>
-              Latest plan is not normalized for the current repository HEAD.
-            </text>
-          ) : null}
-
-          {planningRun ? (
-            <Panel
-              title="PLANNING AGENT"
-              borderColor={planningRun.status === "COMPLETED" ? colors.success : colors.warning}
-            >
-              <box flexDirection="column" gap={1}>
-                <text fg={planningRun.status === "COMPLETED" ? colors.success : colors.warning}>
-                  {`${planningRun.provider}/${planningRun.model}`}
-                </text>
-                <StatusBadge
-                  label={planningRun.status}
-                  tone={planningRun.status === "COMPLETED" ? "success" : "warning"}
-                />
-              </box>
-              {planningRun.status === "NEEDS_INPUT" ? (
-                <box flexDirection="column">
-                  <text
-                    fg={colors.warning}
-                  >{`${planningRun.questions.filter((question) => question.status === "OPEN").length} open question(s)`}</text>
-                  <text fg={colors.dim}>Press Q to answer</text>
-                </box>
-              ) : null}
-              {planningRun.result ? (
-                <box flexDirection="column">
-                  <text fg={colors.muted}>{planningRun.result.summary}</text>
-                  {planningRun.result.steps.slice(0, 3).map((step) => (
-                    <text key={step.id} fg={colors.dim}>{`• ${step.title}`}</text>
-                  ))}
-                </box>
-              ) : null}
-              {planningRun.error_message ? (
-                <text fg={colors.danger}>{planningRun.error_message}</text>
-              ) : null}
-              <text fg={colors.dim}>
-                {`tokens ${planningRun.usage.input_tokens + planningRun.usage.output_tokens}`}
-              </text>
-            </Panel>
-          ) : planningContext ? (
-            <text fg={colors.dim}>No planning agent run for this context. Press A to run it.</text>
-          ) : null}
-
-          {message ? <text fg={busy ? colors.warning : colors.success}>{message}</text> : null}
-          <ShortcutBar
-            shortcuts={[
-              { key: "↑↓", label: "select" },
-              { key: "N", label: "new" },
-              { key: "P", label: "plan" },
-              { key: "S", label: "scan" },
-              { key: "O", label: "normalize" },
-              { key: "A", label: "run agent" },
-              { key: "Q", label: "answer" },
-              { key: "D", label: "delete" },
-              { key: "G", label: "refresh" },
-              { key: "B", label: "branch" },
-              { key: "T", label: "trust" },
-              { key: "I", label: "ignore policy" },
-              { key: "W", label: "create workflow" },
-              { key: "R", label: "reload" },
-            ]}
-          />
+                )
+              })}
+            </box>
+          </scrollbox>
         </box>
+        <scrollbox ref={detailScrollRef} flexGrow={1} scrollY={true}>
+          <box flexDirection="column" gap={1}>
+            <box flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
+              <Chip
+                label={selectedRepository?.current_branch || "detached"}
+                tone="accent"
+                dot={false}
+              />
+              <Chip
+                label={selectedRepository?.dirty ? "has changes" : "clean"}
+                tone={selectedRepository?.dirty ? "warning" : "success"}
+              />
+              <Chip
+                label={
+                  selectedRepository?.trust_level === "TRUSTED"
+                    ? "trusted"
+                    : selectedRepository?.trust_level === "BLOCKED"
+                      ? "blocked"
+                      : "untrusted"
+                }
+                tone={
+                  selectedRepository?.trust_level === "TRUSTED"
+                    ? "success"
+                    : selectedRepository?.trust_level === "BLOCKED"
+                      ? "danger"
+                      : "warning"
+                }
+              />
+              {selectedBranch ? (
+                <Chip label={`base ${selectedBranch.name}`} tone="neutral" dot={false} />
+              ) : null}
+            </box>
+            <text fg={colors.faint}>
+              {`${selectedRepository?.local_path ?? "No repository"} · ${selectedRepository ? `commit ${selectedRepository.head_sha.slice(0, 12)}` : ""}`}
+            </text>
+
+            <Section title="Setup progress">
+              <Card>
+                <StepRow state="done" label="Project registered" detail={selectedProject?.name} />
+                <StepRow
+                  state={repositorySummary ? "done" : nextStep === "scan" ? "next" : "todo"}
+                  label={repositorySummary ? "Repository scanned" : "Scan the repository"}
+                  detail={
+                    repositorySummary
+                      ? `${repositorySummary.summary.languages.join(" + ") || "unknown"} · ${repositorySummary.summary.file_count} files`
+                      : "Lets the AI understand your codebase (safe, read-only)"
+                  }
+                  keyHint="S"
+                />
+                <StepRow
+                  state={latestPlan ? "done" : nextStep === "plan" ? "next" : "todo"}
+                  label={
+                    latestPlan ? `Plan: ${truncate(latestPlan.title, 40)}` : "Describe the work"
+                  }
+                  detail={
+                    latestPlan
+                      ? `version ${latestPlan.current_version} · ${planStatusLabel(latestPlan.status)}`
+                      : "Write what you want the agents to build"
+                  }
+                  keyHint="P"
+                />
+                <StepRow
+                  state={planningContext ? "done" : nextStep === "normalize" ? "next" : "todo"}
+                  label={planningContext ? "Plan locked to this code snapshot" : "Lock the plan"}
+                  detail={
+                    planningContext
+                      ? `context for plan version ${planningContext.plan_version}`
+                      : "Ties the plan to the scanned repository state"
+                  }
+                  keyHint="O"
+                />
+                <StepRow
+                  state={
+                    planningRun?.status === "COMPLETED"
+                      ? "done"
+                      : planningRun?.status === "NEEDS_INPUT"
+                        ? "next"
+                        : nextStep === "run"
+                          ? "next"
+                          : planningRun
+                            ? "done"
+                            : "todo"
+                  }
+                  label={
+                    planningRun?.status === "COMPLETED"
+                      ? `Plan prepared · ${planningRun.result?.steps.length ?? 0} steps`
+                      : planningRun?.status === "NEEDS_INPUT"
+                        ? "The AI has questions for you"
+                        : "Let the AI prepare the plan"
+                  }
+                  detail={
+                    planningRun?.status === "NEEDS_INPUT"
+                      ? `${planningRun.questions.filter((question) => question.status === "OPEN").length} open question(s)`
+                      : planningRun?.status === "COMPLETED"
+                        ? "Review the steps below"
+                        : "Turns your plan into concrete implementation steps"
+                  }
+                  keyHint={planningRun?.status === "NEEDS_INPUT" ? "Q" : "A"}
+                />
+                <StepRow
+                  state={nextStep === "workflow" ? "next" : "todo"}
+                  label="Start the work"
+                  detail="Agents implement the plan in an isolated workspace"
+                  keyHint="W"
+                />
+              </Card>
+            </Section>
+
+            {planList.length > 0 ? (
+              <Section title="Plans" action="P new plan">
+                <Card>
+                  {planLoading ? <text fg={colors.warning}>Loading plans...</text> : null}
+                  {!planLoading
+                    ? planList.slice(0, 3).map((plan) => (
+                        <box
+                          key={plan.id}
+                          flexDirection="row"
+                          justifyContent="space-between"
+                          gap={1}
+                        >
+                          <text fg={colors.text}>
+                            {`v${plan.current_version} · ${truncate(plan.title, 48)}`}
+                          </text>
+                          <Chip
+                            label={planStatusLabel(plan.status)}
+                            tone={planStatusTone(plan.status)}
+                          />
+                        </box>
+                      ))
+                    : null}
+                </Card>
+              </Section>
+            ) : null}
+
+            {planningContext ? (
+              <Section title="NORMALIZED CONTEXT">
+                <Card tone="success">
+                  <text fg={colors.text}>{planningContext.normalized_plan.goal}</text>
+                  <text fg={colors.faint}>
+                    {`scope ${planningContext.normalized_plan.scope.length} · areas ${planningContext.normalized_plan.affected_areas.length} · risks ${planningContext.normalized_plan.risks.length} · questions ${planningContext.normalized_plan.open_questions.length}`}
+                  </text>
+                </Card>
+              </Section>
+            ) : null}
+
+            {planningRun ? (
+              <Section title="PLANNING AGENT">
+                <Card
+                  tone={
+                    planningRun.status === "COMPLETED"
+                      ? "success"
+                      : planningRun.status === "FAILED"
+                        ? "danger"
+                        : "warning"
+                  }
+                >
+                  <box flexDirection="row" gap={1} alignItems="center">
+                    <Chip
+                      label={planningRun.status}
+                      tone={
+                        planningRun.status === "COMPLETED"
+                          ? "success"
+                          : planningRun.status === "FAILED"
+                            ? "danger"
+                            : "warning"
+                      }
+                    />
+                    <text fg={colors.faint}>{`${planningRun.provider}/${planningRun.model}`}</text>
+                  </box>
+                  {planningRun.status === "NEEDS_INPUT" ? (
+                    <box flexDirection="row" gap={1} alignItems="center">
+                      <text fg={colors.warning}>
+                        {`${planningRun.questions.filter((question) => question.status === "OPEN").length} open question(s)`}
+                      </text>
+                      <text fg={colors.faint}>Press Q to answer</text>
+                    </box>
+                  ) : null}
+                  {planningRun.result ? (
+                    <box flexDirection="column">
+                      <text fg={colors.muted} wrapMode="word">
+                        {planningRun.result.summary}
+                      </text>
+                      {planningRun.result.steps.slice(0, 3).map((step) => (
+                        <text key={step.id} fg={colors.faint}>{`· ${step.title}`}</text>
+                      ))}
+                    </box>
+                  ) : null}
+                  {planningRun.error_message ? (
+                    <text fg={colors.danger}>{planningRun.error_message}</text>
+                  ) : null}
+                  <text fg={colors.faint}>
+                    {`tokens ${planningRun.usage.input_tokens + planningRun.usage.output_tokens}`}
+                  </text>
+                </Card>
+              </Section>
+            ) : null}
+          </box>
+        </scrollbox>
       </box>
+      {message ? (
+        <Banner tone={messageTone(message, busy)}>
+          {planningRun ? (
+            <text fg={toneFg(planningRunTone(planningRun.status))}>
+              {`PLANNING AGENT · ${planningRun.status}`}
+            </text>
+          ) : planningContext ? (
+            <text fg={colors.faint}>NORMALIZED CONTEXT</text>
+          ) : null}
+          <text fg={toneFg(messageTone(message, busy))}>{message}</text>
+        </Banner>
+      ) : null}
     </box>
   )
 }
 
-function planStatusTone(status: Plan["status"]): "neutral" | "accent" | "success" | "warning" {
+function StepRow({
+  state,
+  label,
+  detail,
+  keyHint,
+}: {
+  state: "done" | "next" | "todo"
+  label: string
+  detail?: string
+  keyHint?: string
+}) {
+  const marker = state === "done" ? "✓" : state === "next" ? "▸" : "○"
+  const markerColor =
+    state === "done" ? colors.success : state === "next" ? colors.accent : colors.faint
+  return (
+    <box flexDirection="row" justifyContent="space-between" gap={1}>
+      <box flexDirection="row" gap={1} flexGrow={1}>
+        <text fg={markerColor}>{marker}</text>
+        <box flexDirection="column" flexGrow={1}>
+          <text
+            fg={state === "todo" ? colors.faint : colors.text}
+            attributes={state === "next" ? BOLD : 0}
+          >
+            {label}
+          </text>
+          {detail ? (
+            <text fg={state === "todo" ? colors.faint : colors.muted}>{detail}</text>
+          ) : null}
+        </box>
+      </box>
+      {state !== "done" && keyHint ? <Key>{keyHint}</Key> : null}
+    </box>
+  )
+}
+
+function computeNextStep({
+  repositorySummary,
+  latestPlan,
+  planningContext,
+  planningRun,
+}: {
+  repositorySummary: RepositorySummary | null
+  latestPlan: Plan | null
+  planningContext: PlanningContext | null
+  planningRun: PlanningRun | null
+}): "scan" | "plan" | "normalize" | "run" | "workflow" | null {
+  if (!repositorySummary) return "scan"
+  if (!latestPlan) return "plan"
+  if (!planningContext) return "normalize"
+  if (!planningRun) return "run"
+  if (planningRun.status === "NEEDS_INPUT") return "run"
+  if (planningRun.status === "COMPLETED") return "workflow"
+  return null
+}
+
+function messageTone(message: string, busy: boolean): StatusTone {
+  if (busy) return "warning"
+  const normalized = message.toLowerCase()
+  if (
+    normalized.startsWith("failed") ||
+    normalized.includes("error") ||
+    normalized.includes("required") ||
+    normalized.includes("must be") ||
+    normalized.includes("not found") ||
+    normalized.includes("blocked") ||
+    normalized.includes("cancelled")
+  ) {
+    return "danger"
+  }
+  return "success"
+}
+
+function toneFg(tone: StatusTone): string {
+  switch (tone) {
+    case "warning":
+      return colors.warning
+    case "danger":
+      return colors.danger
+    default:
+      return colors.success
+  }
+}
+
+function planStatusLabel(status: Plan["status"]): string {
+  switch (status) {
+    case "DRAFT":
+      return "draft"
+    case "READY":
+      return "ready"
+    case "PLANNING":
+      return "planning"
+    case "NEEDS_INPUT":
+      return "needs input"
+    case "APPROVED":
+      return "approved"
+    case "ARCHIVED":
+      return "archived"
+    default:
+      return status
+  }
+}
+
+function planStatusTone(status: Plan["status"]): StatusTone {
   switch (status) {
     case "READY":
     case "APPROVED":
@@ -1236,4 +1469,10 @@ function planStatusTone(status: Plan["status"]): "neutral" | "accent" | "success
     default:
       return "neutral"
   }
+}
+
+function planningRunTone(status: PlanningRun["status"]): StatusTone {
+  if (status === "COMPLETED") return "success"
+  if (status === "FAILED" || status === "CANCELLED") return "danger"
+  return "warning"
 }

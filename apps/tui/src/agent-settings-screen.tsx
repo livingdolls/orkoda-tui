@@ -1,7 +1,8 @@
 /** @jsxImportSource @opentui/react */
 
+import type { ScrollBoxRenderable } from "@opentui/core"
 import { useKeyboard } from "@opentui/react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import {
   type AgentRole,
@@ -12,9 +13,15 @@ import {
 } from "./agent-settings"
 import type { DaemonConnection } from "./daemon"
 import { listProjects, type Project } from "./projects"
-import { colors, Metric, PageIntro, Panel, ShortcutBar, StatusBadge } from "./ui"
+import { BOLD, Card, Chip, colors, Info, KeyHints, PageHeader, Section, truncate } from "./ui"
 
 const roles: AgentRole[] = ["PLANNER", "EXECUTOR", "REVIEWER"]
+
+const roleDescriptions: Record<AgentRole, string> = {
+  PLANNER: "Turns your requirement into a step-by-step plan.",
+  EXECUTOR: "Implements the plan inside an isolated workspace.",
+  REVIEWER: "Checks the changes before you are asked to approve.",
+}
 
 export function AgentSettingsScreen({ connection }: { connection: DaemonConnection }) {
   const [projects, setProjects] = useState<Project[]>([])
@@ -24,6 +31,7 @@ export function AgentSettingsScreen({ connection }: { connection: DaemonConnecti
   const [message, setMessage] = useState("")
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const detailScrollRef = useRef<ScrollBoxRenderable>(null)
 
   const selectedProject = projects[projectIndex] ?? null
   const selectedProjectID = selectedProject?.id ?? ""
@@ -91,6 +99,14 @@ export function AgentSettingsScreen({ connection }: { connection: DaemonConnecti
     }
     if (key.name === "r") {
       void loadProjects()
+      return
+    }
+    if (key.name === "pageup") {
+      detailScrollRef.current?.scrollBy(-1, "viewport")
+      return
+    }
+    if (key.name === "pagedown") {
+      detailScrollRef.current?.scrollBy(1, "viewport")
       return
     }
     if ((key.name === "down" || key.name === "j") && projects.length > 0) {
@@ -185,107 +201,125 @@ export function AgentSettingsScreen({ connection }: { connection: DaemonConnecti
 
   return (
     <box flexDirection="column" gap={1} flexGrow={1}>
-      <PageIntro
-        kicker="AGENT CONTROL"
-        title={selectedProject?.name ?? "Agent settings"}
-        description="Tune each role without losing the guardrails that keep execution bounded and reviewable."
+      <PageHeader
+        title={selectedProject ? `Agents · ${selectedProject.name}` : "Agents"}
+        description="Each project has three AI roles. Tune them while keeping the safety limits that make every run reviewable."
         meta={settings ? `settings v${settings.version}` : "no project selected"}
       />
       <box flexDirection="row" gap={1} flexGrow={1}>
-        <Panel width={29} title={`PROJECTS  ${projects.length}`} borderColor={colors.lineStrong}>
-          {projects.length === 0 ? <text fg={colors.dim}>No projects available.</text> : null}
-          {projects.map((project, index) => (
-            <box
-              key={project.id}
-              flexDirection="column"
-              gap={1}
-              padding={1}
-              backgroundColor={index === projectIndex ? colors.surfaceAccent : colors.surface}
-              borderStyle="rounded"
-              borderColor={index === projectIndex ? colors.accent : colors.line}
-            >
-              <text fg={index === projectIndex ? colors.accent : colors.text}>
-                {`${index === projectIndex ? "›" : " "} ${project.name}`}
-              </text>
+        <box
+          width={26}
+          flexDirection="column"
+          backgroundColor={colors.raised}
+          borderStyle="rounded"
+          borderColor={colors.line}
+        >
+          <scrollbox flexGrow={1} scrollY={true} padding={1}>
+            <box flexDirection="column">
+              {projects.length === 0 ? <text fg={colors.faint}>No projects available.</text> : null}
+              {projects.map((project, index) => {
+                const selected = index === projectIndex
+                return (
+                  <box
+                    key={project.id}
+                    paddingLeft={1}
+                    paddingRight={1}
+                    backgroundColor={selected ? colors.accentTint : colors.raised}
+                  >
+                    <text
+                      fg={selected ? colors.text : colors.muted}
+                      attributes={selected ? BOLD : 0}
+                    >
+                      {`${selected ? "▸" : " "} ${truncate(project.name, 19)}`}
+                    </text>
+                  </box>
+                )
+              })}
             </box>
-          ))}
-        </Panel>
-
-        <box flexGrow={1} flexDirection="column" gap={1}>
-          <Panel title="ROLE" borderColor={colors.accent} backgroundColor={colors.surfaceAccent}>
-            <box flexDirection="row" gap={1}>
-              {roles.map((role, index) => (
-                <StatusBadge
-                  key={role}
-                  label={role}
-                  tone={index === roleIndex ? "accent" : "neutral"}
-                />
-              ))}
-            </box>
-            {loading ? <text fg={colors.warning}>Loading persisted agent settings...</text> : null}
-          </Panel>
-
-          {selectedAgent && selectedPolicy ? (
-            <Panel
-              title={`${selectedRole} PROFILE`}
-              borderColor={selectedAgent.enabled ? colors.success : colors.danger}
-            >
-              <box flexDirection="row" gap={1}>
-                <Metric
-                  label="Enabled"
-                  value={selectedAgent.enabled ? "YES" : "NO"}
-                  tone={selectedAgent.enabled ? "success" : "danger"}
-                />
-                <Metric
-                  label="Provider"
-                  value={selectedAgent.provider || "daemon default"}
-                  tone="accent"
-                />
-                <Metric label="Model" value={selectedAgent.model || "daemon default"} />
-              </box>
-              <box flexDirection="row" gap={1}>
-                <Metric label="Temperature" value={String(selectedAgent.temperature)} />
-                <Metric
-                  label="Max output"
-                  value={`${selectedAgent.max_output_tokens.toLocaleString("en-US")} tokens`}
-                />
-              </box>
-              <box flexDirection="row" gap={1}>
-                <StatusBadge
-                  label={`Network ${selectedPolicy.network_access}`}
-                  tone={selectedPolicy.network_access === "DISABLED" ? "success" : "warning"}
-                />
-                <StatusBadge
-                  label={`Filesystem ${selectedPolicy.filesystem_access}`}
-                  tone="accent"
-                />
-              </box>
-              <text
-                fg={colors.muted}
-              >{`Tools: ${selectedPolicy.allowed_tools.length > 0 ? selectedPolicy.allowed_tools.join(", ") : "none"}`}</text>
-              <text
-                fg={colors.muted}
-              >{`Command profiles: ${selectedPolicy.allowed_command_profiles.length > 0 ? selectedPolicy.allowed_command_profiles.join(", ") : "none"}`}</text>
-              <text
-                fg={colors.dim}
-              >{`Limits: ${formatBytes(selectedPolicy.max_file_bytes)} file · ${formatBytes(selectedPolicy.max_patch_bytes)} patch · ${formatDuration(selectedPolicy.command_timeout_ms)} command`}</text>
-            </Panel>
-          ) : null}
-
-          {message ? <text fg={colors.warning}>{message}</text> : null}
-          <text fg={colors.dim}>
-            Provider, model, tools, command profiles, and numeric limits remain editable through the
-            local API.
-          </text>
+          </scrollbox>
         </box>
+
+        <scrollbox ref={detailScrollRef} flexGrow={1} scrollY={true}>
+          <box flexDirection="column" gap={1}>
+            <Section title="Role" action="Tab switches role">
+              <Card>
+                <box flexDirection="row" gap={1}>
+                  {roles.map((role, index) => (
+                    <Chip
+                      key={role}
+                      label={role.toLowerCase()}
+                      tone={index === roleIndex ? "accent" : "neutral"}
+                      dot={false}
+                    />
+                  ))}
+                </box>
+                <text fg={colors.muted}>{roleDescriptions[selectedRole]}</text>
+                {loading ? <text fg={colors.warning}>Loading agent settings...</text> : null}
+              </Card>
+            </Section>
+
+            {selectedAgent && selectedPolicy ? (
+              <Section title={`${selectedRole} profile`}>
+                <Card>
+                  <box flexDirection="row" gap={1} alignItems="center">
+                    <Chip
+                      label={selectedAgent.enabled ? "enabled" : "disabled"}
+                      tone={selectedAgent.enabled ? "success" : "danger"}
+                    />
+                    <text fg={colors.faint}>press E to toggle</text>
+                  </box>
+                  <box flexDirection="column" gap={0}>
+                    <Info
+                      label="Provider"
+                      value={selectedAgent.provider || "daemon default"}
+                      tone="accent"
+                    />
+                    <Info label="Model" value={selectedAgent.model || "daemon default"} />
+                    <Info label="Temperature" value={String(selectedAgent.temperature)} />
+                    <Info
+                      label="Max output"
+                      value={`${selectedAgent.max_output_tokens.toLocaleString("en-US")} tokens`}
+                    />
+                  </box>
+                  <box flexDirection="row" gap={1} flexWrap="wrap">
+                    <Chip
+                      label={`network: ${selectedPolicy.network_access.toLowerCase()}`}
+                      tone={selectedPolicy.network_access === "DISABLED" ? "success" : "warning"}
+                    />
+                    <Chip
+                      label={`filesystem: ${selectedPolicy.filesystem_access.toLowerCase()}`}
+                      tone="accent"
+                    />
+                    {selectedRole === "EXECUTOR" ? (
+                      <text fg={colors.faint}>N cycles network · F cycles filesystem</text>
+                    ) : null}
+                  </box>
+                  <text fg={colors.muted}>
+                    {`Tools: ${selectedPolicy.allowed_tools.length > 0 ? selectedPolicy.allowed_tools.join(", ") : "none"}`}
+                  </text>
+                  <text fg={colors.muted}>
+                    {`Command profiles: ${selectedPolicy.allowed_command_profiles.length > 0 ? selectedPolicy.allowed_command_profiles.join(", ") : "none"}`}
+                  </text>
+                  <text fg={colors.faint}>
+                    {`Limits: ${formatBytes(selectedPolicy.max_file_bytes)} file · ${formatBytes(selectedPolicy.max_patch_bytes)} patch · ${formatDuration(selectedPolicy.command_timeout_ms)} command`}
+                  </text>
+                </Card>
+              </Section>
+            ) : null}
+
+            {message ? <text fg={colors.warning}>{message}</text> : null}
+            <text fg={colors.faint}>
+              Provider, model, tools, command profiles, and numeric limits remain editable through
+              the local API.
+            </text>
+          </box>
+        </scrollbox>
       </box>
-      <ShortcutBar
+      <KeyHints
         shortcuts={[
           { key: "↑↓", label: "project" },
           { key: "Tab", label: "role" },
-          { key: "E", label: "toggle" },
-          { key: "N", label: "network" },
-          { key: "F", label: "filesystem" },
+          { key: "E", label: "enable / disable" },
           { key: "S", label: "save" },
           { key: "R", label: "reload" },
         ]}

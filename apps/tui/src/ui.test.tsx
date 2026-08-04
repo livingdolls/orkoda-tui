@@ -30,7 +30,7 @@ test("command palette renders searchable commands and focus affordances", async 
       await setup.renderOnce()
     })
     const frame = setup.captureCharFrame()
-    expect(frame).toContain("COMMAND PALETTE")
+    expect(frame).toContain("SEARCH")
     expect(frame).toContain("Open Projects")
     expect(frame).toContain("↑↓ select")
   } finally {
