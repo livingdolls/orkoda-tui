@@ -66,7 +66,7 @@ jobs:
 
           normal_input_start = '    if (key.shift && key.name === "n") {'
           guarded_input_start = (
-              '    if (busy || loadState === "loading") return\n\n'
+              '    if (busy) return\n\n'
               '    if (key.shift && key.name === "n") {'
           )
           if source.count(normal_input_start) != 1:
