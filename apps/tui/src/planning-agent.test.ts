@@ -54,6 +54,30 @@ describe("planning agent API client", () => {
     expect(methods).toEqual(["POST", "GET"])
   })
 
+  test("resumes the current run when the plan already has an active planning run", async () => {
+    const paths: string[] = []
+    const methods: string[] = []
+    const fetcher: PlanningAgentFetch = async (input, init) => {
+      paths.push(String(input))
+      methods.push(String(init?.method))
+      if (init?.method === "POST") {
+        return new Response(
+          JSON.stringify({ error: { message: "the plan already has an active planning run" } }),
+          { status: 409 },
+        )
+      }
+      return new Response(JSON.stringify({ data: runPayload }), { status: 200 })
+    }
+
+    const run = await startPlanningRun("plan-1", fetcher)
+
+    expect(run.id).toBe("run-1")
+    expect(run.status).toBe("NEEDS_INPUT")
+    expect(paths[0]).toEndWith("/api/v1/plans/plan-1/planning-runs")
+    expect(paths[1]).toEndWith("/api/v1/plans/plan-1/planning-runs/current")
+    expect(methods).toEqual(["POST", "GET"])
+  })
+
   test("submits normalized answers", async () => {
     let requestBody = ""
     const fetcher: PlanningAgentFetch = async (_input, init) => {
@@ -77,7 +101,7 @@ describe("planning agent API client", () => {
     })
   })
 
-  test("surfaces daemon errors", async () => {
+  test("surfaces unrelated daemon errors", async () => {
     const fetcher: PlanningAgentFetch = async () =>
       new Response(JSON.stringify({ error: { message: "normalize the current plan first" } }), {
         status: 409,
