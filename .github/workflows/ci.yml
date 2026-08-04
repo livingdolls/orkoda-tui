@@ -23,10 +23,21 @@ jobs:
           bun-version: "1.3.14"
       - run: bun install
       - name: Apply source patch
-        run: python3 scripts/apply_workflow_failure_ui.py
+        run: |
+          python3 scripts/apply_workflow_failure_ui.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('apps/tui/src/board-detail.tsx')
+          text = path.read_text()
+          text = text.replace(
+              'failureEvidence.map((failure, index) => (\n                    <box key={`${failure.source}:${index}`} flexDirection="column" gap={0}>',
+              'failureEvidence.map((failure) => (\n                    <box\n                      key={`${failure.source}:${failure.code ?? failure.message}`}\n                      flexDirection="column"\n                      gap={0}\n                    >',
+          )
+          path.write_text(text)
+          PY
       - name: Format and validate patched TUI
         run: |
-          bunx biome format --write apps/tui/src/board-model.ts apps/tui/src/board-model.test.ts apps/tui/src/board-screen.tsx apps/tui/src/board-detail.tsx apps/tui/src/workflow-failure.ts apps/tui/src/workflow-failure.test.ts
+          bunx biome check --write apps/tui/src/board-model.ts apps/tui/src/board-model.test.ts apps/tui/src/board-screen.tsx apps/tui/src/board-detail.tsx apps/tui/src/workflow-failure.ts apps/tui/src/workflow-failure.test.ts
           bun run lint:ts
           bun run typecheck
           bun run test:ts
