@@ -1,39 +1,54 @@
-name: Apply Board keyboard fix
+name: CI
 
 on:
   pull_request:
   push:
-    branches: [fix/board-action-menu-keyboard]
+    branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-and-validate:
+  go:
+    name: Go
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: fix/board-action-menu-keyboard
           fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - name: Check Go module files
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: Verify Go modules
+        run: go mod verify
+      - run: test -z "$(gofmt -l cmd internal)"
+      - run: go vet ./...
+      - run: go test -race -coverprofile=coverage.out ./...
+      - name: Go vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - name: Build sandbox image
+        run: docker build --file Dockerfile.sandbox --tag orkoda-sandbox:ci .
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: detect --source . --redact --no-banner --config .gitleaks.toml
+
+  tui:
+    name: TUI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.14"
       - run: bun install
-      - name: Apply source and regression fix
-        run: python3 scripts/apply_board_keyboard_fix.py
-      - name: Format and validate TUI
-        run: |
-          bunx biome check --write apps packages
-          bun run lint:ts
-          bun run typecheck
-          bun run test:ts
-      - name: Commit final fix
-        run: |
-          git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
-          git rm .github/workflows/apply-board-keyboard-fix.yml scripts/apply_board_keyboard_fix.py
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/ci.yml apps/tui/src/board-screen.tsx apps/tui/src/board-keyboard.ts apps/tui/src/board-keyboard.test.ts
-          git commit -m "fix(tui): keep Board action menu keyboard responsive"
-          git push origin HEAD:fix/board-action-menu-keyboard
+      - run: bun run lint:ts
+      - run: bun run typecheck
+      - run: bun run test:ts
