@@ -20,6 +20,8 @@ Commit / Pull Request
 
 Orkoda ditujukan untuk penggunaan pribadi pada satu komputer. OpenTUI menjadi interface utama dan satu Golang daemon menjalankan workflow, scheduler, serta agent workers secara lokal.
 
+Interface utama menggunakan Unified Kanban Workspace. Satu kartu mengikuti pekerjaan yang sama dari planning sampai publication sehingga pengguna tidak perlu berpindah antara layar Projects dan Jobs.
+
 ## Scope Produk
 
 - Implementasi feature dan bug fixing.
@@ -78,8 +80,8 @@ Orkoda local daemon
 6. Executor menjalankan command yang diizinkan dalam sandbox.
 7. Sistem menjalankan test, linter, type check, dan build.
 8. Reviewer memeriksa plan, diff, checks, dan risiko.
-9. User melihat diff dan review di OpenTUI.
-10. User memilih approve, request revision, atau reject.
+9. User melihat progress, diff, checks, dan review pada kartu Board yang sama.
+10. User memilih approve, request revision, atau reject dari detail kartu.
 11. Setelah approval, sistem membuat commit atau optional draft pull request GitHub.
 12. Execution, command, review, revision, dan approval tersimpan di SQLite.
 
@@ -89,6 +91,7 @@ Orkoda local daemon
 - [`plan.md`](./plan.md): strategi implementasi local-only.
 - [`architecture.md`](./architecture.md): arsitektur daemon, SQLite, queue, workspace, dan sandbox.
 - [`workflow.md`](./workflow.md): state machine workflow.
+- [`kanban-board.md`](./kanban-board.md): Unified Kanban Workspace, status mapping, navigation, data loading, dan approval UX.
 - [`database.md`](./database.md): SQLite schema dan persistence rules.
 - [`api.md`](./api.md): protocol antara OpenTUI dan daemon.
 - [`agent-contract.md`](./agent-contract.md): kontrak Planning Agent, Executor, dan Reviewer.
@@ -109,3 +112,4 @@ Orkoda local daemon
 5. Automated checks dan Reviewer.
 6. Approval, revision loop, commit, dan pull request.
 7. Local reliability, security, diagnostics, dan distribution.
+8. Unified Kanban Workspace untuk menyatukan seluruh user journey.
