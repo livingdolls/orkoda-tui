@@ -181,7 +181,9 @@ export function BoardDetail({
       setComposer(null)
       setNote("")
       setReviewOverride(false)
-      setMessage(`Decision applied. Workflow is now ${workflowStatusLabel(outcome.workflow.status)}.`)
+      setMessage(
+        `Decision applied. Workflow is now ${workflowStatusLabel(outcome.workflow.status)}.`,
+      )
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to apply the decision")
     } finally {

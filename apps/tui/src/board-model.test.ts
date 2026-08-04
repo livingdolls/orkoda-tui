@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
 
-import { boardActions, createBoardItem, resolveBoardColumn, workflowStatusLabel } from "./board-model"
+import {
+  boardActions,
+  createBoardItem,
+  resolveBoardColumn,
+  workflowStatusLabel,
+} from "./board-model"
 import type { Plan } from "./plans"
 import type { Project } from "./projects"
 import type { WorkflowJob, WorkflowStatus } from "./workflow-jobs"
@@ -39,7 +44,12 @@ function workflow(status: WorkflowStatus): WorkflowJob {
     version: 1,
     execution_version: 1,
     revision_count: 0,
-    limits: { max_revisions: 3, max_stage_attempts: 3, max_tool_calls: 50, wall_clock_seconds: 3600 },
+    limits: {
+      max_revisions: 3,
+      max_stage_attempts: 3,
+      max_tool_calls: 50,
+      wall_clock_seconds: 3600,
+    },
     cancellation_requested: false,
     created_at: "2026-08-04T00:00:00Z",
     updated_at: "2026-08-04T00:00:00Z",

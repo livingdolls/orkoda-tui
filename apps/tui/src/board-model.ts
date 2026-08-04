@@ -160,7 +160,8 @@ export function boardActions(item: BoardItem): BoardAction[] {
         {
           id: "prepare-plan",
           label: "Prepare this plan",
-          description: "Scan the repository, normalize the requirement, and run the Planning Agent.",
+          description:
+            "Scan the repository, normalize the requirement, and run the Planning Agent.",
           tone: "accent",
         },
       ]

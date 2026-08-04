@@ -2,31 +2,30 @@
 
 import { useKeyboard, useOnResize } from "@opentui/react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-
-import { BoardDetail } from "./board-detail"
 import { loadBoardItems } from "./board-data"
+import { BoardDetail } from "./board-detail"
 import {
+  type BoardAction,
+  type BoardColumn,
+  type BoardItem,
   boardActions,
   boardColumns,
   columnDescriptions,
   columnLabels,
   createBoardItem,
-  type BoardAction,
-  type BoardColumn,
-  type BoardItem,
   workflowTone,
 } from "./board-model"
 import { BoardNewProject } from "./board-new-project"
 import type { DaemonConnection } from "./daemon"
 import type { ActivityEvent } from "./events"
 import { PlanEditor } from "./plan-editor"
-import { getCurrentPlanningRun, type PlanningRun, startPlanningRun } from "./planning-agent"
 import {
   generateRepositorySummary,
   getCurrentRepositorySummary,
   getPlanningContext,
   normalizePlan,
 } from "./planning"
+import { getCurrentPlanningRun, type PlanningRun, startPlanningRun } from "./planning-agent"
 import { PlanningQuestionEditor } from "./planning-question-editor"
 import type { Project } from "./projects"
 import {
@@ -114,10 +113,7 @@ export function BoardScreen({
 
   const activeColumn = boardColumns[activeColumnIndex] ?? "PLANNING"
   const columnItems = itemsByColumn[activeColumn]
-  const selectedIndex = Math.min(
-    selectedIndexes[activeColumn],
-    Math.max(columnItems.length - 1, 0),
-  )
+  const selectedIndex = Math.min(selectedIndexes[activeColumn], Math.max(columnItems.length - 1, 0))
   const selectedItem = columnItems[selectedIndex] ?? null
   const selectedActions = selectedItem ? boardActions(selectedItem) : []
 
@@ -134,7 +130,10 @@ export function BoardScreen({
           (!filterID || item.project.id === filterID) &&
           (!onlyActive || item.column !== "DONE"),
       )
-      const nextIndex = Math.max(nextColumnItems.findIndex((item) => item.id === wanted.id), 0)
+      const nextIndex = Math.max(
+        nextColumnItems.findIndex((item) => item.id === wanted.id),
+        0,
+      )
       setActiveColumnIndex(nextColumnIndex)
       setSelectedIndexes((current) => ({ ...current, [wanted.column]: nextIndex }))
       return
@@ -142,8 +141,7 @@ export function BoardScreen({
 
     const first = nextItems.find(
       (item) =>
-        (!filterID || item.project.id === filterID) &&
-        (!onlyActive || item.column !== "DONE"),
+        (!filterID || item.project.id === filterID) && (!onlyActive || item.column !== "DONE"),
     )
     if (first) {
       selectedItemIDRef.current = first.id
@@ -374,10 +372,7 @@ export function BoardScreen({
     setActiveColumnIndex(next)
     const nextColumn = boardColumns[next] ?? "PLANNING"
     const nextItems = itemsByColumn[nextColumn]
-    const nextIndex = Math.min(
-      selectedIndexes[nextColumn],
-      Math.max(nextItems.length - 1, 0),
-    )
+    const nextIndex = Math.min(selectedIndexes[nextColumn], Math.max(nextItems.length - 1, 0))
     selectedItemIDRef.current = nextItems[nextIndex]?.id ?? null
   }
 
@@ -397,9 +392,7 @@ export function BoardScreen({
         return
       }
       if (key.name === "down" || key.name === "j") {
-        setActionIndex((current) =>
-          Math.min(current + 1, Math.max(selectedActions.length - 1, 0)),
-        )
+        setActionIndex((current) => Math.min(current + 1, Math.max(selectedActions.length - 1, 0)))
         return
       }
       if (key.name === "up" || key.name === "k") {
@@ -600,7 +593,11 @@ export function BoardScreen({
         meta={`${activeFilter?.name ?? "All projects"} · ${activeOnly ? "active only" : "all work"}`}
       />
       <box flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
-        <Chip label={`project: ${activeFilter?.name ?? "All projects"}`} tone="accent" dot={false} />
+        <Chip
+          label={`project: ${activeFilter?.name ?? "All projects"}`}
+          tone="accent"
+          dot={false}
+        />
         <Chip label={`${filteredItems.length} work item(s)`} dot={false} />
         {lastEvent ? <text fg={colors.faint}>{`live · ${lastEvent.type}`}</text> : null}
       </box>
@@ -662,9 +659,7 @@ export function BoardScreen({
 
       {message ? (
         <Banner
-          tone={
-            message.toLowerCase().includes("failed") ? "danger" : busy ? "warning" : "accent"
-          }
+          tone={message.toLowerCase().includes("failed") ? "danger" : busy ? "warning" : "accent"}
         >
           <text fg={busy ? colors.warning : colors.muted}>{message}</text>
         </Banner>
@@ -710,13 +705,8 @@ export function BoardScreen({
                 backgroundColor={selected ? colors.accentTint : colors.surface}
               >
                 <box flexDirection="row" gap={1}>
-                  <text fg={selected ? colors.accent : colors.faint}>
-                    {selected ? "▸" : " "}
-                  </text>
-                  <text
-                    fg={selected ? colors.text : colors.muted}
-                    attributes={selected ? BOLD : 0}
-                  >
+                  <text fg={selected ? colors.accent : colors.faint}>{selected ? "▸" : " "}</text>
+                  <text fg={selected ? colors.text : colors.muted} attributes={selected ? BOLD : 0}>
                     {action.label}
                   </text>
                 </box>

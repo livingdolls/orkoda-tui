@@ -158,10 +158,7 @@ runTuiE2E(
       await Bun.write(join(repositoryRoot, "main.go"), "package main\n\nfunc main() {}\n")
       runCommand(["git", "-C", repositoryRoot, "init"], repoRoot)
       runCommand(["git", "-C", repositoryRoot, "checkout", "-b", "main"], repoRoot)
-      runCommand(
-        ["git", "-C", repositoryRoot, "config", "user.name", "Orkoda Board E2E"],
-        repoRoot,
-      )
+      runCommand(["git", "-C", repositoryRoot, "config", "user.name", "Orkoda Board E2E"], repoRoot)
       runCommand(
         ["git", "-C", repositoryRoot, "config", "user.email", "board-e2e@localhost"],
         repoRoot,

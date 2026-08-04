@@ -1,5 +1,5 @@
+import { type BoardItem, createBoardItem } from "./board-model"
 import { daemonBaseURL, requestWithDaemonAuth } from "./daemon"
-import { createBoardItem, type BoardItem } from "./board-model"
 import { listPlans } from "./plans"
 import { listProjects, type Project } from "./projects"
 import { listWorkflowJobs, type WorkflowJob } from "./workflow-jobs"
@@ -76,6 +76,8 @@ export async function loadBoardItems(): Promise<{
       createBoardItem(summary.project, plan, latestJobByPlan.get(plan.id)),
     )
   })
-  items.sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+  items.sort(
+    (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+  )
   return { projects, items }
 }

@@ -148,7 +148,9 @@ export function BoardNewProject({
       />
       {listing ? (
         <Chip
-          label={listing.isGitRepository ? "Git repository detected" : "No .git entry in this folder"}
+          label={
+            listing.isGitRepository ? "Git repository detected" : "No .git entry in this folder"
+          }
           tone={listing.isGitRepository ? "success" : "warning"}
         />
       ) : null}

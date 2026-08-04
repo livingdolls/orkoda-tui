@@ -59,9 +59,9 @@ export function App() {
   const [showPalette, setShowPalette] = useState(false)
   const [lastEvent, setLastEvent] = useState<ActivityEvent | null>(null)
   const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null)
-  const [eventStreamState, setEventStreamState] = useState<
-    "connected" | "reconnecting" | "closed"
-  >("closed")
+  const [eventStreamState, setEventStreamState] = useState<"connected" | "reconnecting" | "closed">(
+    "closed",
+  )
   const [toast, setToast] = useState("")
   const lastSequenceRef = useRef(0)
   const renderer = useOnResize((width) => setTerminalWidth(width))
@@ -251,9 +251,7 @@ export function App() {
                   backgroundColor={selected ? colors.accentTint : colors.surface}
                 >
                   <box flexDirection="row" gap={1}>
-                    <text fg={selected ? colors.accent : colors.faint}>
-                      {selected ? "▸" : " "}
-                    </text>
+                    <text fg={selected ? colors.accent : colors.faint}>{selected ? "▸" : " "}</text>
                     <text
                       fg={selected ? colors.text : colors.muted}
                       attributes={selected ? BOLD : 0}
@@ -368,7 +366,10 @@ function SystemScreen({
       <Section title="Daemon">
         <Card>
           <box flexDirection="row" gap={1} alignItems="center">
-            <Chip label={connectionLabel[connection.state]} tone={connectionTone[connection.state]} />
+            <Chip
+              label={connectionLabel[connection.state]}
+              tone={connectionTone[connection.state]}
+            />
             <text fg={colors.muted}>{connection.message}</text>
           </box>
           <Info label="Address" value="127.0.0.1:8181" />
