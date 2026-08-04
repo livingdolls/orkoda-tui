@@ -127,18 +127,29 @@ async function request<T>(
   }
 }
 
-export function startPlanningRun(
+function isActivePlanningRunConflict(error: unknown): boolean {
+  return error instanceof Error && /already has an active planning run/i.test(error.message)
+}
+
+export async function startPlanningRun(
   planID: string,
   fetcher: PlanningAgentFetch = fetch,
 ): Promise<PlanningRun> {
-  return request<PlanningRun>(
-    `/api/v1/plans/${planID}/planning-runs`,
-    {
-      method: "POST",
-      body: JSON.stringify({}),
-    },
-    fetcher,
-  )
+  try {
+    return await request<PlanningRun>(
+      `/api/v1/plans/${planID}/planning-runs`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+      fetcher,
+    )
+  } catch (error) {
+    if (!isActivePlanningRunConflict(error)) {
+      throw error
+    }
+    return getCurrentPlanningRun(planID, fetcher)
+  }
 }
 
 export function getCurrentPlanningRun(
