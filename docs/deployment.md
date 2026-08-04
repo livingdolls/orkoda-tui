@@ -16,7 +16,7 @@ Tidak ada remote API, hosted control plane, external database, cache server, mes
 
 ## 2. Requirements
 
-- Go 1.26 atau lebih baru.
+- Go 1.26.5 atau lebih baru.
 - Bun 1.3.14 atau lebih baru.
 - Git.
 - Docker opsional untuk sandbox command pada fase executor.
@@ -53,6 +53,7 @@ Daemon menjalankan migration idempotent pada startup, sehingga `make migrate` be
 ├── artifacts/
 ├── workspaces/
 ├── api.token
+├── orkoda.sock
 ├── orkoda.db.bak
 └── logs/
 ```
@@ -141,6 +142,7 @@ ORKODA_API_HOST
 ORKODA_API_PORT
 ORKODA_API_TOKEN
 ORKODA_API_TOKEN_FILE
+ORKODA_API_SOCKET
 ORKODA_SANDBOX_MODE=docker
 ORKODA_SANDBOX_IMAGE=orkoda-sandbox:local
 ORKODA_ALLOW_UNSANDBOXED_CHECKS=false
@@ -148,6 +150,18 @@ ORKODA_SHUTDOWN_TIMEOUT
 ```
 
 Credential provider dan Git disimpan melalui OS keychain adapter bila tersedia. Credential tidak boleh disimpan di SQLite dalam plaintext.
+
+`ORKODA_API_SOCKET` default ke `.orkoda/orkoda.sock`. Socket dibuat dengan permission
+`0600`, stale socket hanya diganti bila memang merupakan Unix socket, dan dihapus saat
+daemon shutdown. HTTP localhost tetap tersedia sebagai transport fallback.
+
+Untuk membuat distribution artifact lokal:
+
+```bash
+GOTOOLCHAIN=auto make release
+```
+
+Output berada di `dist/` dan tidak termasuk source commit.
 
 ## 11. Reset Local State
 

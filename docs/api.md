@@ -2,10 +2,12 @@
 
 ## 1. Transport
 
-OpenTUI mendukung dua transport:
+Daemon lokal menyediakan dua transport:
 
 - Local mode: Unix domain socket atau localhost HTTP.
-- Remote mode: HTTPS dengan bearer token.
+- HTTP localhost dilindungi bearer token.
+
+Remote SaaS transport dan device authentication belum termasuk MVP personal-local.
 
 Base path remote:
 
@@ -34,15 +36,10 @@ Response error:
 
 ## 2. Authentication and Profiles
 
-```text
-POST /auth/device/start
-POST /auth/device/complete
-POST /auth/refresh
-POST /auth/logout
-GET  /auth/me
-```
-
-Local mode dapat menggunakan OS user identity dan local profile tanpa cookie browser. Token remote disimpan melalui OS keychain adapter bila tersedia.
+Setiap request `/api/v1` membawa `Authorization: Bearer <token>`. Daemon membuat token
+0600 di `.orkoda/api.token`, atau menggunakan `ORKODA_API_TOKEN` dan
+`ORKODA_API_TOKEN_FILE`. Route device/refresh/logout/me pada daftar lama adalah fitur
+remote yang sengaja berada di luar MVP.
 
 ## 3. Projects and Repositories
 
@@ -51,12 +48,13 @@ POST   /projects
 GET    /projects
 GET    /projects/:projectId
 PATCH  /projects/:projectId
-POST   /projects/:projectId/archive
-POST   /projects/:projectId/repositories
 GET    /repositories/:repositoryId
-POST   /repositories/:repositoryId/inspect
 GET    /repositories/:repositoryId/branches
+GET    /repositories/:repositoryId/submodules
 POST   /repositories/:repositoryId/trust
+POST   /repositories/:repositoryId/summaries
+GET    /repositories/:repositoryId/summaries/current
+POST   /projects/:projectId/refresh
 ```
 
 ```json
@@ -75,8 +73,11 @@ POST   /repositories/:repositoryId/trust
 
 ```text
 POST   /projects/:projectId/plans
+GET    /projects/:projectId/plans
 GET    /plans/:planId
+PATCH  /plans/:planId
 POST   /plans/:planId/normalize
+GET    /plans/:planId/context
 POST   /plans/:planId/versions
 POST   /plans/:planId/accept
 ```
@@ -100,10 +101,19 @@ Structured plan:
 ## 5. Agents and Tool Policies
 
 ```text
-POST  /projects/:projectId/agents
-GET   /projects/:projectId/agents
-PATCH /agents/:agentId
-POST  /agents/:agentId/test
+GET /projects/:projectId/agent-settings
+PUT /projects/:projectId/agent-settings
+GET /llm/providers
+GET /llm/policy
+
+Planning Agent:
+
+```text
+POST /plans/:planId/planning-runs
+GET  /plans/:planId/planning-runs/current
+GET  /planning-runs/:runId
+POST /planning-runs/:runId/answers
+```
 ```
 
 ```json
@@ -134,9 +144,16 @@ GET  /jobs/:jobId
 POST /jobs/:jobId/start
 POST /jobs/:jobId/cancel
 POST /jobs/:jobId/retry
-GET  /jobs/:jobId/timeline
-GET  /jobs/:jobId/versions
+POST /jobs/:jobId/publish
+GET  /jobs/:jobId/transitions
+GET  /jobs/:jobId/events
 GET  /jobs/:jobId/workspace
+GET  /projects/:projectId/workspaces
+POST /jobs/:jobId/workspace/take-over
+POST /jobs/:jobId/take-over
+POST /workspaces/:workspaceId/release
+POST /workspaces/:workspaceId/archive
+POST /workspaces/cleanup
 ```
 
 ```json
@@ -161,11 +178,16 @@ GET  /jobs/:jobId/workspace
 ```text
 GET /jobs/:jobId/executions
 GET /executions/:executionId
+GET /executions/:executionId/iterations
 GET /executions/:executionId/changed-files
 GET /executions/:executionId/diff
 GET /executions/:executionId/tool-runs
-GET /executions/:executionId/check-runs
-POST /executions/:executionId/checks/retry
+GET /executions/:executionId/checkpoints
+
+GET /jobs/:jobId/checks
+GET /checks/:checkId
+GET /checks/:checkId/steps
+GET /artifacts/:artifactKey
 ```
 
 Diff query mendukung file dan hunk pagination:
@@ -179,7 +201,7 @@ GET /executions/:id/diff?path=internal/user/service.go&cursor=...
 ```text
 GET  /jobs/:jobId/reviews
 GET  /reviews/:reviewId
-POST /reviews/:reviewId/retry
+GET  /reviews/:reviewId/issues
 ```
 
 ```json
@@ -206,10 +228,9 @@ POST /reviews/:reviewId/retry
 
 ```text
 POST /jobs/:jobId/approve
-POST /jobs/:jobId/approve-with-override
 POST /jobs/:jobId/request-revision
 POST /jobs/:jobId/reject
-POST /jobs/:jobId/take-over
+GET  /jobs/:jobId/decisions
 ```
 
 ```json
@@ -245,8 +266,13 @@ GET  /jobs/:jobId/publications
 ## 11. Event Stream
 
 ```text
+GET /events
 GET /jobs/:jobId/events
 ```
+
+Tanpa `Accept: text/event-stream`, endpoint mengembalikan replay JSON dengan
+`after_sequence` dan `limit`. Dengan header tersebut (atau `stream=true`) endpoint
+menjadi SSE dan mengirim `id`, `event`, `data`, serta keep-alive comment.
 
 Event envelope:
 
@@ -255,8 +281,8 @@ Event envelope:
   "sequence": 1842,
   "type": "tool.completed",
   "job_id": "uuid",
-  "occurred_at": "2026-07-31T06:00:00Z",
-  "data": {}
+  "created_at": "2026-07-31T06:00:00Z",
+  "payload": {}
 }
 ```
 
@@ -273,20 +299,37 @@ Event types:
 - `revision.started`.
 - `publication.completed`.
 
-Client reconnect menggunakan `after_sequence`.
+Client reconnect menggunakan `after_sequence`; subscriber yang tertinggal mengambil
+ulang event durable dari SQLite sebelum menerima live notification.
 
-## 12. Idempotency and Concurrency
+## 12. Diagnostics and Artifacts
+
+```text
+GET  /status
+GET  /metrics
+GET  /diagnostics
+POST /diagnostics/bundle
+GET  /artifacts/:artifactKey
+```
+
+Bundle diagnostics disimpan sebagai artifact JSON yang sudah tidak memuat credential.
+Artifact key hanya boleh berupa path relatif di bawah `.orkoda/artifacts`; traversal,
+symlink, special file, dan response lebih besar dari 16 MiB ditolak.
+
+## 13. Idempotency and Concurrency
 
 Command mutation menerima:
 
 ```text
 Idempotency-Key: unique-client-key
-If-Match-Version: 17
 ```
 
-Wajib untuk start, cancel, approval, revision, commit, push, dan pull request.
+TUI membuat key tersebut untuk setiap mutation; daemon menyimpan hash request dan
+response di SQLite selama 24 jam. `expected_version` dikirim di body action/approval
+untuk optimistic concurrency. Mutation dengan key dan payload berbeda menghasilkan
+`409`, sedangkan retry payload yang sama mengulang response durable.
 
-## 13. Status Codes
+## 14. Status Codes
 
 - `200`: query atau synchronous command berhasil.
 - `201`: resource dibuat.

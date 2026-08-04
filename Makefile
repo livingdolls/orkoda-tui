@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-.PHONY: help install api migrate tui sandbox-image fmt lint security test check clean-data
+.PHONY: help install api migrate tui protocol sandbox-image release fmt lint security test check clean-data
 
 help:
 	@printf '%s\n' \
@@ -8,7 +8,9 @@ help:
 		'api         Run the local Orkoda daemon' \
 		'migrate     Initialize or update the local SQLite database' \
 		'tui         Run the OpenTUI client' \
+		'protocol    Regenerate TypeScript protocol types from JSON Schema' \
 		'sandbox-image Build the isolated check runner image' \
+		'release     Build the local daemon and TUI distribution artifacts' \
 		'fmt         Format Go and TypeScript sources' \
 		'lint        Run Go vet and Biome checks' \
 		'test        Run Go and TypeScript tests' \
@@ -28,8 +30,18 @@ migrate:
 tui:
 	bun run dev:tui
 
+protocol:
+	bun run scripts/generate-protocol.ts
+
 sandbox-image:
 	docker build --file Dockerfile.sandbox --tag orkoda-sandbox:local .
+
+release:
+	mkdir -p dist
+	go build -trimpath -o dist/orkoda-api ./cmd/api
+	bun build apps/tui/src/index.tsx --target bun --outdir dist/tui --external '@opentui/core-*'
+	mkdir -p dist/protocol-schemas
+	cp packages/protocol/schemas/*.json dist/protocol-schemas/
 
 fmt:
 	gofmt -w $$(find cmd internal -name '*.go' -type f)

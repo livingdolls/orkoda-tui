@@ -99,6 +99,23 @@ func registerPlanRoutes(api *gin.RouterGroup, registry PlanRegistry) {
 		writeData(c, http.StatusOK, plan)
 	})
 
+	api.POST("/plans/:planID/accept", func(c *gin.Context) {
+		if !requirePlanRegistry(c, registry) {
+			return
+		}
+		current, err := registry.Get(c.Request.Context(), c.Param("planID"))
+		if err != nil {
+			writePlanError(c, err)
+			return
+		}
+		plan, err := registry.Update(c.Request.Context(), current.ID, current.Title, plans.StatusReady)
+		if err != nil {
+			writePlanError(c, err)
+			return
+		}
+		writeData(c, http.StatusOK, plan)
+	})
+
 	api.POST("/plans/:planID/versions", func(c *gin.Context) {
 		if !requirePlanRegistry(c, registry) {
 			return

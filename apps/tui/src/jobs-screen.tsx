@@ -10,9 +10,21 @@ import {
   listApprovalDecisions,
   submitApprovalDecision,
 } from "./approvals"
-import { type CheckRun, type CheckStep, listCheckSteps, listChecks } from "./checks"
+import {
+  type CheckRun,
+  type CheckStep,
+  getArtifactText,
+  listCheckSteps,
+  listChecks,
+} from "./checks"
 import type { DaemonConnection } from "./daemon"
-import { type Execution, listCheckpoints, listExecutions, type PatchCheckpoint } from "./executions"
+import {
+  type Execution,
+  getExecutionDiff,
+  listCheckpoints,
+  listExecutions,
+  type PatchCheckpoint,
+} from "./executions"
 import { listProjects } from "./projects"
 import {
   listReviewIssues,
@@ -25,6 +37,8 @@ import { colors, EmptyState, Metric, PageIntro, Panel, ShortcutBar, StatusBadge 
 import {
   listProjectWorkspaces,
   listWorkflowJobs,
+  releaseWorkspace,
+  takeOverWorkspace,
   type WorkflowJob,
   type WorkflowStatus,
   type Workspace,
@@ -47,6 +61,11 @@ type DecisionComposer = {
   kind: ApprovalKind
 }
 
+type ManualWorkspaceLease = {
+  workspaceID: string
+  sessionToken: string
+}
+
 export function JobsScreen({
   connection,
   onInteractionChange,
@@ -62,6 +81,8 @@ export function JobsScreen({
   const [note, setNote] = useState("")
   const [reviewOverride, setReviewOverride] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [manualLease, setManualLease] = useState<ManualWorkspaceLease | null>(null)
+  const [manualLeaseBusy, setManualLeaseBusy] = useState(false)
   const noteRef = useRef<TextareaRenderable>(null)
 
   const selectedEntry = entries[selectedIndex] ?? null
@@ -221,6 +242,52 @@ export function JobsScreen({
     }
   }
 
+  const toggleManualWorkspaceLease = async () => {
+    if (!selectedEntry?.workspace || manualLeaseBusy) {
+      setMessage("Select a prepared workspace before taking it over for manual editing.")
+      return
+    }
+    const item = selectedEntry.workspace
+    setManualLeaseBusy(true)
+    try {
+      if (manualLease) {
+        if (manualLease.workspaceID !== item.id) {
+          setMessage("Release the active manual workspace lease before selecting another job.")
+          return
+        }
+        const released = await releaseWorkspace(
+          item.id,
+          manualLease.sessionToken,
+          item.head_sha ?? selectedEntry.job.base_commit_sha,
+          item.dirty,
+        )
+        setEntries((current) =>
+          current.map((entry) =>
+            entry.workspace?.id === released.id ? { ...entry, workspace: released } : entry,
+          ),
+        )
+        setManualLease(null)
+        setMessage("Manual workspace lease released; the daemon can resume workflow work.")
+        return
+      }
+
+      const lease = await takeOverWorkspace(item.workflow_job_id, `tui-${process.pid}`)
+      setEntries((current) =>
+        current.map((entry) =>
+          entry.workspace?.id === lease.workspace.id
+            ? { ...entry, workspace: lease.workspace }
+            : entry,
+        ),
+      )
+      setManualLease({ workspaceID: lease.workspace.id, sessionToken: lease.session_token })
+      setMessage(`Manual lease active. Edit the isolated workspace at ${lease.workspace.path}`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Workspace lease operation failed")
+    } finally {
+      setManualLeaseBusy(false)
+    }
+  }
+
   useKeyboard((key) => {
     if (composer) {
       if (key.name === "escape") {
@@ -236,7 +303,7 @@ export function JobsScreen({
       }
       return
     }
-    if (state === "loading" || submitting) {
+    if (state === "loading" || submitting || manualLeaseBusy) {
       return
     }
     if (key.name === "r") {
@@ -261,6 +328,10 @@ export function JobsScreen({
     }
     if (key.name === "x") {
       openComposer("REJECT")
+      return
+    }
+    if (key.name === "e") {
+      void toggleManualWorkspaceLease()
     }
   })
 
@@ -327,7 +398,24 @@ export function JobsScreen({
             ) : null}
           </Panel>
           <box flexGrow={1} flexDirection="column">
-            {selectedEntry ? <JobCard entry={selectedEntry} selected /> : null}
+            {selectedEntry ? (
+              <box flexDirection="row" flexGrow={1} gap={1}>
+                <box flexGrow={1} flexDirection="column">
+                  <JobCard
+                    entry={selectedEntry}
+                    selected
+                    manualLease={manualLease?.workspaceID === selectedEntry.workspace?.id}
+                  />
+                </box>
+                <DiffViewer
+                  executionID={selectedEntry.execution?.id}
+                  checkpoint={selectedEntry.checkpoint}
+                  artifactKey={
+                    selectedEntry.checkSteps.find((step) => step.artifact_key)?.artifact_key
+                  }
+                />
+              </box>
+            ) : null}
           </box>
         </box>
       ) : null}
@@ -340,6 +428,7 @@ export function JobsScreen({
           { key: "A", label: "approve" },
           { key: "V", label: "revision" },
           { key: "X", label: "reject" },
+          { key: "E", label: "edit workspace" },
           { key: "R", label: "reload" },
         ]}
       />
@@ -477,7 +566,15 @@ function canDecide(entry: JobEntry): boolean {
   )
 }
 
-function JobCard({ entry, selected }: { entry: JobEntry; selected: boolean }) {
+function JobCard({
+  entry,
+  selected,
+  manualLease,
+}: {
+  entry: JobEntry
+  selected: boolean
+  manualLease: boolean
+}) {
   const {
     projectName,
     job,
@@ -498,7 +595,7 @@ function JobCard({ entry, selected }: { entry: JobEntry; selected: boolean }) {
       backgroundColor={colors.surfaceRaised}
       padding={1}
     >
-      <box flexDirection="row" justifyContent="space-between">
+      <box flexDirection="column" gap={1}>
         <text
           fg={selected ? colors.accent : colors.text}
         >{`${selected ? "› " : ""}${projectName}`}</text>
@@ -518,9 +615,15 @@ function JobCard({ entry, selected }: { entry: JobEntry; selected: boolean }) {
       </text>
       <text fg={colors.dim}>
         {execution
-          ? `${execution.tool_calls}/${job.limits.max_tool_calls} calls · ${execution.provider || "daemon"}`
+          ? `${execution.tool_calls}/${job.limits.max_tool_calls} calls · ${execution.provider || "daemon"} · ${execution.usage?.total_tokens ?? 0} tokens`
           : "No execution evidence yet"}
       </text>
+      {manualLease ? <StatusBadge label="MANUAL EDIT LEASE ACTIVE" tone="warning" /> : null}
+      {execution?.usage?.estimated_cost_usd ? (
+        <text
+          fg={colors.dim}
+        >{`estimated cost $${execution.usage.estimated_cost_usd.toFixed(4)}`}</text>
+      ) : null}
       {checkpoint ? (
         <text fg={colors.dim}>{`Patch ${checkpoint.patch_checksum.slice(0, 12)}`}</text>
       ) : null}
@@ -536,6 +639,26 @@ function JobCard({ entry, selected }: { entry: JobEntry; selected: boolean }) {
         <text
           fg={colors.muted}
         >{`${check.passed_steps} passed · ${check.failed_steps} failed · ${checkSteps.length} steps`}</text>
+      ) : null}
+      {checkSteps.length > 0 ? (
+        <box flexDirection="column" gap={0}>
+          {checkSteps.slice(0, 8).map((step) => (
+            <box key={step.id} flexDirection="row" justifyContent="space-between">
+              <text
+                fg={
+                  step.status === "PASSED"
+                    ? colors.success
+                    : step.status === "FAILED"
+                      ? colors.danger
+                      : colors.warning
+                }
+              >
+                {`${step.status === "PASSED" ? "✓" : step.status === "FAILED" ? "×" : "·"} ${step.profile}`}
+              </text>
+              {step.artifact_key ? <text fg={colors.dim}>log artifact</text> : null}
+            </box>
+          ))}
+        </box>
       ) : null}
       <text fg={colors.dim}>REVIEW</text>
       {review ? (
@@ -581,6 +704,130 @@ function JobCard({ entry, selected }: { entry: JobEntry; selected: boolean }) {
         <text fg={colors.danger}>{job.failure_message.slice(0, 80)}</text>
       ) : null}
     </box>
+  )
+}
+
+function DiffViewer({
+  executionID,
+  checkpoint,
+  artifactKey,
+}: {
+  executionID?: string
+  checkpoint?: PatchCheckpoint
+  artifactKey?: string
+}) {
+  const [state, setState] = useState<"idle" | "loading" | "ready" | "error">("idle")
+  const [lines, setLines] = useState<string[]>([])
+  const [message, setMessage] = useState("")
+  const [logState, setLogState] = useState<"idle" | "loading" | "ready" | "error">("idle")
+  const [logLines, setLogLines] = useState<string[]>([])
+
+  useEffect(() => {
+    let disposed = false
+    if (!executionID) {
+      setState("idle")
+      setLines([])
+      setLogState("idle")
+      setLogLines([])
+      return
+    }
+    setState("loading")
+    setMessage("")
+    void getExecutionDiff(executionID, { limit: 800 })
+      .then((page) => {
+        if (!disposed) {
+          setLines(page.lines)
+          setState("ready")
+        }
+      })
+      .catch((error) => {
+        if (!disposed) {
+          setState("error")
+          setMessage(error instanceof Error ? error.message : "Failed to load diff")
+        }
+      })
+    if (artifactKey) {
+      setLogState("loading")
+      void getArtifactText(artifactKey)
+        .then((content) => {
+          if (!disposed) {
+            setLogLines(content.split(/\r?\n/))
+            setLogState("ready")
+          }
+        })
+        .catch((error) => {
+          if (!disposed) {
+            setLogState("error")
+            setMessage(error instanceof Error ? error.message : "Failed to load check log")
+          }
+        })
+    } else {
+      setLogState("idle")
+      setLogLines([])
+    }
+    return () => {
+      disposed = true
+    }
+  }, [artifactKey, executionID])
+
+  return (
+    <Panel width="44%" title="CHANGED FILES / DIFF" borderColor={colors.lineStrong}>
+      {checkpoint?.changed_files?.length ? (
+        <box flexDirection="column" gap={0}>
+          <text fg={colors.dim}>FILES</text>
+          {checkpoint.changed_files.slice(0, 12).map((path) => (
+            <text key={path} fg={colors.accent}>{`› ${path}`}</text>
+          ))}
+          {checkpoint.changed_files.length > 12 ? (
+            <text fg={colors.dim}>{`${checkpoint.changed_files.length - 12} more files`}</text>
+          ) : null}
+        </box>
+      ) : (
+        <text fg={colors.dim}>No changed-file checkpoint yet.</text>
+      )}
+      {state === "loading" ? <text fg={colors.warning}>Loading unified diff...</text> : null}
+      {state === "error" ? <text fg={colors.danger}>{message}</text> : null}
+      {state === "ready" ? (
+        <scrollbox height={18} flexGrow={1} backgroundColor={colors.surface}>
+          {lines.length > 0 ? (
+            lines.map((line) => (
+              <text
+                key={`diff-${line}`}
+                fg={
+                  line.startsWith("+")
+                    ? colors.success
+                    : line.startsWith("-")
+                      ? colors.danger
+                      : colors.muted
+                }
+              >
+                {line}
+              </text>
+            ))
+          ) : (
+            <text fg={colors.dim}>Checkpoint has no patch content.</text>
+          )}
+        </scrollbox>
+      ) : null}
+      {artifactKey ? <text fg={colors.dim}>{`CHECK LOG · ${artifactKey}`}</text> : null}
+      {logState === "loading" ? (
+        <text fg={colors.warning}>Loading check log artifact...</text>
+      ) : null}
+      {logState === "error" ? <text fg={colors.danger}>{message}</text> : null}
+      {logState === "ready" ? (
+        <scrollbox height={8} flexGrow={1} backgroundColor={colors.surface}>
+          {logLines.length > 0 ? (
+            logLines.map((line) => (
+              <text key={`log-${line}`} fg={colors.muted}>
+                {line}
+              </text>
+            ))
+          ) : (
+            <text fg={colors.dim}>Check log artifact is empty.</text>
+          )}
+        </scrollbox>
+      ) : null}
+    </Panel>
   )
 }
 

@@ -3,12 +3,15 @@ package checks
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/livingdolls/orkoda-tui/internal/artifact"
 	"github.com/livingdolls/orkoda-tui/internal/execution"
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
 	"github.com/livingdolls/orkoda-tui/internal/workflowjob"
@@ -178,6 +181,15 @@ func (f *fakeCheckStore) CancelStep(_ context.Context, stepID string, _ string) 
 func (f *fakeCheckStore) ListSteps(context.Context, string) ([]Step, error) {
 	return append([]Step(nil), f.steps...), nil
 }
+func (f *fakeCheckStore) SetStepArtifact(_ context.Context, stepID, key string) error {
+	for index := range f.steps {
+		if f.steps[index].ID == stepID {
+			f.steps[index].ArtifactKey = key
+			return nil
+		}
+	}
+	return ErrNotFound
+}
 func (f *fakeCheckStore) Finish(context.Context, string) (Run, error) {
 	f.run.PassedSteps = 0
 	f.run.FailedSteps = 0
@@ -260,6 +272,54 @@ func TestHandlerPersistsFailedChecksAndAdvancesToReview(t *testing.T) {
 	}
 	if runner.calls != 2 {
 		t.Fatalf("stale dispatch reran checks: calls=%d", runner.calls)
+	}
+}
+
+func TestHandlerStoresLargeCheckOutputAsArtifact(t *testing.T) {
+	root := prepareCheckGitRepository(t)
+	artifacts, err := artifact.NewLocalStore(filepath.Join(t.TempDir(), "artifacts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflows := &fakeCheckWorkflows{job: checkingWorkflow()}
+	workspaces := &fakeCheckWorkspaces{
+		item:  workspace.Workspace{ID: "workspace-1", Path: root, Status: workspace.StatusReady},
+		lease: workspace.Lease{Token: "lease-token"},
+	}
+	store := &fakeCheckStore{}
+	fullLog := strings.Repeat("full log line\n", 100)
+	handler, err := NewHandler(
+		workflows,
+		fakeCheckExecutions{item: completedExecution()},
+		workspaces,
+		store,
+		staticDetector{profiles: testProfiles()[:1]},
+		&sequenceCheckRunner{results: []Result{{Passed: false, ExitCode: 1, Output: "bounded", ArtifactOutput: fullLog, Truncated: true, OutputLimit: 7}}},
+		nil,
+		"worker-1",
+		time.Minute,
+		artifacts,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := handler.HandleDurable(context.Background(), checkQueueJob(1, 3)); err != nil {
+		t.Fatal(err)
+	}
+	if store.steps[0].ArtifactKey == "" {
+		t.Fatal("large check did not record artifact key")
+	}
+	reader, err := artifacts.Open(context.Background(), store.steps[0].ArtifactKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != fullLog {
+		t.Fatalf("artifact content length = %d, want %d", len(content), len(fullLog))
 	}
 }
 

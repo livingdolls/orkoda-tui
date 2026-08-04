@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/livingdolls/orkoda-tui/internal/gitrepo"
 	"github.com/livingdolls/orkoda-tui/internal/projects"
 )
 
@@ -18,6 +19,12 @@ type ProjectRegistry interface {
 	Refresh(context.Context, string) (projects.Project, error)
 }
 
+type RepositoryMetadataRegistry interface {
+	GetRepository(context.Context, string) (projects.RepositoryInfo, error)
+	ListBranches(context.Context, string) ([]gitrepo.Branch, error)
+	Trust(context.Context, string, string, map[string]any) (projects.RepositoryInfo, error)
+}
+
 type createProjectRequest struct {
 	Name           string `json:"name"`
 	RepositoryPath string `json:"repository_path"`
@@ -25,6 +32,11 @@ type createProjectRequest struct {
 
 type renameProjectRequest struct {
 	Name string `json:"name"`
+}
+
+type trustRepositoryRequest struct {
+	Level        string         `json:"level"`
+	IgnorePolicy map[string]any `json:"ignore_policy"`
 }
 
 func registerProjectRoutes(api *gin.RouterGroup, registry ProjectRegistry) {
@@ -110,6 +122,62 @@ func registerProjectRoutes(api *gin.RouterGroup, registry ProjectRegistry) {
 	})
 }
 
+func registerRepositoryRoutes(api *gin.RouterGroup, registry RepositoryMetadataRegistry) {
+	api.GET("/repositories/:repositoryID", func(c *gin.Context) {
+		if registry == nil {
+			writeError(c, http.StatusServiceUnavailable, "repository registry is unavailable")
+			return
+		}
+		item, err := registry.GetRepository(c.Request.Context(), c.Param("repositoryID"))
+		if err != nil {
+			writeProjectError(c, err)
+			return
+		}
+		writeData(c, http.StatusOK, item)
+	})
+	api.GET("/repositories/:repositoryID/branches", func(c *gin.Context) {
+		if registry == nil {
+			writeError(c, http.StatusServiceUnavailable, "repository registry is unavailable")
+			return
+		}
+		branches, err := registry.ListBranches(c.Request.Context(), c.Param("repositoryID"))
+		if err != nil {
+			writeProjectError(c, err)
+			return
+		}
+		writeData(c, http.StatusOK, branches)
+	})
+	api.GET("/repositories/:repositoryID/submodules", func(c *gin.Context) {
+		if registry == nil {
+			writeError(c, http.StatusServiceUnavailable, "repository registry is unavailable")
+			return
+		}
+		item, err := registry.GetRepository(c.Request.Context(), c.Param("repositoryID"))
+		if err != nil {
+			writeProjectError(c, err)
+			return
+		}
+		writeData(c, http.StatusOK, item.Submodules)
+	})
+	api.POST("/repositories/:repositoryID/trust", func(c *gin.Context) {
+		if registry == nil {
+			writeError(c, http.StatusServiceUnavailable, "repository registry is unavailable")
+			return
+		}
+		var request trustRepositoryRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			writeError(c, http.StatusBadRequest, "request body must contain a trust level")
+			return
+		}
+		item, err := registry.Trust(c.Request.Context(), c.Param("repositoryID"), request.Level, request.IgnorePolicy)
+		if err != nil {
+			writeProjectError(c, err)
+			return
+		}
+		writeData(c, http.StatusOK, item)
+	})
+}
+
 func requireProjectRegistry(c *gin.Context, registry ProjectRegistry) bool {
 	if registry == nil {
 		writeError(c, http.StatusServiceUnavailable, "project registry is unavailable")
@@ -134,6 +202,10 @@ func writeProjectError(c *gin.Context, err error) {
 func writeData(c *gin.Context, status int, data any) {
 	c.JSON(status, gin.H{
 		"data": data,
-		"meta": gin.H{"protocol_version": protocolVersion},
+		"meta": gin.H{
+			"protocol_version": protocolVersion,
+			"request_id":       requestID(c),
+			"correlation_id":   correlationID(c),
+		},
 	})
 }

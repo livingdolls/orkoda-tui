@@ -3,11 +3,14 @@ package workspace
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/livingdolls/orkoda-tui/internal/database"
+	"github.com/livingdolls/orkoda-tui/internal/gitstate"
 )
 
 func TestWriteLeaseAcquireRenewReleaseAndTakeover(t *testing.T) {
@@ -83,5 +86,86 @@ func TestWriteLeaseAcquireRenewReleaseAndTakeover(t *testing.T) {
 	}
 	if _, err := repository.Renew(ctx, item.ID, second.Token, time.Minute); !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("stale Renew() error = %v", err)
+	}
+}
+
+func TestInspectWriteUsesActualGitState(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "orkoda.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	seedWorkspaceWorkflow(t, db)
+	repository, err := NewRepository(db, filepath.Join(t.TempDir(), "workspaces"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, _, err := repository.EnsureForWorkflow(ctx, "workflow-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(item.Path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workspaceGit(t, item.Path, "init")
+	workspaceGit(t, item.Path, "config", "user.name", "Test")
+	workspaceGit(t, item.Path, "config", "user.email", "test@example.com")
+	if err := os.WriteFile(filepath.Join(item.Path, "base.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	workspaceGit(t, item.Path, "add", "base.txt")
+	workspaceGit(t, item.Path, "commit", "-m", "base")
+	initialSnapshot, err := gitstate.Capture(ctx, item.Path, gitstate.DefaultMaxPatchBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepareLease, err := repository.Acquire(ctx, item.ID, "prepare:test", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.MarkReady(ctx, item.ID, prepareLease.Token, initialSnapshot.Head, initialSnapshot.Dirty); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.Release(ctx, item.ID, prepareLease.Token); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := repository.AcquireWrite(ctx, item.ID, "manual:tui", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clean, err := repository.InspectWrite(ctx, item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clean.HeadSHA == "" || clean.Dirty {
+		t.Fatalf("clean snapshot = %#v", clean)
+	}
+	if err := os.WriteFile(filepath.Join(item.Path, "edited.txt"), []byte("manual\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dirty, err := repository.InspectWrite(ctx, item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dirty.HeadSHA != clean.HeadSHA || !dirty.Dirty {
+		t.Fatalf("dirty snapshot = %#v, clean=%#v", dirty, clean)
+	}
+	if _, err := repository.ReleaseWrite(ctx, item.ID, lease.Token, dirty.HeadSHA, dirty.Dirty); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gitstate.Capture(ctx, item.Path, gitstate.DefaultMaxPatchBytes); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func workspaceGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	command := exec.Command("git", append([]string{"-C", root}, args...)...)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, output)
 	}
 }

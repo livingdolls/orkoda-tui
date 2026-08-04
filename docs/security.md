@@ -97,7 +97,7 @@ Controls:
 
 ## 8. Secret Management
 
-- Provider dan Git credentials disimpan terenkripsi.
+- GitHub credential tidak disimpan di SQLite; adapter memakai OS keychain (`security` di macOS atau `secret-tool` di Linux/BSD) dan gagal tertutup bila keychain tidak tersedia.
 - Agent menerima temporary scoped credential hanya ketika tool memerlukan.
 - `.env`, key files, cloud credentials, dan known secret patterns dikecualikan dari prompt secara default.
 - Secret scan dijalankan sebelum artifact dan publication.

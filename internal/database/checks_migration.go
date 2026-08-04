@@ -34,6 +34,7 @@ func init() {
 			duration_ms INTEGER NOT NULL DEFAULT 0 CHECK (duration_ms >= 0),
 			output_text TEXT NOT NULL DEFAULT '',
 			output_truncated INTEGER NOT NULL DEFAULT 0 CHECK (output_truncated IN (0,1)),
+			artifact_key TEXT NOT NULL DEFAULT '',
 			error_message TEXT,
 			started_at INTEGER,
 			completed_at INTEGER,

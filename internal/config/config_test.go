@@ -29,6 +29,9 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.WorkspaceDir != ".orkoda/workspaces" || cfg.WorkspaceLeaseTTL.String() != "5m0s" {
 		t.Fatalf("unexpected workspace config: dir=%q lease=%s", cfg.WorkspaceDir, cfg.WorkspaceLeaseTTL)
 	}
+	if cfg.APISocketPath() != ".orkoda/orkoda.sock" {
+		t.Fatalf("APISocketPath() = %q", cfg.APISocketPath())
+	}
 	if cfg.LLM.Provider != "local-fake" || cfg.LLM.Timeout.String() != "1m0s" {
 		t.Fatalf("unexpected default LLM config %#v", cfg.LLM)
 	}
@@ -81,7 +84,8 @@ func TestLoadDerivesRuntimePathsFromCustomDataDir(t *testing.T) {
 	if cfg.DatabasePath != "/tmp/orkoda-custom/orkoda.db" ||
 		cfg.ArtifactDir != "/tmp/orkoda-custom/artifacts" ||
 		cfg.WorkspaceDir != "/tmp/orkoda-custom/workspaces" ||
-		cfg.APITokenFile != "/tmp/orkoda-custom/api.token" {
+		cfg.APITokenFile != "/tmp/orkoda-custom/api.token" ||
+		cfg.APISocketPath() != "/tmp/orkoda-custom/orkoda.sock" {
 		t.Fatalf("derived runtime paths = %#v", cfg)
 	}
 }
@@ -151,6 +155,7 @@ func clearConfigEnvironment(t *testing.T) {
 		"ORKODA_DATABASE_PATH",
 		"ORKODA_ARTIFACT_DIR",
 		"ORKODA_WORKSPACE_DIR",
+		"ORKODA_API_SOCKET",
 		"ORKODA_WORKSPACE_LEASE_TTL",
 		"ORKODA_API_TOKEN",
 		"ORKODA_API_TOKEN_FILE",

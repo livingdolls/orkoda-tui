@@ -147,7 +147,7 @@ The scheduler asks the SQLite queue only for job types that have registered hand
 
 The daemon registers `system.noop` plus the workspace preparation, executor, checks, reviewer, and publication handlers. Each stage validates the workflow version/status before doing work, and stale dispatches become successful no-ops.
 
-Future handlers must validate both:
+Every stage handler validates both:
 
 - `workflow_job_id` exists;
 - the current workflow version and status still match the dispatch payload.
@@ -173,7 +173,9 @@ POST /api/v1/jobs/:jobID/publish
 
 There is deliberately no endpoint that accepts an arbitrary target status. Public operations map to predefined domain actions and the transition table remains enforced in the repository.
 
-Internal stage handlers will later use the same repository with internal actions such as `WORKSPACE_READY`, `EXECUTION_STARTED`, `CHECKS_COMPLETED`, and `REVIEW_COMPLETED`.
+Stage handlers use the same repository with internal actions such as
+`WORKSPACE_READY`, `EXECUTION_STARTED`, `CHECKS_COMPLETED`, and
+`REVIEW_COMPLETED`.
 
 ## OpenTUI
 

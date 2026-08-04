@@ -27,19 +27,19 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 ## Epic 3 — OpenTUI Foundation
 
 - [x] Buat keyboard map dan navigasi dasar.
-- [ ] Buat command palette.
-- [ ] Buat focus management, modal, confirmation, dan toast.
-- [ ] Buat loading, empty, error, dan cancellation states.
-- [ ] Buat resizable panels, log viewer, dan diff prototype.
-- [ ] Tambahkan terminal resize handling dan component tests.
+- [x] Buat command palette.
+- [x] Buat focus management, modal, confirmation, dan toast.
+- [x] Buat loading, empty, error, dan cancellation states.
+- [x] Buat resizable panels, log viewer, dan diff prototype.
+- [x] Tambahkan terminal resize handling dan component tests.
 
 ## Epic 4 — Local Daemon Protocol
 
-- [ ] Implementasikan Unix socket transport.
-- [ ] Generate TypeScript client types dari schema.
-- [ ] Implementasikan request dan correlation IDs.
-- [ ] Implementasikan event stream, reconnect, dan timeline replay.
-- [ ] Hubungkan TUI status screen dengan daemon dan SQLite diagnostics.
+- [x] Implementasikan Unix socket transport.
+- [x] Generate TypeScript client types dari schema.
+- [x] Implementasikan request dan correlation IDs.
+- [x] Implementasikan event stream, reconnect, dan timeline replay.
+- [x] Hubungkan TUI status screen dengan daemon dan SQLite diagnostics.
 
 ## Epic 5 — Domain Persistence
 
@@ -51,7 +51,7 @@ Backlog Orkoda untuk penggunaan personal pada satu komputer.
 - [x] Migration workspaces.
 - [x] Migration executions, tool runs, dan patch checkpoints.
 - [x] Migration check runs dan check steps.
-- [ ] Tambahkan check log artifact untuk output besar.
+- [x] Tambahkan check log artifact untuk output besar.
 - [x] Migration review runs dan review issues.
 - [x] Migration approval decisions dan revision requests.
 - [x] Migration Git publications dan artifact metadata.
@@ -63,18 +63,18 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 
 - [x] Implementasikan local Git repository inspection.
 - [x] Baca remote, branch, HEAD, dan dirty state.
-- [ ] Tambahkan pembacaan submodule.
+- [x] Tambahkan pembacaan submodule.
 - [x] Buat repository registration form dan detail screen.
 - [x] Buat filesystem picker.
-- [ ] Buat branch selector.
-- [ ] Implementasikan trust level dan ignore policy.
+- [x] Buat branch selector.
+- [x] Implementasikan trust level dan ignore policy.
 - [x] Implementasikan local Git worktree adapter.
 - [x] Tambahkan SQLite-backed workspace preparation lease.
 - [x] Tambahkan managed-root, overlap, symlink, pinned-HEAD, dan dirty-state guard.
 - [x] Tambahkan idempotent workspace preparation dan crash resume.
 - [x] Tambahkan Executor write lease dan periodic renewal.
 - [x] Tambahkan patch checkpoint dan checksum.
-- [ ] Tambahkan archive, cleanup, dan orphan-worktree reconciliation.
+- [x] Tambahkan archive, cleanup, dan orphan-worktree reconciliation.
 
 ## Epic 7 — Planning and LLM Gateway
 
@@ -96,7 +96,7 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Tambahkan idempotency pada handler `workflow.run_checks`.
 - [x] Tambahkan idempotency pada handler `workflow.review`.
 - [x] Tambahkan idempotency pada publication handler.
-- [ ] Implementasikan polling, backoff, cancellation, dan manual retry.
+- [x] Implementasikan polling, backoff, cancellation, dan manual retry.
 - [x] Pulihkan stale running job saat daemon startup.
 - [x] Tambahkan revision, attempt, dan wall-clock guards.
 - [x] Tambahkan crash-recovery dan duplicate-processing tests untuk workspace preparation.
@@ -104,7 +104,7 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Tambahkan crash-recovery dan duplicate-processing tests untuk checks.
 - [x] Tambahkan crash-recovery dan duplicate-processing tests untuk reviewer.
 - [x] Tambahkan crash-recovery boundary untuk human revision decisions.
-- [ ] Tambahkan crash-recovery dan duplicate-processing tests untuk publication.
+- [x] Tambahkan crash-recovery dan duplicate-processing tests untuk publication.
 
 ## Epic 9 — Tools and Sandbox
 
@@ -122,37 +122,37 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Buat execution snapshot dan deterministic scripted Executor foundation.
 - [x] Buat context selector dan autonomous LLM Executor loop.
 - [x] Simpan tool runs, checkpoints, changed files, dan patch.
-- [ ] Simpan execution token/cost usage.
+- [x] Simpan execution token/cost usage.
 - [x] Implementasikan formatter, linter, type check, test, dan build runner.
 - [x] Simpan check summary dan bounded check output.
 - [x] Tambahkan daemon E2E dari repository registration sampai local publication.
-- [ ] Simpan check log sebagai artifact terpisah.
+- [x] Simpan check log sebagai artifact terpisah.
 - [x] Buat Reviewer prompt dan structured review schema.
 - [x] Validasi file reference, severity, blocking flag, dan criteria.
-- [ ] Publish live progress setelah durable event tersimpan.
+- [x] Publish live progress setelah durable event tersimpan.
 
 ## Epic 11 — Approval and Git Publication
 
-- [ ] Buat changed-file tree dan unified diff viewer.
+- [x] Buat changed-file tree dan unified diff viewer.
 - [x] Buat check matrix pada Jobs screen.
 - [x] Buat review issue panel read-only pada Jobs screen.
 - [x] Implementasikan approve, request revision, dan reject.
-- [ ] Implementasikan take over dan manual workspace editing.
+- [x] Implementasikan take over dan manual workspace editing.
 - [x] Bind approval ke execution version, base SHA, dan patch checksum.
 - [x] Tambahkan decision composer dan Reviewer override acknowledgement pada Jobs screen.
 - [x] Implementasikan local commit dengan deterministic commit message.
-- [ ] Buat optional GitHub adapter untuk branch push dan draft PR.
+- [x] Buat optional GitHub adapter untuk branch push dan draft PR.
 - [x] Tambahkan publication idempotency dan conflict handling.
 
 ## Epic 12 — Local Release
 
-- [ ] Implementasikan local credential storage melalui OS keychain.
-- [ ] Tambahkan repository, workspace, command, dan artifact security tests.
-- [ ] Tambahkan structured logs, local metrics, dan diagnostics bundle.
-- [ ] Tambahkan SQLite backup, restore, dan recovery drill.
+- [x] Implementasikan local credential storage melalui OS keychain.
+- [x] Tambahkan repository, workspace, command, dan artifact security tests.
+- [x] Tambahkan structured logs, local metrics, dan diagnostics bundle.
+- [x] Tambahkan SQLite backup, restore, dan recovery drill.
 - [x] Build daemon binary, TUI artifact, dan optional sandbox image.
-- [ ] Jalankan end-to-end dan security tests.
-- [ ] Release local MVP.
+- [x] Jalankan end-to-end dan security tests.
+- [x] Release local MVP.
 
 ## Outside Current Scope
 

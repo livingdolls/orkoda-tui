@@ -8,8 +8,17 @@ export type ProjectRepository = {
   head_sha: string
   remote_url?: string
   dirty: boolean
+  trust_level: "UNTRUSTED" | "TRUSTED" | "BLOCKED" | string
+  ignore_policy: Record<string, unknown>
+  submodules: Array<{ path: string; commit: string; url?: string }>
   created_at: string
   updated_at: string
+}
+
+export type RepositoryBranch = {
+  name: string
+  head_sha: string
+  current: boolean
 }
 
 export type Project = {
@@ -99,4 +108,28 @@ export function deleteProject(projectID: string, fetcher: ProjectFetch = fetch):
 
 export function refreshProject(projectID: string, fetcher: ProjectFetch = fetch): Promise<Project> {
   return request<Project>(`/api/v1/projects/${projectID}/refresh`, { method: "POST" }, fetcher)
+}
+
+export function listRepositoryBranches(
+  repositoryID: string,
+  fetcher: ProjectFetch = fetch,
+): Promise<RepositoryBranch[]> {
+  return request<RepositoryBranch[]>(
+    `/api/v1/repositories/${repositoryID}/branches`,
+    { method: "GET" },
+    fetcher,
+  )
+}
+
+export function updateRepositoryTrust(
+  repositoryID: string,
+  level: "UNTRUSTED" | "TRUSTED" | "BLOCKED",
+  ignorePolicy: Record<string, unknown> = {},
+  fetcher: ProjectFetch = fetch,
+): Promise<ProjectRepository> {
+  return request<ProjectRepository>(
+    `/api/v1/repositories/${repositoryID}/trust`,
+    { method: "POST", body: JSON.stringify({ level, ignore_policy: ignorePolicy }) },
+    fetcher,
+  )
 }

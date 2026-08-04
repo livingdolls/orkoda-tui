@@ -37,6 +37,7 @@ type Config struct {
 	DatabasePath      string
 	ArtifactDir       string
 	WorkspaceDir      string
+	APISocket         string
 	WorkspaceLeaseTTL time.Duration
 	APIToken          string
 	APITokenFile      string
@@ -82,6 +83,7 @@ func Load() (Config, error) {
 	databasePath := stringFromEnv("ORKODA_DATABASE_PATH", filepath.Join(dataDir, filepath.Base(defaultDatabasePath)))
 	artifactDir := stringFromEnv("ORKODA_ARTIFACT_DIR", filepath.Join(dataDir, filepath.Base(defaultArtifactDir)))
 	workspaceDir := stringFromEnv("ORKODA_WORKSPACE_DIR", filepath.Join(dataDir, filepath.Base(defaultWorkspaceDir)))
+	apiSocket := stringFromEnv("ORKODA_API_SOCKET", filepath.Join(dataDir, "orkoda.sock"))
 	return Config{
 		Environment:       stringFromEnv("ORKODA_ENV", defaultEnvironment),
 		LogLevel:          stringFromEnv("ORKODA_LOG_LEVEL", defaultLogLevel),
@@ -92,6 +94,7 @@ func Load() (Config, error) {
 		DatabasePath:      databasePath,
 		ArtifactDir:       artifactDir,
 		WorkspaceDir:      workspaceDir,
+		APISocket:         apiSocket,
 		WorkspaceLeaseTTL: workspaceLeaseTTL,
 		APIToken:          strings.TrimSpace(os.Getenv("ORKODA_API_TOKEN")),
 		APITokenFile:      apiTokenFile,
@@ -185,6 +188,10 @@ func writeTokenFile(path, token string) error {
 
 func (c Config) APIAddress() string {
 	return fmt.Sprintf("%s:%d", c.APIHost, c.APIPort)
+}
+
+func (c Config) APISocketPath() string {
+	return filepath.Clean(strings.TrimSpace(c.APISocket))
 }
 
 func stringFromEnv(key, fallback string) string {

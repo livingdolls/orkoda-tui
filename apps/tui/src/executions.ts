@@ -17,6 +17,13 @@ export type Execution = {
   failure_message?: string
   created_at: string
   updated_at: string
+  usage: {
+    input_tokens: number
+    output_tokens: number
+    total_tokens: number
+    estimated_cost_usd?: number
+    attempt_count?: number
+  }
 }
 
 export type ToolRun = {
@@ -41,6 +48,15 @@ export type PatchCheckpoint = {
   patch_bytes: number
   changed_files: string[]
   created_at: string
+}
+
+export type DiffPage = {
+  execution_id: string
+  checkpoint_id: string
+  checksum: string
+  lines: string[]
+  cursor: number
+  has_more: boolean
 }
 
 type DataResponse<T> = { data: T }
@@ -100,4 +116,17 @@ export function listCheckpoints(
   fetcher: ExecutionFetch = fetch,
 ): Promise<PatchCheckpoint[]> {
   return request<PatchCheckpoint[]>(`/api/v1/executions/${executionID}/checkpoints`, fetcher)
+}
+
+export function getExecutionDiff(
+  executionID: string,
+  options: { path?: string; cursor?: number; limit?: number } = {},
+  fetcher: ExecutionFetch = fetch,
+): Promise<DiffPage> {
+  const query = new URLSearchParams()
+  if (options.path) query.set("path", options.path)
+  if (options.cursor !== undefined) query.set("cursor", String(options.cursor))
+  if (options.limit !== undefined) query.set("limit", String(options.limit))
+  const suffix = query.size > 0 ? `?${query.toString()}` : ""
+  return request<DiffPage>(`/api/v1/executions/${executionID}/diff${suffix}`, fetcher)
 }

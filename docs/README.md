@@ -80,7 +80,7 @@ Orkoda local daemon
 8. Reviewer memeriksa plan, diff, checks, dan risiko.
 9. User melihat diff dan review di OpenTUI.
 10. User memilih approve, request revision, atau reject.
-11. Setelah approval, sistem membuat commit atau draft pull request.
+11. Setelah approval, sistem membuat commit atau optional draft pull request GitHub.
 12. Execution, command, review, revision, dan approval tersimpan di SQLite.
 
 ## Isi Dokumentasi

@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/react */
 
-import type { ReactNode } from "react"
+import { useKeyboard } from "@opentui/react"
+import { type ReactNode, useMemo, useState } from "react"
 
 export const colors = {
   canvas: "#080B10",
@@ -193,6 +194,120 @@ export function Metric({
     >
       <text fg={colors.dim}>{label}</text>
       <text fg={toneColor(tone)}>{value}</text>
+    </box>
+  )
+}
+
+export type PaletteCommand = {
+  id: string
+  label: string
+  detail: string
+  shortcut?: string
+}
+
+export function CommandPalette({
+  commands,
+  onSelect,
+  onClose,
+}: {
+  commands: PaletteCommand[]
+  onSelect: (command: PaletteCommand) => void
+  onClose: () => void
+}) {
+  const [query, setQuery] = useState("")
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
+    if (!normalized) return commands
+    return commands.filter((command) =>
+      `${command.label} ${command.detail} ${command.shortcut ?? ""}`
+        .toLowerCase()
+        .includes(normalized),
+    )
+  }, [commands, query])
+
+  useKeyboard((key) => {
+    if (key.name === "escape") {
+      onClose()
+      return
+    }
+    if (key.name === "down" || key.name === "j") {
+      setSelectedIndex((current) => Math.min(current + 1, Math.max(filtered.length - 1, 0)))
+      return
+    }
+    if (key.name === "up" || key.name === "k") {
+      setSelectedIndex((current) => Math.max(current - 1, 0))
+      return
+    }
+    if (key.name === "return" || key.name === "enter") {
+      const command = filtered[selectedIndex]
+      if (command) onSelect(command)
+    }
+  })
+
+  return (
+    <box
+      position="absolute"
+      top={2}
+      left="15%"
+      width="70%"
+      padding={1}
+      gap={1}
+      flexDirection="column"
+      borderStyle="rounded"
+      borderColor={colors.accent}
+      backgroundColor={colors.surfaceRaised}
+      title="COMMAND PALETTE"
+    >
+      <input
+        value={query}
+        placeholder="Type a command or screen..."
+        focused
+        onInput={(value) => {
+          setQuery(value)
+          setSelectedIndex(0)
+        }}
+      />
+      {filtered.length === 0 ? <text fg={colors.dim}>No commands match this search.</text> : null}
+      {filtered.slice(0, 10).map((command, index) => (
+        <box
+          key={command.id}
+          flexDirection="row"
+          justifyContent="space-between"
+          paddingLeft={1}
+          paddingRight={1}
+          backgroundColor={index === selectedIndex ? colors.surfaceAccent : colors.surface}
+          borderStyle="rounded"
+          borderColor={index === selectedIndex ? colors.accent : colors.line}
+        >
+          <box flexDirection="row" gap={1}>
+            <text fg={index === selectedIndex ? colors.accent : colors.muted}>
+              {index === selectedIndex ? "›" : " "}
+            </text>
+            <text fg={colors.text}>{command.label}</text>
+            <text fg={colors.dim}>{command.detail}</text>
+          </box>
+          {command.shortcut ? <text fg={colors.accent}>{command.shortcut}</text> : null}
+        </box>
+      ))}
+      <text fg={colors.dim}>↑↓ select • Enter run • Esc close</text>
+    </box>
+  )
+}
+
+export function Toast({ message, tone = "neutral" }: { message: string; tone?: StatusTone }) {
+  return (
+    <box
+      position="absolute"
+      right={2}
+      bottom={4}
+      paddingLeft={1}
+      paddingRight={1}
+      borderStyle="rounded"
+      borderColor={toneColor(tone)}
+      backgroundColor={colors.surfaceRaised}
+    >
+      <text fg={toneColor(tone)}>{message}</text>
     </box>
   )
 }

@@ -27,8 +27,11 @@ import {
   createProject,
   deleteProject,
   listProjects,
+  listRepositoryBranches,
   type Project,
+  type RepositoryBranch,
   refreshProject,
+  updateRepositoryTrust,
 } from "./projects"
 import {
   colors,
@@ -40,16 +43,27 @@ import {
   ShortcutBar,
   StatusBadge,
 } from "./ui"
+import { createWorkflowJob, performWorkflowAction } from "./workflow-jobs"
 
-type ProjectMode = "list" | "name" | "picker" | "delete" | "plan" | "questions"
+type ProjectMode =
+  | "list"
+  | "name"
+  | "picker"
+  | "delete"
+  | "branches"
+  | "ignore"
+  | "plan"
+  | "questions"
 type ProjectLoadState = "idle" | "loading" | "ready" | "error"
 
 export function ProjectScreen({
   connection,
   onInteractionChange,
+  helpOpen = false,
 }: {
   connection: DaemonConnection
   onInteractionChange: (active: boolean) => void
+  helpOpen?: boolean
 }) {
   const [projectList, setProjectList] = useState<Project[]>([])
   const [loadState, setLoadState] = useState<ProjectLoadState>("idle")
@@ -66,6 +80,10 @@ export function ProjectScreen({
   const [repositorySummary, setRepositorySummary] = useState<RepositorySummary | null>(null)
   const [planningContext, setPlanningContext] = useState<PlanningContext | null>(null)
   const [planningRun, setPlanningRun] = useState<PlanningRun | null>(null)
+  const [branches, setBranches] = useState<RepositoryBranch[]>([])
+  const [branchIndex, setBranchIndex] = useState(0)
+  const [branchesLoading, setBranchesLoading] = useState(false)
+  const [ignoreDraft, setIgnoreDraft] = useState("{}")
 
   const selectedProject = projectList[selectedIndex] ?? null
   const selectedRepository = selectedProject?.repositories[0] ?? null
@@ -75,6 +93,7 @@ export function ProjectScreen({
   const latestPlanID = latestPlan?.id ?? ""
   const repositorySummaryID = repositorySummary?.id ?? ""
   const planningContextID = planningContext?.id ?? ""
+  const selectedBranch = branches[branchIndex] ?? branches.find((branch) => branch.current)
 
   const applyPlanningRun = (run: PlanningRun) => {
     setPlanningRun(run)
@@ -218,6 +237,141 @@ export function ProjectScreen({
     }
   }
 
+  const openBranchSelector = async () => {
+    if (!selectedRepository || busy || branchesLoading) return
+    setMode("branches")
+    setBranchesLoading(true)
+    setMessage("")
+    try {
+      const items = await listRepositoryBranches(selectedRepository.id)
+      setBranches(items)
+      const current = items.findIndex((branch) => branch.current)
+      setBranchIndex(current >= 0 ? current : 0)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to load branches")
+      setMode("list")
+    } finally {
+      setBranchesLoading(false)
+    }
+  }
+
+  const trustSelectedRepository = async () => {
+    if (!selectedRepository || busy) return
+    const nextLevel = selectedRepository.trust_level === "TRUSTED" ? "UNTRUSTED" : "TRUSTED"
+    setBusy(true)
+    setMessage(`${nextLevel === "TRUSTED" ? "Trusting" : "Removing trust from"} repository...`)
+    try {
+      const repository = await updateRepositoryTrust(
+        selectedRepository.id,
+        nextLevel,
+        selectedRepository.ignore_policy ?? {},
+      )
+      setProjectList((current) =>
+        current.map((project) => ({
+          ...project,
+          repositories: project.repositories.map((item) =>
+            item.id === repository.id ? repository : item,
+          ),
+        })),
+      )
+      setMessage(`Repository trust level is now ${repository.trust_level}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to update repository trust")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const openIgnorePolicyEditor = () => {
+    if (!selectedRepository || busy) return
+    setIgnoreDraft(JSON.stringify(selectedRepository.ignore_policy ?? {}))
+    setMode("ignore")
+    setMessage("")
+  }
+
+  const submitIgnorePolicy = async () => {
+    if (!selectedRepository || busy) return
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(ignoreDraft)
+    } catch {
+      setMessage("Ignore policy must be valid JSON.")
+      return
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      setMessage("Ignore policy must be a JSON object.")
+      return
+    }
+    setBusy(true)
+    setMessage("Saving repository ignore policy...")
+    try {
+      const currentLevel =
+        selectedRepository.trust_level === "TRUSTED"
+          ? "TRUSTED"
+          : selectedRepository.trust_level === "BLOCKED"
+            ? "BLOCKED"
+            : "UNTRUSTED"
+      const repository = await updateRepositoryTrust(
+        selectedRepository.id,
+        currentLevel,
+        parsed as Record<string, unknown>,
+      )
+      setProjectList((current) =>
+        current.map((project) => ({
+          ...project,
+          repositories: project.repositories.map((item) =>
+            item.id === repository.id ? repository : item,
+          ),
+        })),
+      )
+      setMode("list")
+      setMessage("Repository ignore policy saved.")
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to save ignore policy")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const createSelectedWorkflow = async () => {
+    if (!selectedProject || !selectedRepository || !latestPlan || busy) return
+    if (latestPlan.status !== "READY" && latestPlan.status !== "APPROVED") {
+      setMessage("The latest plan must be READY before creating a workflow.")
+      return
+    }
+    const baseBranch = selectedBranch?.name || selectedRepository.current_branch
+    if (!baseBranch || baseBranch === "HEAD") {
+      setMessage("Select a concrete base branch before creating a workflow.")
+      return
+    }
+    setBusy(true)
+    setMessage(`Creating workflow from ${baseBranch}...`)
+    try {
+      const created = await createWorkflowJob(selectedProject.id, {
+        plan_id: latestPlan.id,
+        repository_id: selectedRepository.id,
+        base_branch: baseBranch,
+      })
+      try {
+        const started = await performWorkflowAction(created.id, "start", created.version, {
+          requested_by: "tui",
+          base_branch: baseBranch,
+        })
+        setMessage(
+          `Workflow ${started.id.slice(0, 8)} started from ${baseBranch}. Open Jobs to follow it.`,
+        )
+      } catch (error) {
+        setMessage(
+          `Workflow ${created.id.slice(0, 8)} created READY; start failed: ${error instanceof Error ? error.message : "unknown error"}`,
+        )
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to create workflow")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const scanSelectedRepository = async () => {
     if (!selectedRepository || busy) {
       return
@@ -278,9 +432,9 @@ export function ProjectScreen({
       const run = await startPlanningRun(latestPlan.id)
       applyPlanningRun(run)
       if (run.status === "NEEDS_INPUT") {
-        setMessage(`Planning needs ${run.questions.length} answer(s). Press q to continue.`)
+        setMessage(`Planning needs ${run.questions.length} open question(s). Press q to continue.`)
       } else if (run.status === "COMPLETED") {
-        setMessage(`Planning completed with ${run.result?.steps.length ?? 0} step(s).`)
+        setMessage(`Planning COMPLETED with ${run.result?.steps.length ?? 0} step(s).`)
       } else {
         setMessage(`Planning run finished with status ${run.status}.`)
       }
@@ -292,6 +446,9 @@ export function ProjectScreen({
   }
 
   useKeyboard((key) => {
+    if (helpOpen) {
+      return
+    }
     if (mode === "plan" || mode === "questions") {
       return
     }
@@ -355,6 +512,37 @@ export function ProjectScreen({
       return
     }
 
+    if (mode === "branches") {
+      if (key.name === "escape") {
+        setMode("list")
+        setMessage("")
+        return
+      }
+      if (branchesLoading) return
+      if (key.name === "down" || key.name === "j") {
+        setBranchIndex((current) => Math.min(current + 1, Math.max(branches.length - 1, 0)))
+        return
+      }
+      if (key.name === "up" || key.name === "k") {
+        setBranchIndex((current) => Math.max(current - 1, 0))
+        return
+      }
+      if (key.name === "return" || key.name === "enter") {
+        const branch = branches[branchIndex]
+        if (branch) setMessage(`Base branch selected: ${branch.name}`)
+        setMode("list")
+      }
+      return
+    }
+
+    if (mode === "ignore") {
+      if (key.name === "escape") {
+        setMode("list")
+        setMessage("Ignore policy editing cancelled.")
+      }
+      return
+    }
+
     if (key.name === "n") {
       setMode("name")
       setDraftName("")
@@ -390,6 +578,22 @@ export function ProjectScreen({
     }
     if (key.name === "g" && selectedProject) {
       void refreshSelectedProject()
+      return
+    }
+    if (key.name === "b" && selectedRepository) {
+      void openBranchSelector()
+      return
+    }
+    if (key.name === "t" && selectedRepository) {
+      void trustSelectedRepository()
+      return
+    }
+    if (key.name === "i" && selectedRepository) {
+      openIgnorePolicyEditor()
+      return
+    }
+    if (key.name === "w") {
+      void createSelectedWorkflow()
       return
     }
     if (key.name === "r") {
@@ -497,6 +701,14 @@ export function ProjectScreen({
   }, [connection.state, selectedRepositoryID])
 
   useEffect(() => {
+    setBranches([])
+    setBranchIndex(0)
+    if (selectedRepositoryID === "") {
+      setIgnoreDraft("{}")
+    }
+  }, [selectedRepositoryID])
+
+  useEffect(() => {
     let disposed = false
     setPlanningContext(null)
     setPlanningRun(null)
@@ -573,7 +785,7 @@ export function ProjectScreen({
           applyPlanningRun(run)
           setMode("list")
           if (run.status === "COMPLETED") {
-            setMessage(`Planning completed with ${run.result?.steps.length ?? 0} step(s).`)
+            setMessage(`Planning COMPLETED with ${run.result?.steps.length ?? 0} step(s).`)
           } else {
             setMessage(`Planning returned status ${run.status}.`)
           }
@@ -702,6 +914,94 @@ export function ProjectScreen({
     )
   }
 
+  if (mode === "branches") {
+    return (
+      <box flexDirection="column" flexGrow={1} gap={1}>
+        <PageIntro
+          kicker="BASE BRANCH"
+          title={`Select a branch for ${selectedRepository?.local_path ?? "repository"}`}
+          description="The selected branch is the immutable base used when the next workflow is created."
+          meta={branchesLoading ? "loading" : `${branches.length} branch(es)`}
+        />
+        {branchesLoading ? <text fg={colors.warning}>Reading local branches...</text> : null}
+        {!branchesLoading && branches.length === 0 ? (
+          <EmptyState
+            title="No local branch found"
+            detail="Create a local branch before starting work."
+            action="Esc back"
+          />
+        ) : null}
+        {!branchesLoading && branches.length > 0 ? (
+          <Panel title="LOCAL BRANCHES" flexGrow={1} borderColor={colors.accent}>
+            {branches.map((branch, index) => (
+              <box
+                key={branch.name}
+                flexDirection="row"
+                justifyContent="space-between"
+                paddingLeft={1}
+                paddingRight={1}
+                backgroundColor={index === branchIndex ? colors.surfaceAccent : colors.surface}
+                borderStyle="rounded"
+                borderColor={index === branchIndex ? colors.accent : colors.line}
+              >
+                <text fg={index === branchIndex ? colors.accent : colors.text}>
+                  {`${index === branchIndex ? "›" : " "} ${branch.name}`}
+                </text>
+                <text fg={branch.current ? colors.success : colors.dim}>
+                  {branch.current ? "current" : branch.head_sha.slice(0, 8)}
+                </text>
+              </box>
+            ))}
+          </Panel>
+        ) : null}
+        {selectedBranch ? (
+          <text fg={colors.muted}>{`Selected: ${selectedBranch.name}`}</text>
+        ) : null}
+        <ShortcutBar
+          shortcuts={[
+            { key: "↑↓", label: "select" },
+            { key: "Enter", label: "use branch" },
+            { key: "Esc", label: "cancel" },
+          ]}
+        />
+      </box>
+    )
+  }
+
+  if (mode === "ignore") {
+    return (
+      <box flexDirection="column" flexGrow={1} gap={1}>
+        <PageIntro
+          kicker="REPOSITORY POLICY"
+          title="Edit the ignore policy"
+          description="Store a structured policy used by repository scans and future workflow context selection."
+          meta="JSON object"
+        />
+        <Panel
+          title="IGNORE POLICY JSON"
+          borderColor={colors.accent}
+          backgroundColor={colors.surfaceAccent}
+        >
+          <input
+            value={ignoreDraft}
+            focused
+            placeholder='{"directories":["node_modules"]}'
+            onInput={setIgnoreDraft}
+            onSubmit={() => void submitIgnorePolicy()}
+          />
+          <text fg={colors.dim}>Example: {`{"directories":["node_modules","vendor"]}`}</text>
+        </Panel>
+        <ShortcutBar
+          shortcuts={[
+            { key: "Enter", label: "save policy" },
+            { key: "Esc", label: "cancel" },
+          ]}
+        />
+        {message ? <text fg={busy ? colors.warning : colors.danger}>{message}</text> : null}
+      </box>
+    )
+  }
+
   if (connection.state !== "connected") {
     return (
       <EmptyState
@@ -784,11 +1084,26 @@ export function ProjectScreen({
             <Metric label="HEAD" value={selectedRepository?.head_sha.slice(0, 12) ?? "unknown"} />
           </box>
           <text fg={colors.dim}>{selectedRepository?.local_path ?? "No repository"}</text>
+          <box flexDirection="row" gap={1}>
+            <StatusBadge
+              label={`trust ${selectedRepository?.trust_level ?? "UNTRUSTED"}`}
+              tone={selectedRepository?.trust_level === "TRUSTED" ? "success" : "warning"}
+            />
+            <text
+              fg={colors.dim}
+            >{`${selectedRepository?.submodules?.length ?? 0} submodule(s)`}</text>
+            {selectedBranch ? (
+              <text fg={colors.accent}>{`base ${selectedBranch.name}`}</text>
+            ) : null}
+          </box>
+          <text fg={colors.dim}>
+            {`ignore policy ${JSON.stringify(selectedRepository?.ignore_policy ?? {}).slice(0, 96)}`}
+          </text>
 
           <SectionHeading
             title="Repository context"
             detail="latest HEAD"
-            action="S scan   G refresh"
+            action="S scan   B branch   T trust   I ignore   G refresh"
           />
           <Panel borderColor={colors.line}>
             {repositorySummary ? (
@@ -812,7 +1127,7 @@ export function ProjectScreen({
           <SectionHeading
             title="Plan pipeline"
             detail={`${planList.length} versioned plan(s)`}
-            action="P new   O normalize   A run   Q answer"
+            action="P new   O normalize   A run   W workflow   Q answer"
           />
           <Panel borderColor={colors.line}>
             {planLoading ? <text fg={colors.warning}>Loading plans...</text> : null}
@@ -832,30 +1147,9 @@ export function ProjectScreen({
           {planningContext ? (
             <Panel title="NORMALIZED CONTEXT" borderColor={colors.success}>
               <text fg={colors.success}>{planningContext.normalized_plan.goal}</text>
-              <box flexDirection="row" gap={1}>
-                <Metric
-                  label="Scope"
-                  value={String(planningContext.normalized_plan.scope.length)}
-                />
-                <Metric
-                  label="Areas"
-                  value={String(planningContext.normalized_plan.affected_areas.length)}
-                />
-                <Metric
-                  label="Risks"
-                  value={String(planningContext.normalized_plan.risks.length)}
-                  tone={planningContext.normalized_plan.risks.length > 0 ? "warning" : "success"}
-                />
-                <Metric
-                  label="Questions"
-                  value={String(planningContext.normalized_plan.open_questions.length)}
-                  tone={
-                    planningContext.normalized_plan.open_questions.length > 0
-                      ? "warning"
-                      : "success"
-                  }
-                />
-              </box>
+              <text fg={colors.dim}>
+                {`scope ${planningContext.normalized_plan.scope.length} · areas ${planningContext.normalized_plan.affected_areas.length} · risks ${planningContext.normalized_plan.risks.length} · questions ${planningContext.normalized_plan.open_questions.length}`}
+              </text>
             </Panel>
           ) : latestPlan ? (
             <text fg={colors.dim}>
@@ -868,7 +1162,7 @@ export function ProjectScreen({
               title="PLANNING AGENT"
               borderColor={planningRun.status === "COMPLETED" ? colors.success : colors.warning}
             >
-              <box flexDirection="row" justifyContent="space-between">
+              <box flexDirection="column" gap={1}>
                 <text fg={planningRun.status === "COMPLETED" ? colors.success : colors.warning}>
                   {`${planningRun.provider}/${planningRun.model}`}
                 </text>
@@ -878,9 +1172,12 @@ export function ProjectScreen({
                 />
               </box>
               {planningRun.status === "NEEDS_INPUT" ? (
-                <text fg={colors.warning}>
-                  {`${planningRun.questions.filter((question) => question.status === "OPEN").length} open question(s) • press Q`}
-                </text>
+                <box flexDirection="column">
+                  <text
+                    fg={colors.warning}
+                  >{`${planningRun.questions.filter((question) => question.status === "OPEN").length} open question(s)`}</text>
+                  <text fg={colors.dim}>Press Q to answer</text>
+                </box>
               ) : null}
               {planningRun.result ? (
                 <box flexDirection="column">
@@ -913,6 +1210,10 @@ export function ProjectScreen({
               { key: "Q", label: "answer" },
               { key: "D", label: "delete" },
               { key: "G", label: "refresh" },
+              { key: "B", label: "branch" },
+              { key: "T", label: "trust" },
+              { key: "I", label: "ignore policy" },
+              { key: "W", label: "create workflow" },
               { key: "R", label: "reload" },
             ]}
           />

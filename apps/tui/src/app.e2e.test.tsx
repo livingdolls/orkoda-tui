@@ -160,10 +160,12 @@ async function waitForPlanningRerun(
       `/api/v1/plans/${planID}/planning-runs/current`,
     )
     if (run.id !== previousRunID) {
-      if (run.status !== "COMPLETED") {
+      if (run.status === "COMPLETED") {
+        return run
+      }
+      if (["FAILED", "CANCELLED"].includes(run.status)) {
         throw new Error(`planning rerun reached unexpected status ${run.status}`)
       }
-      return run
     }
     await Bun.sleep(100)
   }

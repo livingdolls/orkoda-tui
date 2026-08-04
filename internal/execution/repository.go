@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/livingdolls/orkoda-tui/internal/llm"
 )
 
 var (
@@ -41,6 +43,7 @@ type Execution struct {
 	AgentSettingsVersion int        `json:"agent_settings_version"`
 	Provider             string     `json:"provider"`
 	Model                string     `json:"model"`
+	Usage                llm.Usage  `json:"usage"`
 	Status               Status     `json:"status"`
 	ToolCalls            int        `json:"tool_calls"`
 	FailureCode          string     `json:"failure_code,omitempty"`
@@ -184,8 +187,57 @@ func (r *Repository) Start(ctx context.Context, executionID string) (Execution, 
 
 func (r *Repository) Complete(ctx context.Context, executionID string) (Execution, error) {
 	now := r.now().UTC()
-	row := r.db.QueryRowContext(ctx, `UPDATE executions SET status='COMPLETED', completed_at=?, updated_at=?, failure_code=NULL, failure_message=NULL WHERE id=? AND status IN ('PENDING','RUNNING','COMPLETED') RETURNING `+executionColumns, now.UnixMilli(), now.UnixMilli(), executionID)
+	usage, err := r.aggregateUsage(ctx, executionID)
+	if err != nil {
+		return Execution{}, err
+	}
+	usageJSON, err := json.Marshal(usage)
+	if err != nil {
+		return Execution{}, fmt.Errorf("marshal execution usage: %w", err)
+	}
+	row := r.db.QueryRowContext(ctx, `UPDATE executions SET status='COMPLETED', usage_json=?, completed_at=?, updated_at=?, failure_code=NULL, failure_message=NULL WHERE id=? AND status IN ('PENDING','RUNNING','COMPLETED') RETURNING `+executionColumns, string(usageJSON), now.UnixMilli(), now.UnixMilli(), executionID)
 	return loadExecution(row)
+}
+
+func (r *Repository) aggregateUsage(ctx context.Context, executionID string) (llm.Usage, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT usage_json FROM executor_iterations WHERE execution_id = ?`, strings.TrimSpace(executionID))
+	if err != nil {
+		return llm.Usage{}, fmt.Errorf("list executor usage: %w", err)
+	}
+	defer rows.Close()
+	var total llm.Usage
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return llm.Usage{}, fmt.Errorf("scan executor usage: %w", err)
+		}
+		var item llm.Usage
+		if err := json.Unmarshal([]byte(raw), &item); err != nil {
+			return llm.Usage{}, fmt.Errorf("decode executor usage: %w", err)
+		}
+		total.InputTokens += item.InputTokens
+		total.OutputTokens += item.OutputTokens
+		total.CachedInputTokens += item.CachedInputTokens
+		total.TotalTokens += item.TotalTokens
+		total.EstimatedInputTokens += item.EstimatedInputTokens
+		total.EstimatedTokensSpent += item.EstimatedTokensSpent
+		total.EstimatedCostUSD += item.EstimatedCostUSD
+		total.AttemptCount += item.AttemptCount
+		total.ValidationAttempts += item.ValidationAttempts
+		total.ValidationErrorCount += item.ValidationErrorCount
+		total.RedactionCount += item.RedactionCount
+		total.RepairUsed = total.RepairUsed || item.RepairUsed
+		total.FallbackUsed = total.FallbackUsed || item.FallbackUsed
+		total.FinalProvider = item.FinalProvider
+		total.FinalModel = item.FinalModel
+	}
+	if err := rows.Err(); err != nil {
+		return llm.Usage{}, fmt.Errorf("iterate executor usage: %w", err)
+	}
+	if total.TotalTokens == 0 {
+		total.TotalTokens = total.InputTokens + total.OutputTokens
+	}
+	return total, nil
 }
 
 func (r *Repository) Fail(ctx context.Context, executionID, code, message string) error {
@@ -347,7 +399,7 @@ func (r *Repository) latestCheckpoint(ctx context.Context, executionID string) (
 	return items[len(items)-1], nil
 }
 
-const executionColumns = `id,workflow_job_id,workflow_version,execution_version,plan_version_id,workspace_id,base_commit_sha,agent_settings_version,provider,model,status,tool_calls,failure_code,failure_message,started_at,completed_at,created_at,updated_at`
+const executionColumns = `id,workflow_job_id,workflow_version,execution_version,plan_version_id,workspace_id,base_commit_sha,agent_settings_version,provider,model,status,tool_calls,usage_json,failure_code,failure_message,started_at,completed_at,created_at,updated_at`
 const toolRunColumns = `id,execution_id,sequence,tool,status,input_summary_json,output_summary_json,error_code,error_message,started_at,completed_at,created_at,updated_at`
 
 func loadExecution(row interface{ Scan(...any) error }) (Execution, error) {
@@ -359,15 +411,20 @@ func loadExecution(row interface{ Scan(...any) error }) (Execution, error) {
 }
 func scanExecution(row interface{ Scan(...any) error }) (Execution, error) {
 	var item Execution
-	var failureCode, failureMessage sql.NullString
+	var failureCode, failureMessage, usageJSON sql.NullString
 	var started, completed sql.NullInt64
 	var created, updated int64
-	err := row.Scan(&item.ID, &item.WorkflowJobID, &item.WorkflowVersion, &item.ExecutionVersion, &item.PlanVersionID, &item.WorkspaceID, &item.BaseCommitSHA, &item.AgentSettingsVersion, &item.Provider, &item.Model, &item.Status, &item.ToolCalls, &failureCode, &failureMessage, &started, &completed, &created, &updated)
+	err := row.Scan(&item.ID, &item.WorkflowJobID, &item.WorkflowVersion, &item.ExecutionVersion, &item.PlanVersionID, &item.WorkspaceID, &item.BaseCommitSHA, &item.AgentSettingsVersion, &item.Provider, &item.Model, &item.Status, &item.ToolCalls, &usageJSON, &failureCode, &failureMessage, &started, &completed, &created, &updated)
 	if err != nil {
 		return Execution{}, err
 	}
 	item.FailureCode = failureCode.String
 	item.FailureMessage = failureMessage.String
+	if strings.TrimSpace(usageJSON.String) != "" {
+		if err := json.Unmarshal([]byte(usageJSON.String), &item.Usage); err != nil {
+			return Execution{}, fmt.Errorf("decode execution usage: %w", err)
+		}
+	}
 	item.CreatedAt = time.UnixMilli(created).UTC()
 	item.UpdatedAt = time.UnixMilli(updated).UTC()
 	if started.Valid {

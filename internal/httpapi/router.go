@@ -2,9 +2,11 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +14,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/livingdolls/orkoda-tui/internal/activity"
+	"github.com/livingdolls/orkoda-tui/internal/artifact"
+	"github.com/livingdolls/orkoda-tui/internal/diagnostics"
+	"github.com/livingdolls/orkoda-tui/internal/eventbus"
+	"github.com/livingdolls/orkoda-tui/internal/observability"
+	"github.com/livingdolls/orkoda-tui/internal/publication"
 )
 
 const protocolVersion = "v1"
@@ -21,8 +28,13 @@ type EventReader interface {
 	ListJobAfter(context.Context, string, int64, int) ([]activity.Event, error)
 }
 
+type EventSubscriber interface {
+	Subscribe(int) (<-chan eventbus.Event, func())
+}
+
 type RouterServices struct {
 	Plans               PlanRegistry
+	Repositories        RepositoryMetadataRegistry
 	RepositorySummaries RepositorySummaryRegistry
 	PlanningContexts    PlanningContextRegistry
 	PlanningAgent       PlanningAgentRegistry
@@ -38,6 +50,13 @@ type RouterServices struct {
 	DefaultLLMProvider  string
 	DefaultLLMModel     string
 	APIToken            string
+	LiveEvents          EventSubscriber
+	Idempotency         IdempotencyStore
+	Publications        PublicationRegistry
+	RemotePublisher     publication.RemotePublisher
+	Diagnostics         diagnostics.Reader
+	Metrics             *observability.Metrics
+	Artifacts           artifact.Store
 }
 
 type healthResponse struct {
@@ -84,7 +103,9 @@ func NewRouterWithServices(
 	}
 
 	router := gin.New()
-	router.Use(gin.Logger(), gin.Recovery())
+	router.Use(gin.Recovery())
+	router.Use(requestIdentityMiddleware())
+	router.Use(structuredRequestLogger(slog.Default()))
 
 	router.GET("/health/live", func(c *gin.Context) {
 		c.JSON(http.StatusOK, healthResponse{
@@ -96,6 +117,10 @@ func NewRouterWithServices(
 
 	api := router.Group("/api/v1")
 	api.Use(requestLimitMiddleware(4 * 1024 * 1024))
+	api.Use(idempotencyMiddleware(services.Idempotency))
+	if services.Metrics != nil {
+		api.Use(services.Metrics.Middleware())
+	}
 	if token := strings.TrimSpace(services.APIToken); token != "" {
 		api.Use(apiTokenMiddleware(token))
 	}
@@ -107,17 +132,52 @@ func NewRouterWithServices(
 			},
 			"meta": gin.H{
 				"protocol_version": protocolVersion,
+				"request_id":       requestID(c),
+				"correlation_id":   correlationID(c),
 			},
 		})
 	})
+	api.GET("/metrics", func(c *gin.Context) {
+		if services.Metrics == nil {
+			writeError(c, http.StatusServiceUnavailable, "metrics are unavailable")
+			return
+		}
+		writeData(c, http.StatusOK, services.Metrics.Snapshot())
+	})
+	api.GET("/diagnostics", func(c *gin.Context) {
+		if services.Diagnostics == nil {
+			writeError(c, http.StatusServiceUnavailable, "diagnostics are unavailable")
+			return
+		}
+		item, err := services.Diagnostics.Read(c.Request.Context())
+		if err != nil {
+			writeError(c, http.StatusInternalServerError, "failed to read diagnostics")
+			return
+		}
+		writeData(c, http.StatusOK, item)
+	})
+	api.POST("/diagnostics/bundle", func(c *gin.Context) {
+		if services.Diagnostics == nil {
+			writeError(c, http.StatusServiceUnavailable, "diagnostics are unavailable")
+			return
+		}
+		key, err := services.Diagnostics.Bundle(c.Request.Context())
+		if err != nil {
+			writeError(c, http.StatusInternalServerError, "failed to create diagnostics bundle")
+			return
+		}
+		writeData(c, http.StatusCreated, gin.H{"artifact_key": key})
+	})
+	registerArtifactRoutes(api, services.Artifacts)
 
 	api.GET("/events", func(c *gin.Context) {
-		replayEvents(c, events, "")
+		serveEvents(c, events, services.LiveEvents, "", services.Metrics)
 	})
 	api.GET("/jobs/:jobID/events", func(c *gin.Context) {
-		replayEvents(c, events, c.Param("jobID"))
+		serveEvents(c, events, services.LiveEvents, c.Param("jobID"), services.Metrics)
 	})
 	registerProjectRoutes(api, projectRegistry)
+	registerRepositoryRoutes(api, services.Repositories)
 	registerAgentSettingsRoutes(api, services.AgentSettings)
 	registerPlanRoutes(api, services.Plans)
 	registerPlanningRoutes(api, services.RepositorySummaries, services.PlanningContexts)
@@ -128,6 +188,7 @@ func NewRouterWithServices(
 	registerCheckRoutes(api, services.Checks)
 	registerReviewRoutes(api, services.Reviews)
 	registerApprovalRoutes(api, services.Approvals)
+	registerPublicationRoutes(api, services.Publications, services.WorkflowJobs, services.Repositories, services.Workspaces, services.RemotePublisher)
 	registerLLMRoutes(api, services.LLMProviders, services.LLMPolicy)
 
 	return router
@@ -159,6 +220,14 @@ func apiTokenMiddleware(expected string) gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+func serveEvents(c *gin.Context, reader EventReader, subscriber EventSubscriber, jobID string, metrics *observability.Metrics) {
+	if strings.Contains(strings.ToLower(c.GetHeader("Accept")), "text/event-stream") || c.Query("stream") == "true" {
+		streamEvents(c, reader, subscriber, jobID, metrics)
+		return
+	}
+	replayEvents(c, reader, jobID)
 }
 
 func replayEvents(c *gin.Context, reader EventReader, jobID string) {
@@ -213,6 +282,113 @@ func replayEvents(c *gin.Context, reader EventReader, jobID string) {
 	})
 }
 
+func streamEvents(c *gin.Context, reader EventReader, subscriber EventSubscriber, jobID string, metrics *observability.Metrics) {
+	if reader == nil || subscriber == nil {
+		writeError(c, http.StatusServiceUnavailable, "live activity stream is unavailable")
+		return
+	}
+	afterSequence, limit, err := parseReplayQuery(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Subscribe before replaying so an event committed during the replay is
+	// either observed live or filtered by its sequence, never lost.
+	stream, unsubscribe := subscriber.Subscribe(32)
+	defer unsubscribe()
+	if metrics != nil {
+		metrics.StreamOpened()
+		defer metrics.StreamClosed()
+	}
+	var initial []activity.Event
+	if jobID == "" {
+		initial, err = reader.ListAfter(c.Request.Context(), afterSequence, limit)
+	} else {
+		initial, err = reader.ListJobAfter(c.Request.Context(), jobID, afterSequence, limit)
+	}
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "failed to replay activity events")
+		return
+	}
+	if _, ok := c.Writer.(http.Flusher); !ok {
+		writeError(c, http.StatusInternalServerError, "event stream flushing is unavailable")
+		return
+	}
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	flush := c.Writer.(http.Flusher)
+	writeSSE := func(event replayEvent) error {
+		body, marshalErr := json.Marshal(event)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if _, writeErr := fmt.Fprintf(c.Writer, "id: %d\nevent: %s\ndata: %s\n\n", event.Sequence, event.Type, body); writeErr != nil {
+			return writeErr
+		}
+		flush.Flush()
+		return nil
+	}
+	for _, event := range initial {
+		if err := writeSSE(replayEvent{Sequence: event.Sequence, JobID: event.JobID, Type: event.Type, Payload: event.PayloadJSON, CreatedAt: event.CreatedAt.UTC().Format(time.RFC3339Nano)}); err != nil {
+			return
+		}
+		afterSequence = event.Sequence
+	}
+	// Tell clients that the connection is established even when there are no
+	// historical events to replay.
+	if _, err := fmt.Fprint(c.Writer, ": connected\n\n"); err != nil {
+		return
+	}
+	flush.Flush()
+	keepAlive := time.NewTicker(20 * time.Second)
+	defer keepAlive.Stop()
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case <-keepAlive.C:
+			if _, err := fmt.Fprint(c.Writer, ": keep-alive\n\n"); err != nil {
+				return
+			}
+			flush.Flush()
+		case event, open := <-stream:
+			if !open {
+				return
+			}
+			if jobID != "" && event.JobID != jobID {
+				continue
+			}
+			if event.Sequence <= afterSequence {
+				continue
+			}
+			if err := writeSSE(liveReplayEvent(event)); err != nil {
+				return
+			}
+			afterSequence = event.Sequence
+		}
+	}
+}
+
+func liveReplayEvent(event eventbus.Event) replayEvent {
+	payload, err := json.Marshal(event.Payload)
+	if err != nil {
+		payload = json.RawMessage(`{}`)
+	}
+	createdAt := event.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	return replayEvent{
+		Sequence:  event.Sequence,
+		JobID:     event.JobID,
+		Type:      event.Type,
+		Payload:   payload,
+		CreatedAt: createdAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
 func parseReplayQuery(c *gin.Context) (int64, int, error) {
 	afterSequence := int64(0)
 	if value := c.Query("after_sequence"); value != "" {
@@ -242,5 +418,69 @@ func writeError(c *gin.Context, status int, message string) {
 		"meta": gin.H{
 			"protocol_version": protocolVersion,
 		},
+		"request_id": requestID(c),
 	})
+}
+
+type requestIdentityKey string
+
+const (
+	requestIDKey     requestIdentityKey = "request_id"
+	correlationIDKey requestIdentityKey = "correlation_id"
+)
+
+func requestIdentityMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		requestID := strings.TrimSpace(c.GetHeader("X-Request-ID"))
+		if requestID == "" {
+			requestID = newRequestID("req")
+		}
+		correlationID := strings.TrimSpace(c.GetHeader("X-Correlation-ID"))
+		if correlationID == "" {
+			correlationID = requestID
+		}
+		c.Set(string(requestIDKey), requestID)
+		c.Set(string(correlationIDKey), correlationID)
+		c.Header("X-Request-ID", requestID)
+		c.Header("X-Correlation-ID", correlationID)
+		c.Next()
+	}
+}
+
+func structuredRequestLogger(logger *slog.Logger) gin.HandlerFunc {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return func(c *gin.Context) {
+		started := time.Now()
+		c.Next()
+		logger.Info("http request",
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"status", c.Writer.Status(),
+			"request_id", requestID(c),
+			"correlation_id", correlationID(c),
+			"duration_ms", time.Since(started).Milliseconds(),
+		)
+	}
+}
+
+func requestID(c *gin.Context) string {
+	value, _ := c.Get(string(requestIDKey))
+	result, _ := value.(string)
+	return result
+}
+
+func correlationID(c *gin.Context) string {
+	value, _ := c.Get(string(correlationIDKey))
+	result, _ := value.(string)
+	return result
+}
+
+func newRequestID(prefix string) string {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+	}
+	return fmt.Sprintf("%s-%x", prefix, raw[:])
 }

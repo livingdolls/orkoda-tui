@@ -19,13 +19,17 @@ Memastikan OpenTUI, workflow, repository operations, sandbox, agent contracts, r
 
 ### Integration Tests
 
-- PostgreSQL repositories dan migrations.
-- RabbitMQ outbox and idempotent consumer.
-- Redis event fan-out.
+- SQLite repositories, migrations, WAL backup/restore, dan integrity recovery.
+- Durable queue, scheduler polling/backoff, cancellation, stale recovery, dan idempotency.
+- Unix socket listener, HTTP protocol envelopes, SSE replay, dan artifact serving.
 - Git worktree/clone lifecycle.
 - Sandbox command execution.
 - LLM provider adapters dengan recorded fixtures.
 - Git provider adapter sandbox account.
+
+Repository/workspace security tests mencakup traversal, symlink, special-file,
+managed-root, lease ownership, artifact key, command profile, environment
+allowlist, dan GitHub branch/credential validation.
 
 ### End-to-End Tests
 
@@ -59,6 +63,17 @@ bun test src/app.e2e.test.tsx
 ```
 
 Tanpa `ORKODA_TUI_E2E=1`, test tersebut otomatis di-skip agar suite TUI biasa tetap cepat.
+
+Pada instalasi GVM, set `GOROOT` ke toolchain yang sama dengan
+`ORKODA_E2E_GO_BIN` dan gunakan `GOTOOLCHAIN=local` agar binary fixture dan
+daemon memakai cache/toolchain yang konsisten.
+
+Full local gate:
+
+```sh
+GOTOOLCHAIN=auto GOCACHE=/tmp/orkoda-gocache go test ./...
+make check
+```
 
 ## 3. OpenTUI Tests
 

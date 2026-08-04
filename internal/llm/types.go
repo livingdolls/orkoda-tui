@@ -41,20 +41,21 @@ type Request struct {
 }
 
 type Usage struct {
-	InputTokens          int    `json:"input_tokens"`
-	OutputTokens         int    `json:"output_tokens"`
-	CachedInputTokens    int    `json:"cached_input_tokens,omitempty"`
-	TotalTokens          int    `json:"total_tokens"`
-	AttemptCount         int    `json:"attempt_count,omitempty"`
-	FallbackUsed         bool   `json:"fallback_used,omitempty"`
-	FinalProvider        string `json:"final_provider,omitempty"`
-	FinalModel           string `json:"final_model,omitempty"`
-	EstimatedInputTokens int    `json:"estimated_input_tokens,omitempty"`
-	EstimatedTokensSpent int    `json:"estimated_tokens_spent,omitempty"`
-	ValidationAttempts   int    `json:"validation_attempts,omitempty"`
-	ValidationErrorCount int    `json:"validation_error_count,omitempty"`
-	RepairUsed           bool   `json:"repair_used,omitempty"`
-	RedactionCount       int    `json:"redaction_count,omitempty"`
+	InputTokens          int     `json:"input_tokens"`
+	OutputTokens         int     `json:"output_tokens"`
+	CachedInputTokens    int     `json:"cached_input_tokens,omitempty"`
+	TotalTokens          int     `json:"total_tokens"`
+	AttemptCount         int     `json:"attempt_count,omitempty"`
+	FallbackUsed         bool    `json:"fallback_used,omitempty"`
+	FinalProvider        string  `json:"final_provider,omitempty"`
+	FinalModel           string  `json:"final_model,omitempty"`
+	EstimatedInputTokens int     `json:"estimated_input_tokens,omitempty"`
+	EstimatedTokensSpent int     `json:"estimated_tokens_spent,omitempty"`
+	ValidationAttempts   int     `json:"validation_attempts,omitempty"`
+	ValidationErrorCount int     `json:"validation_error_count,omitempty"`
+	RepairUsed           bool    `json:"repair_used,omitempty"`
+	RedactionCount       int     `json:"redaction_count,omitempty"`
+	EstimatedCostUSD     float64 `json:"estimated_cost_usd,omitempty"`
 }
 
 type Response struct {
@@ -116,6 +117,7 @@ func applyExecutionMetadata(usage *Usage, metadata map[string]string) {
 	usage.ValidationErrorCount, _ = strconv.Atoi(metadata["validation_error_count"])
 	usage.RepairUsed, _ = strconv.ParseBool(metadata["repair_used"])
 	usage.RedactionCount, _ = strconv.Atoi(metadata["redaction_count"])
+	usage.EstimatedCostUSD, _ = strconv.ParseFloat(metadata["estimated_cost_usd"], 64)
 }
 
 func cloneStrings(values map[string]string) map[string]string {
@@ -138,6 +140,9 @@ func normalizeUsage(usage Usage) Usage {
 	}
 	if usage.CachedInputTokens < 0 {
 		usage.CachedInputTokens = 0
+	}
+	if usage.EstimatedCostUSD < 0 {
+		usage.EstimatedCostUSD = 0
 	}
 	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	return usage

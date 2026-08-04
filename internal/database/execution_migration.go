@@ -13,6 +13,7 @@ func init() {
 			agent_settings_version INTEGER NOT NULL CHECK (agent_settings_version > 0),
 			provider TEXT NOT NULL,
 			model TEXT NOT NULL,
+			usage_json TEXT NOT NULL DEFAULT '{}',
 			status TEXT NOT NULL CHECK (status IN ('PENDING','RUNNING','COMPLETED','FAILED','CANCELLED')),
 			tool_calls INTEGER NOT NULL DEFAULT 0 CHECK (tool_calls >= 0),
 			failure_code TEXT,

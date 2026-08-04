@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/livingdolls/orkoda-tui/internal/gitstate"
 )
 
 // AcquireWrite acquires exclusive mutation access to a READY workspace.
@@ -73,5 +75,26 @@ func (r *Repository) ReleaseWrite(
 	if err != nil {
 		return Workspace{}, fmt.Errorf("release workspace write lease: %w", err)
 	}
+	return item, nil
+}
+
+// InspectWrite reads the actual Git state of a manually leased workspace.
+// Clients do not get to declare a false HEAD or dirty bit when releasing a
+// lease; the daemon is the authority for the workspace snapshot.
+func (r *Repository) InspectWrite(ctx context.Context, workspaceID string) (Workspace, error) {
+	item, err := r.getByID(ctx, strings.TrimSpace(workspaceID))
+	if err != nil {
+		return Workspace{}, err
+	}
+	now := r.now().UTC()
+	if item.Status != StatusWriteLocked || item.LeaseExpiresAt == nil || !item.LeaseExpiresAt.After(now) {
+		return Workspace{}, ErrLeaseLost
+	}
+	snapshot, err := gitstate.Capture(ctx, item.Path, gitstate.DefaultMaxPatchBytes)
+	if err != nil {
+		return Workspace{}, fmt.Errorf("inspect manually edited workspace: %w", err)
+	}
+	item.HeadSHA = snapshot.Head
+	item.Dirty = snapshot.Dirty
 	return item, nil
 }

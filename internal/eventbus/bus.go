@@ -1,12 +1,16 @@
 package eventbus
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 type Event struct {
-	Sequence int64
-	JobID    string
-	Type     string
-	Payload  any
+	Sequence  int64
+	JobID     string
+	Type      string
+	Payload   any
+	CreatedAt time.Time
 }
 
 type Bus struct {

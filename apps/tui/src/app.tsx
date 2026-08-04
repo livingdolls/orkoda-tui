@@ -1,10 +1,18 @@
 /** @jsxImportSource @opentui/react */
 
 import { useKeyboard, useOnResize } from "@opentui/react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { AgentSettingsScreen } from "./agent-settings-screen"
-import { type DaemonConnection, initialDaemonConnection, probeDaemon } from "./daemon"
+import {
+  createDiagnosticsBundle,
+  type DaemonConnection,
+  type DiagnosticsSnapshot,
+  getDiagnostics,
+  initialDaemonConnection,
+  probeDaemon,
+} from "./daemon"
+import { type ActivityEvent, subscribeToEvents } from "./events"
 import { JobsScreen } from "./jobs-screen"
 import {
   moveScreen,
@@ -15,7 +23,18 @@ import {
 } from "./navigation"
 import { ProjectScreen } from "./project-screen"
 import { SettingsScreen } from "./settings-screen"
-import { colors, Metric, PageIntro, Panel, ShortcutBar, StatusBadge, toneColor } from "./ui"
+import {
+  CommandPalette,
+  colors,
+  Metric,
+  PageIntro,
+  type PaletteCommand,
+  Panel,
+  ShortcutBar,
+  StatusBadge,
+  Toast,
+  toneColor,
+} from "./ui"
 
 const connectionTones: Record<DaemonConnection["state"], "warning" | "success" | "danger"> = {
   checking: "warning",
@@ -30,15 +49,45 @@ export function App() {
   const [projectInteractionActive, setProjectInteractionActive] = useState(false)
   const [jobsInteractionActive, setJobsInteractionActive] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [showPalette, setShowPalette] = useState(false)
+  const [lastEvent, setLastEvent] = useState<ActivityEvent | null>(null)
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null)
+  const [sidebarWidth, setSidebarWidth] = useState(29)
+  const [eventStreamState, setEventStreamState] = useState<"connected" | "reconnecting" | "closed">(
+    "closed",
+  )
+  const lastSequenceRef = useRef(0)
+  const [toast, setToast] = useState("")
   const renderer = useOnResize((width) => setTerminalWidth(width))
 
   const compactLayout = (terminalWidth || renderer.width) < 100
 
   useKeyboard((key) => {
+    if (showPalette) {
+      return
+    }
     if (showHelp) {
       if (key.name === "escape" || key.name === "?") {
         setShowHelp(false)
       }
+      return
+    }
+
+    if ((key.ctrl && key.name === "k") || key.name === "/") {
+      setShowPalette(true)
+      return
+    }
+
+    if (
+      key.ctrl &&
+      !projectInteractionActive &&
+      !jobsInteractionActive &&
+      (key.name === "left" || key.name === "right")
+    ) {
+      setSidebarWidth((current) =>
+        Math.min(42, Math.max(22, current + (key.name === "right" ? 2 : -2))),
+      )
+      setToast("Workspace panel resized")
       return
     }
 
@@ -140,7 +189,75 @@ export function App() {
     }
   }, [])
 
-  let footerHelp = "←→ screen • 1–5 jump • ? help • Ctrl+C quit"
+  useEffect(() => {
+    if (connection.state !== "connected") {
+      setEventStreamState("closed")
+      return
+    }
+    const unsubscribe = subscribeToEvents({
+      afterSequence: lastSequenceRef.current,
+      onEvent: (event) => {
+        lastSequenceRef.current = event.sequence
+        setLastEvent(event)
+      },
+      onState: setEventStreamState,
+    })
+    return unsubscribe
+    // Reconnect only when the daemon connection changes. The stream itself
+    // advances its cursor as durable events arrive.
+  }, [connection.state])
+
+  useEffect(() => {
+    let disposed = false
+    if (connection.state !== "connected") {
+      setDiagnostics(null)
+      return
+    }
+    const refresh = async () => {
+      try {
+        const snapshot = await getDiagnostics()
+        if (!disposed) setDiagnostics(snapshot)
+      } catch {
+        if (!disposed) setDiagnostics(null)
+      }
+    }
+    void refresh()
+    const interval = setInterval(() => void refresh(), 5000)
+    return () => {
+      disposed = true
+      clearInterval(interval)
+    }
+  }, [connection.state])
+
+  useEffect(() => {
+    if (!toast) return
+    const timeout = setTimeout(() => setToast(""), 3500)
+    return () => clearTimeout(timeout)
+  }, [toast])
+
+  const paletteCommands: PaletteCommand[] = [
+    ...screenDefinitions.map((item, index) => ({
+      id: `screen:${item.id}`,
+      label: `Open ${item.label}`,
+      detail: item.description,
+      shortcut: String(index + 1),
+    })),
+    {
+      id: "reconnect",
+      label: "Reconnect daemon",
+      detail: "Refresh health and protocol status",
+      shortcut: "R",
+    },
+    {
+      id: "diagnostics-bundle",
+      label: "Export diagnostics bundle",
+      detail: "Save a redacted SQLite and runtime health snapshot",
+      shortcut: "B",
+    },
+    { id: "help", label: "Keyboard guide", detail: "Show contextual shortcuts", shortcut: "?" },
+  ]
+
+  let footerHelp = "←→ screen • 1–5 jump • ? help • Ctrl+←→ resize • Ctrl+C quit"
   if (activeScreen === "projects") {
     footerHelp = projectInteractionActive
       ? "Dialog active • use the action bar • Esc cancel"
@@ -150,7 +267,7 @@ export function App() {
   } else if (activeScreen === "jobs") {
     footerHelp = jobsInteractionActive
       ? "Composer active • Ctrl+S apply • Esc cancel • O override"
-      : "↑↓ select • A approve • V revise • X reject • R reload • ? help"
+      : "↑↓ select • A approve • V revise • X reject • E edit • R reload • ? help"
   }
 
   return (
@@ -177,7 +294,7 @@ export function App() {
 
       <box flexGrow={1} flexDirection="row" padding={1} gap={1}>
         {!compactLayout ? (
-          <Panel width={29} title="WORKSPACE" borderColor={colors.lineStrong}>
+          <Panel width={sidebarWidth} title="WORKSPACE" borderColor={colors.lineStrong}>
             <text fg={colors.dim}>SCREENS</text>
             {screenDefinitions.map((item, index) => {
               const selected = item.id === activeScreen
@@ -211,7 +328,15 @@ export function App() {
           gap={1}
         >
           {showHelp ? (
-            <HelpScreen screen={activeScreen} />
+            activeScreen === "projects" ? (
+              <ProjectScreen
+                connection={connection}
+                onInteractionChange={setProjectInteractionActive}
+                helpOpen={showHelp}
+              />
+            ) : (
+              <HelpScreen screen={activeScreen} />
+            )
           ) : activeScreen === "projects" ? (
             <ProjectScreen
               connection={connection}
@@ -222,10 +347,28 @@ export function App() {
               screen={activeScreen}
               connection={connection}
               onJobsInteractionChange={setJobsInteractionActive}
+              lastEvent={lastEvent}
+              eventStreamState={eventStreamState}
+              diagnostics={diagnostics}
             />
           )}
         </box>
       </box>
+      {showHelp && activeScreen === "projects" ? (
+        <box
+          position="absolute"
+          top={5}
+          left="8%"
+          width="84%"
+          height="80%"
+          padding={2}
+          borderStyle="rounded"
+          borderColor={colors.accent}
+          backgroundColor={colors.canvas}
+        >
+          <HelpScreen screen={activeScreen} />
+        </box>
+      ) : null}
 
       <box
         height={3}
@@ -246,11 +389,38 @@ export function App() {
           shortcuts={[
             { key: "←→", label: "screen" },
             { key: "1–5", label: "jump" },
+            { key: "Ctrl+←→", label: "resize" },
             { key: "?", label: "help" },
             { key: "Ctrl+C", label: "quit" },
           ]}
         />
       </box>
+      {showPalette ? (
+        <CommandPalette
+          commands={paletteCommands}
+          onClose={() => setShowPalette(false)}
+          onSelect={(command) => {
+            if (command.id.startsWith("screen:")) {
+              setActiveScreen(command.id.slice("screen:".length) as Screen)
+              setToast(`Opened ${command.label.replace(/^Open /, "")}`)
+            } else if (command.id === "reconnect") {
+              setConnection(initialDaemonConnection)
+              void probeDaemon().then(setConnection)
+              setToast("Daemon reconnect requested")
+            } else if (command.id === "help") {
+              setShowHelp(true)
+            } else if (command.id === "diagnostics-bundle") {
+              void createDiagnosticsBundle()
+                .then((key) => setToast(`Diagnostics bundle saved: ${key}`))
+                .catch((error) =>
+                  setToast(error instanceof Error ? error.message : "Diagnostics export failed"),
+                )
+            }
+            setShowPalette(false)
+          }}
+        />
+      ) : null}
+      {toast ? <Toast message={toast} tone="success" /> : null}
     </box>
   )
 }
@@ -259,10 +429,16 @@ function ScreenContent({
   screen,
   connection,
   onJobsInteractionChange,
+  lastEvent,
+  eventStreamState,
+  diagnostics,
 }: {
   screen: Screen
   connection: DaemonConnection
   onJobsInteractionChange: (active: boolean) => void
+  lastEvent: ActivityEvent | null
+  eventStreamState: "connected" | "reconnecting" | "closed"
+  diagnostics: DiagnosticsSnapshot | null
 }) {
   if (screen === "agents") {
     return <AgentSettingsScreen connection={connection} />
@@ -290,6 +466,57 @@ function ScreenContent({
           <Metric label="Protocol" value={connection.protocolVersion} tone="accent" />
           <Metric label="Endpoint" value="127.0.0.1:8181" />
         </box>
+      </Panel>
+      <Panel
+        title="DAEMON DIAGNOSTICS"
+        borderColor={diagnostics?.status === "ready" ? colors.lineStrong : colors.warning}
+      >
+        {diagnostics ? (
+          <box flexDirection="column" gap={1}>
+            <box flexDirection="row" gap={1}>
+              <StatusBadge
+                label={diagnostics.status}
+                tone={diagnostics.status === "ready" ? "success" : "warning"}
+              />
+              <text fg={colors.dim}>{`schema v${diagnostics.database.schema_version}`}</text>
+              <text fg={diagnostics.database.integrity === "ok" ? colors.success : colors.danger}>
+                {`SQLite ${diagnostics.database.integrity}`}
+              </text>
+            </box>
+            <box flexDirection="row" gap={1}>
+              <Metric label="Queue" value={`${diagnostics.queue.queued} queued`} />
+              <Metric label="Running" value={`${diagnostics.queue.running}`} />
+              <Metric
+                label="Dead"
+                value={`${diagnostics.queue.dead}`}
+                tone={diagnostics.queue.dead > 0 ? "danger" : "success"}
+              />
+              <Metric
+                label="Leases"
+                value={`${diagnostics.workspaces.active_leases}/${diagnostics.workspaces.total}`}
+              />
+            </box>
+          </box>
+        ) : (
+          <text fg={colors.dim}>Diagnostics are temporarily unavailable.</text>
+        )}
+      </Panel>
+      <Panel
+        title="EVENT STREAM"
+        borderColor={eventStreamState === "connected" ? colors.success : colors.warning}
+      >
+        <box flexDirection="row" gap={1}>
+          <StatusBadge
+            label={eventStreamState}
+            tone={eventStreamState === "connected" ? "success" : "warning"}
+          />
+          {lastEvent ? (
+            <text fg={colors.muted}>{`#${lastEvent.sequence} ${lastEvent.type}`}</text>
+          ) : (
+            <text fg={colors.dim}>Waiting for a durable activity event.</text>
+          )}
+        </box>
+        {lastEvent ? <text fg={colors.dim}>{lastEvent.created_at}</text> : null}
       </Panel>
       {connection.state === "disconnected" ? (
         <Panel borderColor={colors.warning} backgroundColor="#211E14">
@@ -332,6 +559,7 @@ function HelpScreen({ screen }: { screen: Screen }) {
       { key: "A", label: "approve" },
       { key: "V", label: "request revision" },
       { key: "X", label: "reject" },
+      { key: "E", label: "take over or release workspace" },
       { key: "R", label: "reload jobs" },
     ],
     settings: [{ key: "R", label: "reconnect" }],

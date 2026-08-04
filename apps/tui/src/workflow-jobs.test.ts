@@ -8,6 +8,8 @@ import {
   listWorkflowJobs,
   listWorkflowTransitions,
   performWorkflowAction,
+  releaseWorkspace,
+  takeOverWorkspace,
   type WorkflowFetch,
   type WorkflowJob,
   type Workspace,
@@ -169,5 +171,43 @@ describe("workflow jobs API client", () => {
     await expect(performWorkflowAction("workflow-1", "start", 1, {}, fetcher)).rejects.toThrow(
       "workflow job version conflict",
     )
+  })
+
+  test("takes over and releases a workspace lease", async () => {
+    const urls: string[] = []
+    const fetcher: WorkflowFetch = async (input, init) => {
+      urls.push(String(input))
+      if (urls.length === 1) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              workspace: { ...workspaceFixture(), status: "WRITE_LOCKED" },
+              session_token: "lease-token",
+              expires_at: "2026-08-02T01:00:00Z",
+            },
+          }),
+          { status: 200 },
+        )
+      }
+      expect(init?.body).toBe(
+        JSON.stringify({ session_token: "lease-token", head_sha: "abc123", dirty: true }),
+      )
+      return new Response(JSON.stringify({ data: { ...workspaceFixture(), dirty: true } }), {
+        status: 200,
+      })
+    }
+
+    const lease = await takeOverWorkspace("workflow-1", "tui-test", fetcher)
+    const released = await releaseWorkspace(
+      "workspace-1",
+      lease.session_token,
+      "abc123",
+      true,
+      fetcher,
+    )
+    expect(lease.workspace.status).toBe("WRITE_LOCKED")
+    expect(released.dirty).toBe(true)
+    expect(urls[0]).toEndWith("/api/v1/jobs/workflow-1/workspace/take-over")
+    expect(urls[1]).toEndWith("/api/v1/workspaces/workspace-1/release")
   })
 })

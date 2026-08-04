@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/livingdolls/orkoda-tui/internal/database"
@@ -12,8 +13,18 @@ import (
 )
 
 type fakeInspector struct {
-	snapshots map[string]gitrepo.Snapshot
-	err       error
+	snapshots  map[string]gitrepo.Snapshot
+	branches   map[string][]gitrepo.Branch
+	submodules map[string][]gitrepo.Submodule
+	err        error
+}
+
+func (f *fakeInspector) ListBranches(_ context.Context, path string) ([]gitrepo.Branch, error) {
+	return append([]gitrepo.Branch(nil), f.branches[path]...), nil
+}
+
+func (f *fakeInspector) ListSubmodules(_ context.Context, path string) ([]gitrepo.Submodule, error) {
+	return append([]gitrepo.Submodule(nil), f.submodules[path]...), nil
 }
 
 func (f *fakeInspector) Inspect(_ context.Context, path string) (gitrepo.Snapshot, error) {
@@ -76,6 +87,37 @@ func TestCreateAndListProject(t *testing.T) {
 	}
 	if len(projects) != 1 || projects[0].ID != created.ID {
 		t.Fatalf("projects = %#v", projects)
+	}
+}
+
+func TestRepositoryMetadataBranchesTrustAndSubmodules(t *testing.T) {
+	path := "/tmp/metadata"
+	branches := []gitrepo.Branch{{Name: "main", HeadSHA: "abc123", Current: true}, {Name: "feature/x", HeadSHA: "def456"}}
+	submodules := []gitrepo.Submodule{{Path: "vendor/library", Commit: "0123456789abcdef", URL: "https://example.invalid/library.git"}}
+	inspector := &fakeInspector{
+		snapshots:  map[string]gitrepo.Snapshot{path: {RootPath: path, CurrentBranch: "main", HeadSHA: "abc123"}},
+		branches:   map[string][]gitrepo.Branch{path: branches},
+		submodules: map[string][]gitrepo.Submodule{path: submodules},
+	}
+	repository, db := openTestRepository(t, inspector)
+	defer db.Close()
+	created, err := repository.Create(context.Background(), "Metadata", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(created.Repositories[0].Submodules, submodules) {
+		t.Fatalf("created submodules = %#v", created.Repositories[0].Submodules)
+	}
+	listed, err := repository.ListBranches(context.Background(), created.Repositories[0].ID)
+	if err != nil || !reflect.DeepEqual(listed, branches) {
+		t.Fatalf("ListBranches() = %#v, %v", listed, err)
+	}
+	trusted, err := repository.Trust(context.Background(), created.Repositories[0].ID, "trusted", map[string]any{"paths": []any{"vendor"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trusted.TrustLevel != "TRUSTED" || string(trusted.IgnorePolicy) != `{"paths":["vendor"]}` {
+		t.Fatalf("trusted repository = %#v", trusted)
 	}
 }
 

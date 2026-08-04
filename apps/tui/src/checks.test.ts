@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { type CheckFetch, listCheckSteps, listChecks } from "./checks"
+import { type CheckFetch, getArtifactText, listCheckSteps, listChecks } from "./checks"
 
 describe("checks API client", () => {
   test("loads check runs and steps", async () => {
@@ -52,5 +52,16 @@ describe("checks API client", () => {
       new Response(JSON.stringify({ error: { message: "checks unavailable" } }), { status: 503 })
 
     await expect(listChecks("workflow-1", fetcher)).rejects.toThrow("checks unavailable")
+  })
+
+  test("loads a check log artifact without treating it as an API envelope", async () => {
+    let requestedURL = ""
+    const fetcher: CheckFetch = async (input) => {
+      requestedURL = String(input)
+      return new Response("full check output\n", { status: 200 })
+    }
+    const content = await getArtifactText("workflows/job-1/checks/run-1/1-go.test.log", fetcher)
+    expect(content).toBe("full check output\n")
+    expect(requestedURL).toContain("/api/v1/artifacts/workflows/job-1/checks/run-1/1-go.test.log")
   })
 })

@@ -42,7 +42,7 @@ REQUESTED
 PREPARING
     ↓ detached worktree verified
 READY
-    ↓ future Executor write lease
+    ↓ acquire Executor write lease
 WRITE_LOCKED
     ↓ execution complete
 READY
@@ -53,7 +53,8 @@ REQUESTED / PREPARING
     └── preparation failure → FAILED → retry lease → PREPARING
 ```
 
-This change implements `REQUESTED`, `PREPARING`, `READY`, and `FAILED`. `WRITE_LOCKED` and `ARCHIVED` are reserved for Executor and cleanup handlers.
+The daemon implements the complete lifecycle, including the Executor write lease,
+manual take-over/release, archive, cleanup, and orphan-worktree reconciliation.
 
 ## Worktree creation
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const latestSchemaVersion = 2
+const latestSchemaVersion = 3
 
 var foundationStatements = []string{
 	`CREATE TABLE IF NOT EXISTS projects (
@@ -24,6 +24,9 @@ var foundationStatements = []string{
 		head_sha TEXT NOT NULL,
 		remote_url TEXT NOT NULL DEFAULT '',
 		dirty INTEGER NOT NULL DEFAULT 0 CHECK (dirty IN (0, 1)),
+		trust_level TEXT NOT NULL DEFAULT 'UNTRUSTED' CHECK (trust_level IN ('UNTRUSTED','RESTRICTED','TRUSTED')),
+		ignore_policy_json TEXT NOT NULL DEFAULT '{}',
+		submodules_json TEXT NOT NULL DEFAULT '[]',
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL,
 		FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -258,6 +261,41 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, applied_at) VALUES (2, 'workflow-publication-and-approval-check-snapshot', strftime('%s','now') * 1000)`); err != nil {
 			return fmt.Errorf("record publication migration: %w", err)
+		}
+	}
+	if version < 3 {
+		if err := ensureColumn(ctx, tx, "executions", "usage_json", "TEXT NOT NULL DEFAULT '{}'"); err != nil {
+			return err
+		}
+		if err := ensureColumn(ctx, tx, "repositories", "trust_level", "TEXT NOT NULL DEFAULT 'UNTRUSTED'"); err != nil {
+			return err
+		}
+		if err := ensureColumn(ctx, tx, "repositories", "ignore_policy_json", "TEXT NOT NULL DEFAULT '{}'"); err != nil {
+			return err
+		}
+		if err := ensureColumn(ctx, tx, "repositories", "submodules_json", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
+			return err
+		}
+		if err := ensureColumn(ctx, tx, "check_steps", "artifact_key", "TEXT NOT NULL DEFAULT ''"); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS idempotency_keys (
+			key TEXT PRIMARY KEY,
+			method TEXT NOT NULL,
+			path TEXT NOT NULL,
+			request_hash TEXT NOT NULL,
+			status_code INTEGER NOT NULL,
+			response_json TEXT NOT NULL,
+			created_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL
+		)`); err != nil {
+			return fmt.Errorf("create idempotency key table: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_idempotency_expiry ON idempotency_keys(expires_at)`); err != nil {
+			return fmt.Errorf("create idempotency expiry index: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, applied_at) VALUES (3, 'repository-trust-check-artifact-and-idempotency', strftime('%s','now') * 1000)`); err != nil {
+			return fmt.Errorf("record repository migration: %w", err)
 		}
 	}
 

@@ -24,7 +24,7 @@ Product and implementation documents are available in [`docs/`](./docs/README.md
 
 ## Requirements
 
-- Go 1.26+
+- Go 1.26.5+
 - Bun 1.3.14+
 
 Docker is required for the default isolated check runner. Host check execution is available only as an explicit development escape hatch with `ORKODA_SANDBOX_MODE=host` and `ORKODA_ALLOW_UNSANDBOXED_CHECKS=true`.
@@ -149,6 +149,7 @@ ORKODA_DATA_DIR=.orkoda
 ORKODA_DATABASE_PATH=.orkoda/orkoda.db
 ORKODA_ARTIFACT_DIR=.orkoda/artifacts
 ORKODA_API_TOKEN_FILE=.orkoda/api.token
+ORKODA_API_SOCKET=.orkoda/orkoda.sock
 ORKODA_SANDBOX_MODE=docker
 ORKODA_SANDBOX_IMAGE=orkoda-sandbox:local
 ```
@@ -179,6 +180,12 @@ packages/protocol/     Shared versioned JSON schemas
 docs/                  Product, architecture, and implementation docs
 ```
 
+## Release and publication
+
+`make release` builds `dist/orkoda-api`, a bundled Bun TUI entrypoint, and the
+versioned protocol schemas. The GitHub adapter can push an approved branch and
+create an idempotent draft pull request when an OS keychain credential is available.
+
 ## Safety boundary
 
-Orkoda never edits a developer's source repository directly. Execution uses an isolated Git worktree tied to an immutable base commit. Local commit publication remains blocked until explicit human approval; remote push and pull-request adapters remain outside the MVP.
+Orkoda never edits a developer's source repository directly. Execution uses an isolated Git worktree tied to an immutable base commit. Local commit publication remains blocked until explicit human approval. Remote push and draft pull-request publication are optional and require the approved snapshot, an OS keychain credential, and a supported GitHub remote.

@@ -29,6 +29,7 @@ export type CheckStep = {
   duration_ms: number
   output_text: string
   output_truncated: boolean
+  artifact_key?: string
   error_message?: string
   started_at?: string
   completed_at?: string
@@ -77,4 +78,23 @@ export function listChecks(jobID: string, fetcher: CheckFetch = fetch): Promise<
 
 export function listCheckSteps(checkID: string, fetcher: CheckFetch = fetch): Promise<CheckStep[]> {
   return request<CheckStep[]>(`/api/v1/checks/${checkID}/steps`, fetcher)
+}
+
+export async function getArtifactText(
+  artifactKey: string,
+  fetcher: CheckFetch = fetch,
+): Promise<string> {
+  const path = artifactKey
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/")
+  const response = await requestWithDaemonAuth(
+    fetcher,
+    `${daemonBaseURL}/api/v1/artifacts/${path}`,
+    { method: "GET", headers: { accept: "text/plain" } },
+  )
+  if (!response.ok) {
+    throw new Error(`Artifact returned HTTP ${response.status}`)
+  }
+  return response.text()
 }

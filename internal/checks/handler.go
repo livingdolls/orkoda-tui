@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/livingdolls/orkoda-tui/internal/artifact"
 	"github.com/livingdolls/orkoda-tui/internal/execution"
 	"github.com/livingdolls/orkoda-tui/internal/gitstate"
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
@@ -45,6 +46,7 @@ type Handler struct {
 	recorder   EventRecorder
 	workerID   string
 	leaseTTL   time.Duration
+	artifacts  artifact.Store
 }
 
 func NewHandler(
@@ -57,11 +59,16 @@ func NewHandler(
 	recorder EventRecorder,
 	workerID string,
 	leaseTTL time.Duration,
+	artifactStores ...artifact.Store,
 ) (*Handler, error) {
 	workerID = strings.TrimSpace(workerID)
 	if workflows == nil || executions == nil || workspaces == nil || checkStore == nil ||
 		detector == nil || runner == nil || workerID == "" || leaseTTL <= 0 {
 		return nil, fmt.Errorf("workflow, execution, workspace, check, detector, runner, worker, and lease dependencies are required")
+	}
+	var artifactStore artifact.Store
+	if len(artifactStores) > 0 {
+		artifactStore = artifactStores[0]
 	}
 	return &Handler{
 		workflows:  workflows,
@@ -73,6 +80,7 @@ func NewHandler(
 		recorder:   recorder,
 		workerID:   workerID,
 		leaseTTL:   leaseTTL,
+		artifacts:  artifactStore,
 	}, nil
 }
 
@@ -263,6 +271,23 @@ func (h *Handler) handle(ctx context.Context, queueJob jobqueue.Job, payload dis
 		if err := h.checks.CompleteStep(context.WithoutCancel(ctx), step.ID, result); err != nil {
 			return err
 		}
+		if h.artifacts != nil && (result.Truncated || len(result.Output) >= 64*1024) {
+			artifactKey := fmt.Sprintf("workflows/%s/checks/%s/%02d-%s.log", job.ID, run.ID, step.Sequence, sanitizeArtifactName(profile.Name))
+			artifactOutput := result.ArtifactOutput
+			if artifactOutput == "" {
+				artifactOutput = result.Output
+			}
+			if err := h.artifacts.Save(context.WithoutCancel(ctx), artifactKey, strings.NewReader(artifactOutput)); err != nil {
+				return fmt.Errorf("save check log artifact: %w", err)
+			}
+			if setter, ok := h.checks.(interface {
+				SetStepArtifact(context.Context, string, string) error
+			}); ok {
+				if err := setter.SetStepArtifact(context.WithoutCancel(ctx), step.ID, artifactKey); err != nil {
+					return fmt.Errorf("record check log artifact: %w", err)
+				}
+			}
+		}
 		h.record(ctx, job.ID, "checks.step_completed", map[string]any{
 			"check_run_id":     run.ID,
 			"profile":          profile.Name,
@@ -291,6 +316,22 @@ func (h *Handler) handle(ctx context.Context, queueJob jobqueue.Job, payload dis
 	}
 	released = true
 	return h.finishWorkflow(ctx, job, run, queueJob.ID)
+}
+
+func sanitizeArtifactName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "check"
+	}
+	var builder strings.Builder
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '-' || character == '_' {
+			builder.WriteRune(character)
+		} else {
+			builder.WriteByte('_')
+		}
+	}
+	return builder.String()
 }
 
 func decodeDispatch(raw string) (dispatchPayload, error) {

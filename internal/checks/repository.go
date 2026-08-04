@@ -54,6 +54,7 @@ type Step struct {
 	DurationMS      int64           `json:"duration_ms"`
 	OutputText      string          `json:"output_text"`
 	OutputTruncated bool            `json:"output_truncated"`
+	ArtifactKey     string          `json:"artifact_key,omitempty"`
 	ErrorMessage    string          `json:"error_message,omitempty"`
 	StartedAt       *time.Time      `json:"started_at,omitempty"`
 	CompletedAt     *time.Time      `json:"completed_at,omitempty"`
@@ -254,6 +255,13 @@ func (r *Repository) CompleteStep(ctx context.Context, stepID string, result Res
 	return requireChanged(update)
 }
 
+func (r *Repository) SetStepArtifact(ctx context.Context, stepID, artifactKey string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE check_steps SET artifact_key = ?, updated_at = ? WHERE id = ?
+	`, strings.TrimSpace(artifactKey), r.now().UTC().UnixMilli(), strings.TrimSpace(stepID))
+	return err
+}
+
 func (r *Repository) CancelStep(ctx context.Context, stepID string, message string) error {
 	now := r.now().UTC()
 	update, err := r.db.ExecContext(ctx, `
@@ -365,7 +373,7 @@ const runColumns = `
 
 const stepColumns = `
 	id, check_run_id, sequence, profile, command_json, status,
-	exit_code, duration_ms, output_text, output_truncated, error_message,
+	exit_code, duration_ms, output_text, output_truncated, artifact_key, error_message,
 	started_at, completed_at, created_at, updated_at
 `
 
@@ -400,14 +408,14 @@ func scanStep(row interface{ Scan(...any) error }) (Step, error) {
 	var item Step
 	var command string
 	var exit sql.NullInt64
-	var message sql.NullString
+	var message, artifactKey sql.NullString
 	var started, completed sql.NullInt64
 	var created, updated int64
 	var truncated int
 	if err := row.Scan(
 		&item.ID, &item.CheckRunID, &item.Sequence, &item.Profile, &command,
 		&item.Status, &exit, &item.DurationMS, &item.OutputText, &truncated,
-		&message, &started, &completed, &created, &updated,
+		&artifactKey, &message, &started, &completed, &created, &updated,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Step{}, ErrNotFound
@@ -420,6 +428,7 @@ func scanStep(row interface{ Scan(...any) error }) (Step, error) {
 		item.ExitCode = &value
 	}
 	item.OutputTruncated = truncated == 1
+	item.ArtifactKey = artifactKey.String
 	item.ErrorMessage = message.String
 	item.CreatedAt = time.UnixMilli(created).UTC()
 	item.UpdatedAt = time.UnixMilli(updated).UTC()

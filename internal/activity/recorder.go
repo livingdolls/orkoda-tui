@@ -42,10 +42,11 @@ func (r *Recorder) Record(ctx context.Context, jobID, eventType string, payload 
 
 	if r.publisher != nil {
 		r.publisher.Publish(eventbus.Event{
-			Sequence: event.Sequence,
-			JobID:    event.JobID,
-			Type:     event.Type,
-			Payload:  append(json.RawMessage(nil), event.PayloadJSON...),
+			Sequence:  event.Sequence,
+			JobID:     event.JobID,
+			Type:      event.Type,
+			Payload:   append(json.RawMessage(nil), event.PayloadJSON...),
+			CreatedAt: event.CreatedAt,
 		})
 	}
 	return nil

@@ -13,16 +13,19 @@ import (
 )
 
 type Result struct {
-	Passed       bool
-	ExitCode     int
-	Duration     time.Duration
-	Output       string
-	OutputLimit  int
-	Truncated    bool
-	Cancelled    bool
-	TimedOut     bool
-	ErrorMessage string
+	Passed         bool
+	ExitCode       int
+	Duration       time.Duration
+	Output         string
+	ArtifactOutput string
+	OutputLimit    int
+	Truncated      bool
+	Cancelled      bool
+	TimedOut       bool
+	ErrorMessage   string
 }
+
+const DefaultArtifactOutputLimit = 8 * 1024 * 1024
 
 type Runner interface {
 	Run(context.Context, string, Profile) Result
@@ -60,7 +63,7 @@ func (CommandRunner) Run(ctx context.Context, root string, profile Profile) Resu
 
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	buffer := &limitedBuffer{limit: limit}
+	buffer := &limitedBuffer{limit: limit, artifactLimit: DefaultArtifactOutputLimit}
 	command := exec.CommandContext(commandCtx, profile.Command[0], profile.Command[1:]...)
 	command.Dir = root
 	command.Stdout = buffer
@@ -70,7 +73,7 @@ func (CommandRunner) Run(ctx context.Context, root string, profile Profile) Resu
 
 	runErr := runProcess(commandCtx, command)
 	result := Result{
-		Passed: true, ExitCode: 0, Duration: time.Since(started), Output: buffer.String(),
+		Passed: true, ExitCode: 0, Duration: time.Since(started), Output: buffer.String(), ArtifactOutput: buffer.ArtifactString(),
 		OutputLimit: limit, Truncated: buffer.truncated,
 	}
 	if profile.RequireEmptyOutput && strings.TrimSpace(result.Output) != "" {
@@ -126,13 +129,23 @@ func constrainedEnvironment() []string {
 }
 
 type limitedBuffer struct {
-	buffer    bytes.Buffer
-	limit     int
-	truncated bool
+	buffer        bytes.Buffer
+	artifact      bytes.Buffer
+	limit         int
+	artifactLimit int
+	truncated     bool
 }
 
 func (b *limitedBuffer) Write(payload []byte) (int, error) {
 	original := len(payload)
+	artifactRemaining := b.artifactLimit - b.artifact.Len()
+	if artifactRemaining > 0 {
+		artifactPayload := payload
+		if len(artifactPayload) > artifactRemaining {
+			artifactPayload = artifactPayload[:artifactRemaining]
+		}
+		_, _ = b.artifact.Write(artifactPayload)
+	}
 	remaining := b.limit - b.buffer.Len()
 	if remaining <= 0 {
 		b.truncated = true
@@ -147,3 +160,5 @@ func (b *limitedBuffer) Write(payload []byte) (int, error) {
 }
 
 func (b *limitedBuffer) String() string { return b.buffer.String() }
+
+func (b *limitedBuffer) ArtifactString() string { return b.artifact.String() }

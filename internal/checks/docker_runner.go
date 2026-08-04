@@ -62,7 +62,7 @@ func (r DockerRunner) Run(ctx context.Context, root string, profile Profile) Res
 
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	buffer := &limitedBuffer{limit: limit}
+	buffer := &limitedBuffer{limit: limit, artifactLimit: DefaultArtifactOutputLimit}
 	command := exec.CommandContext(commandCtx, r.DockerBinary, dockerArgs(root, r.Image, profile.Command)...)
 	command.Dir = root
 	command.Stdout = buffer
@@ -75,7 +75,7 @@ func (r DockerRunner) Run(ctx context.Context, root string, profile Profile) Res
 	command.WaitDelay = 2 * time.Second
 	runErr := runProcess(commandCtx, command)
 	result := Result{
-		Passed: true, ExitCode: 0, Duration: time.Since(started), Output: buffer.String(),
+		Passed: true, ExitCode: 0, Duration: time.Since(started), Output: buffer.String(), ArtifactOutput: buffer.ArtifactString(),
 		OutputLimit: limit, Truncated: buffer.truncated,
 	}
 	if profile.RequireEmptyOutput && strings.TrimSpace(result.Output) != "" {

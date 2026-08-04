@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,9 +15,19 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/llm"
 )
 
+func newTestServer(handler http.Handler) *httptest.Server {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		panic(err)
+	}
+	server := &httptest.Server{Listener: listener, Config: &http.Server{Handler: handler}}
+	server.Start()
+	return server
+}
+
 func TestProviderCompletesStructuredRequest(t *testing.T) {
 	var received chatRequest
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := newTestServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/v1/chat/completions" {
 			t.Fatalf("unexpected path %s", request.URL.Path)
 		}
@@ -87,7 +98,7 @@ func TestProviderCompletesStructuredRequest(t *testing.T) {
 
 func TestProviderUsesDefaultModelAndJSONObjects(t *testing.T) {
 	var received chatRequest
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := newTestServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
 			t.Fatal(err)
 		}
@@ -121,7 +132,7 @@ func TestProviderUsesDefaultModelAndJSONObjects(t *testing.T) {
 }
 
 func TestProviderSupportsArrayContent(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	server := newTestServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		_, _ = writer.Write([]byte(`{"choices":[{"message":{"content":[{"type":"text","text":"first"},{"type":"output_text","text":" second"}]},"finish_reason":"stop"}]}`))
 	}))
 	defer server.Close()
@@ -151,7 +162,7 @@ func TestProviderNormalizesHTTPErrorsWithoutLeakingBodyOrSecret(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			server := newTestServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 				if test.retryAfter > 0 {
 					writer.Header().Set("Retry-After", "2")
 				}
@@ -186,7 +197,7 @@ func TestProviderRejectsInvalidResponses(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			server := newTestServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 				_, _ = writer.Write([]byte(test.body))
 			}))
 			defer server.Close()
@@ -201,7 +212,7 @@ func TestProviderRejectsInvalidResponses(t *testing.T) {
 }
 
 func TestProviderHonorsCancellationAndTimeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := newTestServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		select {
 		case <-request.Context().Done():
 		case <-time.After(250 * time.Millisecond):
@@ -235,7 +246,7 @@ func TestProviderHonorsCancellationAndTimeout(t *testing.T) {
 }
 
 func TestProviderLimitsResponseSize(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	server := newTestServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		_, _ = writer.Write([]byte(strings.Repeat("x", 65)))
 	}))
 	defer server.Close()
@@ -258,7 +269,7 @@ func TestProviderLimitsResponseSize(t *testing.T) {
 
 func TestProviderBlocksCrossOriginRedirect(t *testing.T) {
 	var targetRequests atomic.Int32
-	target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	target := newTestServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		targetRequests.Add(1)
 		if request.Header.Get("Authorization") != "" {
 			t.Errorf("authorization leaked to redirect target")
@@ -266,7 +277,7 @@ func TestProviderBlocksCrossOriginRedirect(t *testing.T) {
 		writer.WriteHeader(http.StatusNoContent)
 	}))
 	defer target.Close()
-	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	source := newTestServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Location", target.URL)
 		writer.WriteHeader(http.StatusTemporaryRedirect)
 	}))

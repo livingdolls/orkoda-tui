@@ -35,6 +35,12 @@ type Config struct {
 	StaleAfter    time.Duration
 	RetryBase     time.Duration
 	MaxRetryDelay time.Duration
+	Metrics       Metrics
+}
+
+type Metrics interface {
+	QueueRetry()
+	QueueDead()
 }
 
 type Scheduler struct {
@@ -212,8 +218,14 @@ func (s *Scheduler) process(ctx context.Context, job jobqueue.Job) error {
 	}
 	if status == "DEAD" {
 		eventType = "job.dead"
+		if s.config.Metrics != nil {
+			s.config.Metrics.QueueDead()
+		}
 	} else {
 		payload["retry_at"] = retryAt.Format(time.RFC3339Nano)
+		if s.config.Metrics != nil {
+			s.config.Metrics.QueueRetry()
+		}
 	}
 	if err := s.activities.Record(persistCtx, job.ID, eventType, payload, now); err != nil {
 		return fmt.Errorf("record failed job %s: %w", job.ID, err)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,7 +19,9 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/artifact"
 	"github.com/livingdolls/orkoda-tui/internal/checks"
 	"github.com/livingdolls/orkoda-tui/internal/config"
+	"github.com/livingdolls/orkoda-tui/internal/credentials"
 	"github.com/livingdolls/orkoda-tui/internal/database"
+	"github.com/livingdolls/orkoda-tui/internal/diagnostics"
 	"github.com/livingdolls/orkoda-tui/internal/eventbus"
 	"github.com/livingdolls/orkoda-tui/internal/execution"
 	"github.com/livingdolls/orkoda-tui/internal/gitrepo"
@@ -27,6 +30,7 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
 	"github.com/livingdolls/orkoda-tui/internal/llm"
 	"github.com/livingdolls/orkoda-tui/internal/llm/openaicompat"
+	"github.com/livingdolls/orkoda-tui/internal/observability"
 	"github.com/livingdolls/orkoda-tui/internal/planningagent"
 	"github.com/livingdolls/orkoda-tui/internal/planningcontext"
 	"github.com/livingdolls/orkoda-tui/internal/plans"
@@ -68,6 +72,7 @@ func run() error {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+	metrics := observability.New()
 
 	signalCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stopSignals()
@@ -92,9 +97,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	diagnosticsService, err := diagnostics.NewService(db, artifactStore)
+	if err != nil {
+		return err
+	}
 	logger.Info("sqlite ready", "path", cfg.DatabasePath)
 
 	activityRepository := activity.NewRepository(db)
+	idempotencyStore, err := httpapi.NewSQLIdempotencyStore(db)
+	if err != nil {
+		return err
+	}
 	liveEvents := eventbus.New()
 	defer liveEvents.Close()
 	activityRecorder, err := activity.NewRecorder(activityRepository, liveEvents)
@@ -241,6 +254,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if report, err := workspaceRepository.ReconcileOrphans(runtimeCtx); err != nil {
+		return err
+	} else if len(report.Orphaned) > 0 || len(report.Missing) > 0 {
+		logger.Warn("workspace filesystem reconciled", "orphaned", len(report.Orphaned), "missing", len(report.Missing))
+	}
 	executionRepository, err := execution.NewRepository(db)
 	if err != nil {
 		return err
@@ -324,6 +342,7 @@ func run() error {
 		activityRecorder,
 		workerID,
 		cfg.WorkspaceLeaseTTL,
+		artifactStore,
 	)
 	if err != nil {
 		return err
@@ -347,6 +366,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	credentialStore, err := credentials.NewOSStore("orkoda")
+	if err != nil {
+		return err
+	}
+	githubPublisher, err := publication.NewGitHubPublisher(credentialStore)
+	if err != nil {
+		return err
+	}
 	publicationHandler, err := publication.NewHandler(
 		workflowJobRepository,
 		workspaceRepository,
@@ -366,9 +393,11 @@ func run() error {
 		"lease_ttl", cfg.WorkspaceLeaseTTL,
 	)
 
+	schedulerConfig := scheduler.DefaultConfig(workerID)
+	schedulerConfig.Metrics = metrics
 	queueScheduler, err := scheduler.New(
 		queue,
-		scheduler.DefaultConfig(workerID),
+		schedulerConfig,
 		map[string]scheduler.Handler{
 			"system.noop": func(_ context.Context, job jobqueue.Job) error {
 				logger.Info("noop job handled", "job_id", job.ID)
@@ -395,6 +424,7 @@ func run() error {
 			projectRepository,
 			httpapi.RouterServices{
 				Plans:               planRepository,
+				Repositories:        projectRepository,
 				RepositorySummaries: summaryRepository,
 				PlanningContexts:    planningContextRepository,
 				PlanningAgent:       planningAgentService,
@@ -410,6 +440,13 @@ func run() error {
 				DefaultLLMProvider:  defaultProvider,
 				DefaultLLMModel:     defaultModel,
 				APIToken:            cfg.APIToken,
+				LiveEvents:          liveEvents,
+				Idempotency:         idempotencyStore,
+				Publications:        publicationRepository,
+				RemotePublisher:     githubPublisher,
+				Diagnostics:         diagnosticsService,
+				Metrics:             metrics,
+				Artifacts:           artifactStore,
 			},
 		),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -418,11 +455,20 @@ func run() error {
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    64 * 1024,
 	}
+	unixListener, err := openUnixListener(cfg.APISocketPath())
+	if err != nil {
+		return err
+	}
+	defer os.Remove(cfg.APISocketPath())
 
-	results := make(chan componentResult, 2)
+	results := make(chan componentResult, 3)
 	go func() {
 		logger.Info("daemon listening", "address", cfg.APIAddress(), "environment", cfg.Environment)
 		results <- componentResult{name: "http", err: server.ListenAndServe()}
+	}()
+	go func() {
+		logger.Info("daemon listening", "unix_socket", cfg.APISocketPath())
+		results <- componentResult{name: "unix", err: server.Serve(unixListener)}
 	}()
 	go func() {
 		logger.Info("queue scheduler started")
@@ -447,7 +493,7 @@ func run() error {
 		runErr = fmt.Errorf("shutdown HTTP server: %w", err)
 	}
 
-	for completed < 2 {
+	for completed < 3 {
 		select {
 		case result := <-results:
 			completed++
@@ -470,8 +516,38 @@ func componentError(result componentResult) error {
 	if result.err == nil {
 		return nil
 	}
-	if result.name == "http" && errors.Is(result.err, http.ErrServerClosed) {
+	if (result.name == "http" || result.name == "unix") && errors.Is(result.err, http.ErrServerClosed) {
 		return nil
 	}
 	return fmt.Errorf("%s component stopped: %w", result.name, result.err)
+}
+
+func openUnixListener(path string) (net.Listener, error) {
+	path = filepath.Clean(path)
+	if path == "." || path == string(filepath.Separator) {
+		return nil, fmt.Errorf("Unix socket path is required")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create Unix socket directory: %w", err)
+	}
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSocket == 0 {
+			return nil, fmt.Errorf("refusing to replace non-socket Unix path %s", path)
+		}
+		if err := os.Remove(path); err != nil {
+			return nil, fmt.Errorf("remove stale Unix socket: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("inspect Unix socket: %w", err)
+	}
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		return nil, fmt.Errorf("listen on Unix socket: %w", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		_ = listener.Close()
+		_ = os.Remove(path)
+		return nil, fmt.Errorf("restrict Unix socket permissions: %w", err)
+	}
+	return listener, nil
 }

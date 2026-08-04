@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -23,16 +24,27 @@ type Inspector interface {
 	Inspect(context.Context, string) (gitrepo.Snapshot, error)
 }
 
+type BranchInspector interface {
+	ListBranches(context.Context, string) ([]gitrepo.Branch, error)
+}
+
+type SubmoduleInspector interface {
+	ListSubmodules(context.Context, string) ([]gitrepo.Submodule, error)
+}
+
 type RepositoryInfo struct {
-	ID            string    `json:"id"`
-	ProjectID     string    `json:"project_id"`
-	LocalPath     string    `json:"local_path"`
-	CurrentBranch string    `json:"current_branch"`
-	HeadSHA       string    `json:"head_sha"`
-	RemoteURL     string    `json:"remote_url,omitempty"`
-	Dirty         bool      `json:"dirty"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            string              `json:"id"`
+	ProjectID     string              `json:"project_id"`
+	LocalPath     string              `json:"local_path"`
+	CurrentBranch string              `json:"current_branch"`
+	HeadSHA       string              `json:"head_sha"`
+	RemoteURL     string              `json:"remote_url,omitempty"`
+	Dirty         bool                `json:"dirty"`
+	TrustLevel    string              `json:"trust_level"`
+	IgnorePolicy  json.RawMessage     `json:"ignore_policy"`
+	Submodules    []gitrepo.Submodule `json:"submodules"`
+	CreatedAt     time.Time           `json:"created_at"`
+	UpdatedAt     time.Time           `json:"updated_at"`
 }
 
 type Project struct {
@@ -87,8 +99,24 @@ func (r *Repository) Create(ctx context.Context, name, repositoryPath string) (P
 		HeadSHA:       snapshot.HeadSHA,
 		RemoteURL:     snapshot.RemoteURL,
 		Dirty:         snapshot.Dirty,
+		TrustLevel:    "UNTRUSTED",
+		IgnorePolicy:  json.RawMessage(`{}`),
+		Submodules:    []gitrepo.Submodule{},
 		CreatedAt:     now,
 		UpdatedAt:     now,
+	}
+	submodulesJSON := `[]`
+	if submoduleInspector, ok := r.inspector.(SubmoduleInspector); ok {
+		submodules, submoduleErr := submoduleInspector.ListSubmodules(ctx, snapshot.RootPath)
+		if submoduleErr != nil {
+			return Project{}, fmt.Errorf("%w: inspect submodules: %v", ErrInvalidProject, submoduleErr)
+		}
+		repository.Submodules = submodules
+		payload, marshalErr := json.Marshal(submodules)
+		if marshalErr != nil {
+			return Project{}, fmt.Errorf("marshal submodules: %w", marshalErr)
+		}
+		submodulesJSON = string(payload)
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -106,11 +134,11 @@ func (r *Repository) Create(ctx context.Context, name, repositoryPath string) (P
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO repositories (
 			id, project_id, local_path, current_branch, head_sha,
-			remote_url, dirty, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			remote_url, dirty, trust_level, ignore_policy_json, submodules_json, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, repository.ID, repository.ProjectID, repository.LocalPath,
 		repository.CurrentBranch, repository.HeadSHA, repository.RemoteURL,
-		boolToInteger(repository.Dirty), now.UnixMilli(), now.UnixMilli()); err != nil {
+		boolToInteger(repository.Dirty), repository.TrustLevel, string(repository.IgnorePolicy), submodulesJSON, now.UnixMilli(), now.UnixMilli()); err != nil {
 		return Project{}, fmt.Errorf("insert repository: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -189,13 +217,25 @@ func (r *Repository) Refresh(ctx context.Context, projectID string) (Project, er
 	defer tx.Rollback()
 
 	for _, repository := range refreshed {
+		submodulesJSON := `[]`
+		if inspector, ok := r.inspector.(SubmoduleInspector); ok {
+			submodules, submoduleErr := inspector.ListSubmodules(ctx, repository.snapshot.RootPath)
+			if submoduleErr != nil {
+				return Project{}, fmt.Errorf("%w: refresh submodules %s: %v", ErrInvalidProject, repository.id, submoduleErr)
+			}
+			payload, marshalErr := json.Marshal(submodules)
+			if marshalErr != nil {
+				return Project{}, fmt.Errorf("marshal submodules %s: %w", repository.id, marshalErr)
+			}
+			submodulesJSON = string(payload)
+		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE repositories
-			SET local_path = ?, current_branch = ?, head_sha = ?, remote_url = ?, dirty = ?, updated_at = ?
+			SET local_path = ?, current_branch = ?, head_sha = ?, remote_url = ?, dirty = ?, submodules_json = ?, updated_at = ?
 			WHERE id = ? AND project_id = ?
 		`, repository.snapshot.RootPath, repository.snapshot.CurrentBranch,
 			repository.snapshot.HeadSHA, repository.snapshot.RemoteURL,
-			boolToInteger(repository.snapshot.Dirty), now.UnixMilli(), repository.id, projectID); err != nil {
+			boolToInteger(repository.snapshot.Dirty), submodulesJSON, now.UnixMilli(), repository.id, projectID); err != nil {
 			return Project{}, fmt.Errorf("refresh repository %s: %w", repository.id, err)
 		}
 	}
@@ -206,6 +246,72 @@ func (r *Repository) Refresh(ctx context.Context, projectID string) (Project, er
 		return Project{}, fmt.Errorf("commit repository refresh: %w", err)
 	}
 	return r.Get(ctx, projectID)
+}
+
+func (r *Repository) GetRepository(ctx context.Context, repositoryID string) (RepositoryInfo, error) {
+	var item RepositoryInfo
+	var dirty int
+	var ignorePolicy, submodules string
+	var createdAt, updatedAt int64
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, project_id, local_path, current_branch, head_sha, remote_url,
+			dirty, trust_level, ignore_policy_json, submodules_json, created_at, updated_at
+		FROM repositories WHERE id = ?
+	`, strings.TrimSpace(repositoryID)).Scan(
+		&item.ID, &item.ProjectID, &item.LocalPath, &item.CurrentBranch, &item.HeadSHA,
+		&item.RemoteURL, &dirty, &item.TrustLevel, &ignorePolicy, &submodules, &createdAt, &updatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return RepositoryInfo{}, ErrNotFound
+	}
+	if err != nil {
+		return RepositoryInfo{}, fmt.Errorf("read repository: %w", err)
+	}
+	item.Dirty = dirty == 1
+	item.IgnorePolicy = json.RawMessage(ignorePolicy)
+	if err := json.Unmarshal([]byte(submodules), &item.Submodules); err != nil {
+		return RepositoryInfo{}, fmt.Errorf("decode repository submodules: %w", err)
+	}
+	if item.Submodules == nil {
+		item.Submodules = []gitrepo.Submodule{}
+	}
+	item.CreatedAt = time.UnixMilli(createdAt).UTC()
+	item.UpdatedAt = time.UnixMilli(updatedAt).UTC()
+	return item, nil
+}
+
+func (r *Repository) ListBranches(ctx context.Context, repositoryID string) ([]gitrepo.Branch, error) {
+	item, err := r.GetRepository(ctx, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	inspector, ok := r.inspector.(BranchInspector)
+	if !ok {
+		return nil, fmt.Errorf("Git branch inspection is unavailable")
+	}
+	return inspector.ListBranches(ctx, item.LocalPath)
+}
+
+func (r *Repository) Trust(ctx context.Context, repositoryID, level string, ignorePolicy map[string]any) (RepositoryInfo, error) {
+	level = strings.ToUpper(strings.TrimSpace(level))
+	if level != "UNTRUSTED" && level != "RESTRICTED" && level != "TRUSTED" {
+		return RepositoryInfo{}, fmt.Errorf("%w: trust level must be UNTRUSTED, RESTRICTED, or TRUSTED", ErrInvalidProject)
+	}
+	if ignorePolicy == nil {
+		ignorePolicy = map[string]any{}
+	}
+	policyJSON, err := json.Marshal(ignorePolicy)
+	if err != nil {
+		return RepositoryInfo{}, fmt.Errorf("marshal ignore policy: %w", err)
+	}
+	result, err := r.db.ExecContext(ctx, `UPDATE repositories SET trust_level = ?, ignore_policy_json = ?, updated_at = ? WHERE id = ?`, level, string(policyJSON), time.Now().UTC().UnixMilli(), strings.TrimSpace(repositoryID))
+	if err != nil {
+		return RepositoryInfo{}, fmt.Errorf("update repository trust: %w", err)
+	}
+	if err := requireAffectedProject(result); err != nil {
+		return RepositoryInfo{}, err
+	}
+	return r.GetRepository(ctx, repositoryID)
 }
 
 func (r *Repository) ensureRepositoryAvailable(ctx context.Context, localPath string) error {
@@ -225,7 +331,7 @@ func (r *Repository) queryProjects(ctx context.Context, clause string, arguments
 		SELECT
 			p.id, p.name, p.created_at, p.updated_at,
 			r.id, r.project_id, r.local_path, r.current_branch, r.head_sha,
-			r.remote_url, r.dirty, r.created_at, r.updated_at
+			r.remote_url, r.dirty, r.trust_level, r.ignore_policy_json, r.submodules_json, r.created_at, r.updated_at
 		FROM projects p
 		LEFT JOIN repositories r ON r.project_id = p.id
 	` + clause + `
@@ -243,13 +349,13 @@ func (r *Repository) queryProjects(ctx context.Context, clause string, arguments
 		var projectID, name string
 		var projectCreatedAt, projectUpdatedAt int64
 		var repositoryID, repositoryProjectID, localPath sql.NullString
-		var currentBranch, headSHA, remoteURL sql.NullString
+		var currentBranch, headSHA, remoteURL, trustLevel, ignorePolicy, submodules sql.NullString
 		var dirty, repositoryCreatedAt, repositoryUpdatedAt sql.NullInt64
 
 		if err := rows.Scan(
 			&projectID, &name, &projectCreatedAt, &projectUpdatedAt,
 			&repositoryID, &repositoryProjectID, &localPath, &currentBranch, &headSHA,
-			&remoteURL, &dirty, &repositoryCreatedAt, &repositoryUpdatedAt,
+			&remoteURL, &dirty, &trustLevel, &ignorePolicy, &submodules, &repositoryCreatedAt, &repositoryUpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan project: %w", err)
 		}
@@ -267,7 +373,7 @@ func (r *Repository) queryProjects(ctx context.Context, clause string, arguments
 			})
 		}
 		if repositoryID.Valid {
-			projects[index].Repositories = append(projects[index].Repositories, RepositoryInfo{
+			item := RepositoryInfo{
 				ID:            repositoryID.String,
 				ProjectID:     repositoryProjectID.String,
 				LocalPath:     localPath.String,
@@ -275,9 +381,26 @@ func (r *Repository) queryProjects(ctx context.Context, clause string, arguments
 				HeadSHA:       headSHA.String,
 				RemoteURL:     remoteURL.String,
 				Dirty:         dirty.Int64 == 1,
+				TrustLevel:    trustLevel.String,
+				IgnorePolicy:  json.RawMessage(ignorePolicy.String),
 				CreatedAt:     time.UnixMilli(repositoryCreatedAt.Int64).UTC(),
 				UpdatedAt:     time.UnixMilli(repositoryUpdatedAt.Int64).UTC(),
-			})
+			}
+			if item.TrustLevel == "" {
+				item.TrustLevel = "UNTRUSTED"
+			}
+			if len(item.IgnorePolicy) == 0 {
+				item.IgnorePolicy = json.RawMessage(`{}`)
+			}
+			if submodules.Valid && strings.TrimSpace(submodules.String) != "" {
+				if err := json.Unmarshal([]byte(submodules.String), &item.Submodules); err != nil {
+					return nil, fmt.Errorf("decode project submodules: %w", err)
+				}
+			}
+			if item.Submodules == nil {
+				item.Submodules = []gitrepo.Submodule{}
+			}
+			projects[index].Repositories = append(projects[index].Repositories, item)
 		}
 	}
 	if err := rows.Err(); err != nil {

@@ -157,6 +157,11 @@ Diagnostics screen menampilkan:
 
 User dapat mengekspor debug bundle yang sudah di-redact berisi config non-secret, version, logs terbatas, event timeline, dan health response.
 
+Daemon menyediakan `GET /api/v1/metrics` untuk counter process-local (request,
+error, latency total, active stream, reconnect, retry/dead queue, dan policy
+denial), `GET /api/v1/diagnostics` untuk health SQLite/queue/workspace, serta
+`POST /api/v1/diagnostics/bundle` untuk menyimpan snapshot JSON sebagai artifact.
+
 ## 8. Correlation IDs
 
 - TUI membuat `client_request_id`.

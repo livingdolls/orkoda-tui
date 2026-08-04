@@ -51,3 +51,56 @@ func TestOpenAndMigrate(t *testing.T) {
 		t.Fatalf("migration count = %d", migrationCount)
 	}
 }
+
+func TestRestoreRecoversDatabaseAtomically(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	databasePath := filepath.Join(root, "orkoda.db")
+	db, err := Open(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO projects(id, name, created_at, updated_at) VALUES ('restore-project', 'before backup', 1, 1)`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Backup(ctx, databasePath); err != nil {
+		t.Fatal(err)
+	}
+	db, err = Open(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE projects SET name = 'mutated' WHERE id = 'restore-project'`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Restore(ctx, databasePath, databasePath+".bak"); err != nil {
+		t.Fatal(err)
+	}
+	db, err = Open(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var name string
+	if err := db.QueryRowContext(ctx, `SELECT name FROM projects WHERE id = 'restore-project'`).Scan(&name); err != nil {
+		t.Fatal(err)
+	}
+	if name != "before backup" {
+		t.Fatalf("restored name = %q, want backup value", name)
+	}
+	if err := CheckIntegrity(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+}

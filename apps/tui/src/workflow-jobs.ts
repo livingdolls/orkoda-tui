@@ -71,6 +71,12 @@ export type Workspace = {
   updated_at: string
 }
 
+export type WorkspaceLease = {
+  workspace: Workspace
+  session_token: string
+  expires_at?: string
+}
+
 export type WorkflowTransition = {
   sequence: number
   workflow_job_id: string
@@ -164,6 +170,39 @@ export function getWorkflowWorkspace(
   fetcher: WorkflowFetch = fetch,
 ): Promise<Workspace> {
   return request<Workspace>(`/api/v1/jobs/${jobID}/workspace`, { method: "GET" }, fetcher)
+}
+
+export function takeOverWorkspace(
+  jobID: string,
+  clientID?: string,
+  fetcher: WorkflowFetch = fetch,
+): Promise<WorkspaceLease> {
+  return request<WorkspaceLease>(
+    `/api/v1/jobs/${jobID}/workspace/take-over`,
+    {
+      method: "POST",
+      headers: clientID ? { "x-client-id": clientID } : undefined,
+      body: JSON.stringify({}),
+    },
+    fetcher,
+  )
+}
+
+export function releaseWorkspace(
+  workspaceID: string,
+  sessionToken: string,
+  headSHA: string,
+  dirty: boolean,
+  fetcher: WorkflowFetch = fetch,
+): Promise<Workspace> {
+  return request<Workspace>(
+    `/api/v1/workspaces/${workspaceID}/release`,
+    {
+      method: "POST",
+      body: JSON.stringify({ session_token: sessionToken, head_sha: headSHA, dirty }),
+    },
+    fetcher,
+  )
 }
 
 export function listWorkflowTransitions(

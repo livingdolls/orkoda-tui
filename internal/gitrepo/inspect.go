@@ -18,6 +18,18 @@ type Snapshot struct {
 	Dirty         bool   `json:"dirty"`
 }
 
+type Branch struct {
+	Name    string `json:"name"`
+	HeadSHA string `json:"head_sha"`
+	Current bool   `json:"current"`
+}
+
+type Submodule struct {
+	Path   string `json:"path"`
+	Commit string `json:"commit"`
+	URL    string `json:"url,omitempty"`
+}
+
 type commandRunner interface {
 	Run(context.Context, string, ...string) (string, error)
 }
@@ -124,4 +136,70 @@ func (i *Inspector) Inspect(ctx context.Context, path string) (Snapshot, error) 
 		RemoteURL:     remoteURL,
 		Dirty:         status != "",
 	}, nil
+}
+
+func (i *Inspector) ListBranches(ctx context.Context, path string) ([]Branch, error) {
+	root, err := i.repositoryRoot(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	current, err := i.runner.Run(ctx, root, "branch", "--show-current")
+	if err != nil {
+		return nil, fmt.Errorf("read current Git branch: %w", err)
+	}
+	output, err := i.runner.Run(ctx, root, "for-each-ref", "--format=%(refname:short)\t%(objectname)", "refs/heads")
+	if err != nil {
+		return nil, fmt.Errorf("list Git branches: %w", err)
+	}
+	branches := make([]Branch, 0)
+	for _, line := range strings.Split(output, "\n") {
+		parts := strings.SplitN(strings.TrimSpace(line), "\t", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			continue
+		}
+		branches = append(branches, Branch{Name: parts[0], HeadSHA: parts[1], Current: parts[0] == strings.TrimSpace(current)})
+	}
+	return branches, nil
+}
+
+func (i *Inspector) ListSubmodules(ctx context.Context, path string) ([]Submodule, error) {
+	root, err := i.repositoryRoot(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	output, err := i.runner.Run(ctx, root, "submodule", "status", "--recursive")
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no submodule") {
+			return []Submodule{}, nil
+		}
+		return nil, fmt.Errorf("read Git submodules: %w", err)
+	}
+	items := make([]Submodule, 0)
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if len(line) < 42 {
+			continue
+		}
+		commit := strings.TrimSpace(strings.TrimLeft(line[:41], "-+"))
+		rest := strings.TrimSpace(line[41:])
+		pathValue := rest
+		if index := strings.IndexAny(pathValue, " ("); index >= 0 {
+			pathValue = pathValue[:index]
+		}
+		if pathValue != "" {
+			items = append(items, Submodule{Path: pathValue, Commit: commit})
+		}
+	}
+	return items, nil
+}
+
+func (i *Inspector) repositoryRoot(ctx context.Context, path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("repository path is required")
+	}
+	root, err := i.runner.Run(ctx, path, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", fmt.Errorf("path is not a Git repository: %w", err)
+	}
+	return filepath.Clean(root), nil
 }
