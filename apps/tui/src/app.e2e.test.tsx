@@ -11,20 +11,9 @@ import { act } from "react"
 const runTuiE2E = process.env.ORKODA_TUI_E2E === "1" ? test : test.skip
 const repoRoot = resolve(import.meta.dir, "../../..")
 
-type ApiEnvelope<T> = {
-  data: T
-}
-
-type Project = {
-  id: string
-  repositories: Array<{ id: string }>
-}
-
-type Plan = {
-  id: string
-  status: string
-}
-
+type ApiEnvelope<T> = { data: T }
+type Project = { id: string; repositories: Array<{ id: string }> }
+type Plan = { id: string; status: string }
 type WorkflowJob = {
   id: string
   status: string
@@ -33,17 +22,10 @@ type WorkflowJob = {
   failure_message?: string
 }
 
-type PlanningRunSummary = {
-  id: string
-  status: string
-}
-
 function environment(overrides: Record<string, string> = {}): Record<string, string> {
   const result: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) {
-      result[key] = value
-    }
+    if (value !== undefined) result[key] = value
   }
   Object.assign(result, overrides)
   return result
@@ -87,9 +69,7 @@ async function api<T>(
   if (!response.ok) {
     throw new Error(`${method} ${path} returned HTTP ${response.status}: ${payload}`)
   }
-  if (!payload) {
-    return undefined as T
-  }
+  if (!payload) return undefined as T
   return (JSON.parse(payload) as ApiEnvelope<T>).data
 }
 
@@ -114,9 +94,7 @@ async function waitForHealth(baseURL: string): Promise<void> {
   while (Date.now() < deadline) {
     try {
       const response = await fetch(`${baseURL}/health/live`)
-      if (response.ok) {
-        return
-      }
+      if (response.ok) return
     } catch {
       // The daemon is still starting.
     }
@@ -130,12 +108,8 @@ async function waitForJob(baseURL: string, token: string, jobID: string, wanted:
   let lastStatus = ""
   while (Date.now() < deadline) {
     const job = await api<WorkflowJob>(baseURL, token, `/api/v1/jobs/${jobID}`)
-    if (job.status !== lastStatus) {
-      lastStatus = job.status
-    }
-    if (job.status === wanted) {
-      return job
-    }
+    lastStatus = job.status
+    if (job.status === wanted) return job
     if (["FAILED", "CANCELLED", "REJECTED"].includes(job.status)) {
       throw new Error(
         `workflow reached ${job.status} (${job.failure_code ?? "no-code"}): ${job.failure_message ?? "no message"}`,
@@ -144,32 +118,6 @@ async function waitForJob(baseURL: string, token: string, jobID: string, wanted:
     await Bun.sleep(150)
   }
   throw new Error(`workflow ${jobID} did not reach ${wanted} (last status ${lastStatus})`)
-}
-
-async function waitForPlanningRerun(
-  baseURL: string,
-  token: string,
-  planID: string,
-  previousRunID: string,
-): Promise<PlanningRunSummary> {
-  const deadline = Date.now() + 15_000
-  while (Date.now() < deadline) {
-    const run = await api<PlanningRunSummary>(
-      baseURL,
-      token,
-      `/api/v1/plans/${planID}/planning-runs/current`,
-    )
-    if (run.id !== previousRunID) {
-      if (run.status === "COMPLETED") {
-        return run
-      }
-      if (["FAILED", "CANCELLED"].includes(run.status)) {
-        throw new Error(`planning rerun reached unexpected status ${run.status}`)
-      }
-    }
-    await Bun.sleep(100)
-  }
-  throw new Error(`planning rerun did not replace ${previousRunID}`)
 }
 
 async function waitForTUIFrame(
@@ -181,9 +129,7 @@ async function waitForTUIFrame(
   let frame = setup.captureCharFrame()
   while (Date.now() < deadline) {
     frame = setup.captureCharFrame()
-    if (predicate(frame)) {
-      return frame
-    }
+    if (predicate(frame)) return frame
     await act(async () => {
       await setup.renderOnce()
       await Bun.sleep(50)
@@ -193,9 +139,9 @@ async function waitForTUIFrame(
 }
 
 runTuiE2E(
-  "renders the real daemon workflow and applies approval from the TUI",
+  "reviews and approves a real daemon workflow from the unified kanban board",
   async () => {
-    const testRoot = await mkdtemp(join(tmpdir(), "orkoda-tui-e2e-"))
+    const testRoot = await mkdtemp(join(tmpdir(), "orkoda-board-e2e-"))
     const repositoryRoot = join(testRoot, "repository")
     const stateRoot = join(testRoot, "state")
     const apiBinary = join(stateRoot, "orkoda-api")
@@ -207,19 +153,19 @@ runTuiE2E(
       await mkdir(stateRoot, { recursive: true, mode: 0o700 })
       await Bun.write(
         join(repositoryRoot, "go.mod"),
-        "module example.com/orkoda-tui-e2e\n\ngo 1.26\n",
+        "module example.com/orkoda-board-e2e\n\ngo 1.26\n",
       )
       await Bun.write(join(repositoryRoot, "main.go"), "package main\n\nfunc main() {}\n")
       runCommand(["git", "-C", repositoryRoot, "init"], repoRoot)
       runCommand(["git", "-C", repositoryRoot, "checkout", "-b", "main"], repoRoot)
-      runCommand(["git", "-C", repositoryRoot, "config", "user.name", "Orkoda TUI E2E"], repoRoot)
+      runCommand(["git", "-C", repositoryRoot, "config", "user.name", "Orkoda Board E2E"], repoRoot)
       runCommand(
-        ["git", "-C", repositoryRoot, "config", "user.email", "tui-e2e@localhost"],
+        ["git", "-C", repositoryRoot, "config", "user.email", "board-e2e@localhost"],
         repoRoot,
       )
       runCommand(["git", "-C", repositoryRoot, "add", "--all"], repoRoot)
       runCommand(
-        ["git", "-C", repositoryRoot, "commit", "--no-gpg-sign", "-m", "Initial TUI E2E fixture"],
+        ["git", "-C", repositoryRoot, "commit", "--no-gpg-sign", "-m", "Initial board fixture"],
         repoRoot,
       )
 
@@ -263,17 +209,17 @@ runTuiE2E(
       await waitForHealth(baseURL)
 
       const project = await api<Project>(baseURL, token, "/api/v1/projects", "POST", {
-        name: "E2E TUI project",
+        name: "E2E board project",
         repository_path: repositoryRoot,
       })
       const plan = await api<Plan>(baseURL, token, `/api/v1/projects/${project.id}/plans`, "POST", {
-        title: "TUI approval flow",
-        requirement: "Exercise the human approval flow through the terminal UI.",
-        acceptance_criteria: ["Approval from the TUI is persisted by the daemon."],
+        title: "Kanban approval flow",
+        requirement: "Exercise approval from the unified board.",
+        acceptance_criteria: ["Approval from the Board is persisted by the daemon."],
         constraints: [],
       })
       await api<Plan>(baseURL, token, `/api/v1/plans/${plan.id}`, "PATCH", {
-        title: "TUI approval flow",
+        title: "Kanban approval flow",
         status: "READY",
       })
       const job = await api<WorkflowJob>(
@@ -289,160 +235,70 @@ runTuiE2E(
       )
       await api<WorkflowJob>(baseURL, token, `/api/v1/jobs/${job.id}/start`, "POST", {
         expected_version: job.version,
-        details: { source: "tui-e2e" },
+        details: { source: "board-e2e" },
       })
       await waitForJob(baseURL, token, job.id, "WAITING_FOR_APPROVAL")
 
-      // App imports daemonBaseURL at module evaluation time, so set the TUI
-      // environment before the dynamic import. This test runs in its own Bun
-      // process when enabled.
       process.env.ORKODA_DAEMON_URL = baseURL
       delete process.env.ORKODA_API_TOKEN
       delete process.env.ORKODA_API_TOKEN_FILE
       process.env.ORKODA_DATA_DIR = relative(repoRoot, stateRoot)
       const { App } = await import("./app")
       const setup = await testRender(<App />, {
-        width: 120,
-        height: 50,
+        width: 160,
+        height: 52,
         exitOnCtrlC: false,
         screenMode: "main-screen",
         consoleMode: "disabled",
       })
 
       try {
-        const projectFrame = await waitForTUIFrame(
-          setup,
-          (frame) => frame.includes("connected") && frame.includes("E2E TUI project"),
-        )
-        expect(projectFrame).toContain("Projects")
-
-        await waitForTUIFrame(setup, (frame) => frame.includes("TUI approval flow"))
-        await act(async () => {
-          await setup.mockInput.pressKey("a")
-        })
-        const planningPrerequisiteFrame = await waitForTUIFrame(setup, (frame) =>
-          frame.includes("Scan the current repository HEAD"),
-        )
-        expect(planningPrerequisiteFrame).toContain("Press S")
-
-        await act(async () => {
-          await setup.mockInput.pressKey("?")
-        })
-        const helpFrame = await waitForTUIFrame(
-          setup,
-          (frame) => frame.includes("Everything you can do from here") && frame.includes("GLOBAL"),
-        )
-        expect(helpFrame).toContain("Ctrl+C")
-
-        await act(async () => {
-          setup.mockInput.pressEscape()
-        })
-        await waitForTUIFrame(setup, (frame) => !frame.includes("Everything you can do from here"))
-
-        await act(async () => {
-          await setup.mockInput.pressKey("s")
-        })
-        const scannedProjectFrame = await waitForTUIFrame(setup, (frame) =>
-          frame.includes("Repository summary ready"),
-        )
-        expect(scannedProjectFrame).toContain("Repository summary ready")
-
-        await act(async () => {
-          await setup.mockInput.pressKey("o")
-        })
-        const normalizedProjectFrame = await waitForTUIFrame(setup, (frame) =>
-          frame.includes("Planning context created"),
-        )
-        expect(normalizedProjectFrame).toContain("NORMALIZED CONTEXT")
-
-        await act(async () => {
-          await setup.mockInput.pressKey("a")
-        })
-        const planningRunFrame = await waitForTUIFrame(
-          setup,
-          (frame) => frame.includes("PLANNING AGENT") && frame.includes("NEEDS_INPUT"),
-        )
-        expect(planningRunFrame).toContain("1 open question(s)")
-
-        await act(async () => {
-          await setup.mockInput.pressKey("q")
-        })
-        const questionFrame = await waitForTUIFrame(
-          setup,
-          (frame) => frame.includes("PLANNING INPUT") && frame.includes("Ctrl+S"),
-        )
-        expect(questionFrame).toContain("Question 1")
-
-        await act(async () => {
-          await setup.mockInput.typeText("No additional compatibility constraints.")
-        })
-        const answeredFrame = await waitForTUIFrame(setup, (frame) =>
-          frame.includes("No additional compatibility constraints."),
-        )
-        expect(answeredFrame).toContain("submit all")
-
-        await act(async () => {
-          await setup.mockInput.pressKey("s", { ctrl: true })
-        })
-        const completedPlanningFrame = await waitForTUIFrame(
-          setup,
-          (frame) => frame.includes("PLANNING AGENT") && frame.includes("COMPLETED"),
-        )
-        expect(completedPlanningFrame).toContain("COMPLETED")
-
-        const completedRun = await api<PlanningRunSummary>(
-          baseURL,
-          token,
-          `/api/v1/plans/${plan.id}/planning-runs/current`,
-        )
-        await act(async () => {
-          await setup.mockInput.pressKey("a")
-        })
-        const rerun = await waitForPlanningRerun(baseURL, token, plan.id, completedRun.id)
-        expect(rerun.status).toBe("COMPLETED")
-
-        await act(async () => {
-          await setup.mockInput.pressKey("3")
-        })
-        const jobsFrame = await waitForTUIFrame(
+        const boardFrame = await waitForTUIFrame(
           setup,
           (frame) =>
-            frame.includes("Versioned workflow jobs") &&
-            frame.includes("E2E TUI project") &&
-            frame.includes("WAITING_FOR_APPROVAL"),
+            frame.includes("Board") &&
+            frame.includes("Needs You") &&
+            frame.includes("Kanban approval flow") &&
+            frame.includes("Ready for your review"),
         )
-        expect(jobsFrame).toContain("Checks v1 PASSED")
-        expect(jobsFrame).toContain("Review v1 COMPLETED")
+        expect(boardFrame).toContain("E2E board project")
+
+        await act(async () => {
+          await setup.mockInput.pressKey("enter")
+        })
+        const detailFrame = await waitForTUIFrame(
+          setup,
+          (frame) =>
+            frame.includes("Kanban approval flow") &&
+            frame.includes("Automated checks") &&
+            frame.includes("AI review") &&
+            frame.includes("Changed files and diff"),
+        )
+        expect(detailFrame).toContain("Ready for your review")
 
         await act(async () => {
           await setup.mockInput.pressKey("a")
         })
         const decisionFrame = await waitForTUIFrame(
           setup,
-          (frame) =>
-            frame.includes("Human decision: APPROVE") &&
-            frame.includes("Verify immutable approval") &&
-            frame.includes("fingerprint"),
+          (frame) => frame.includes("Approve this result") && frame.includes("Verify the snapshot"),
         )
         expect(decisionFrame).toContain("Approval note")
         expect(setup.renderer.currentFocusedEditor?.focused).toBe(true)
 
         await act(async () => {
-          await setup.mockInput.typeText("Approved from TUI")
+          await setup.mockInput.typeText("Approved from unified Board")
         })
-        const typedDecisionFrame = await waitForTUIFrame(setup, (frame) =>
-          frame.includes("Approved from TUI"),
-        )
-        expect(typedDecisionFrame).toContain("Approved from TUI")
+        await waitForTUIFrame(setup, (frame) => frame.includes("Approved from unified Board"))
 
         await act(async () => {
           await setup.mockInput.pressKey("s", { ctrl: true })
         })
         const approvedFrame = await waitForTUIFrame(
           setup,
-          (frame) => frame.includes("APPROVE applied") && frame.includes("APPROVED"),
+          (frame) => frame.includes("Decision applied") && frame.includes("Approved"),
         )
-        expect(approvedFrame).toContain("Human decision APPROVE")
+        expect(approvedFrame).toContain("workflow v")
 
         await act(async () => {
           setup.resize(80, 30)
@@ -450,16 +306,14 @@ runTuiE2E(
         })
         const compactFrame = await waitForTUIFrame(
           setup,
-          (frame) => frame.includes("ORKODA") && frame.includes("APPROVED"),
+          (frame) => frame.includes("ORKODA") && frame.includes("Approved"),
         )
-        expect(compactFrame).toContain("Jobs")
+        expect(compactFrame).toContain("Kanban approval flow")
       } finally {
         await act(async () => {
           await setup.flush({ maxPasses: 10 })
         })
-        act(() => {
-          setup.renderer.destroy()
-        })
+        act(() => setup.renderer.destroy())
       }
 
       const persistedJob = await api<WorkflowJob>(baseURL, token, `/api/v1/jobs/${job.id}`)

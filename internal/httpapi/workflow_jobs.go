@@ -65,6 +65,20 @@ func registerWorkflowJobRoutes(api *gin.RouterGroup, registry WorkflowJobRegistr
 		writeData(c, http.StatusOK, jobs)
 	})
 
+	// The kanban board needs only current workflow aggregates. Execution, checks,
+	// review findings, artifacts, and diffs remain lazy-loaded when a card opens.
+	api.GET("/projects/:projectID/board", func(c *gin.Context) {
+		if !requireWorkflowJobRegistry(c, registry) {
+			return
+		}
+		jobs, err := registry.ListProject(c.Request.Context(), c.Param("projectID"))
+		if err != nil {
+			writeWorkflowJobError(c, err)
+			return
+		}
+		writeData(c, http.StatusOK, gin.H{"jobs": jobs})
+	})
+
 	api.GET("/jobs/:jobID", func(c *gin.Context) {
 		if !requireWorkflowJobRegistry(c, registry) {
 			return

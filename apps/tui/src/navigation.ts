@@ -1,9 +1,8 @@
 export const screenDefinitions = [
-  { id: "projects", label: "Projects", description: "Code & plans" },
+  { id: "board", label: "Board", description: "Work from plan to approval" },
   { id: "agents", label: "Agents", description: "AI roles & limits" },
-  { id: "jobs", label: "Jobs", description: "Runs & approvals" },
   { id: "settings", label: "Settings", description: "Providers & budgets" },
-  { id: "diagnostics", label: "System", description: "Daemon health" },
+  { id: "system", label: "System", description: "Daemon health" },
 ] as const
 
 export const screens = screenDefinitions.map((screen) => screen.id)
@@ -17,16 +16,12 @@ export function isScreen(value: string): value is Screen {
 export function moveScreen(current: Screen, offset: number): Screen {
   const currentIndex = screens.indexOf(current)
   const nextIndex = (currentIndex + offset + screens.length) % screens.length
-
   return screens[nextIndex] ?? screens[0]
 }
 
 export function screenFromShortcut(keyName: string): Screen | undefined {
   const index = Number.parseInt(keyName, 10) - 1
-  if (!Number.isInteger(index) || index < 0 || index >= screens.length) {
-    return undefined
-  }
-
+  if (!Number.isInteger(index) || index < 0 || index >= screens.length) return undefined
   return screens[index]
 }
 

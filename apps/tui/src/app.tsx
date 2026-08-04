@@ -4,6 +4,7 @@ import { useKeyboard, useOnResize } from "@opentui/react"
 import { useEffect, useRef, useState } from "react"
 
 import { AgentSettingsScreen } from "./agent-settings-screen"
+import { BoardScreen } from "./board-screen"
 import {
   createDiagnosticsBundle,
   type DaemonConnection,
@@ -13,7 +14,6 @@ import {
   probeDaemon,
 } from "./daemon"
 import { type ActivityEvent, subscribeToEvents } from "./events"
-import { JobsScreen } from "./jobs-screen"
 import {
   moveScreen,
   type Screen,
@@ -21,7 +21,6 @@ import {
   screenFromShortcut,
   screenLabel,
 } from "./navigation"
-import { ProjectScreen } from "./project-screen"
 import { SettingsScreen } from "./settings-screen"
 import {
   BOLD,
@@ -52,111 +51,35 @@ const connectionLabel: Record<DaemonConnection["state"], string> = {
 }
 
 export function App() {
-  const [activeScreen, setActiveScreen] = useState<Screen>("projects")
+  const [activeScreen, setActiveScreen] = useState<Screen>("board")
   const [connection, setConnection] = useState<DaemonConnection>(initialDaemonConnection)
   const [terminalWidth, setTerminalWidth] = useState(0)
-  const [projectInteractionActive, setProjectInteractionActive] = useState(false)
-  const [jobsInteractionActive, setJobsInteractionActive] = useState(false)
+  const [boardInteractionActive, setBoardInteractionActive] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [lastEvent, setLastEvent] = useState<ActivityEvent | null>(null)
   const [diagnostics, setDiagnostics] = useState<DiagnosticsSnapshot | null>(null)
-  const [sidebarWidth, setSidebarWidth] = useState(26)
   const [eventStreamState, setEventStreamState] = useState<"connected" | "reconnecting" | "closed">(
     "closed",
   )
-  const lastSequenceRef = useRef(0)
   const [toast, setToast] = useState("")
+  const lastSequenceRef = useRef(0)
   const renderer = useOnResize((width) => setTerminalWidth(width))
-
   const compactLayout = (terminalWidth || renderer.width) < 100
 
   useKeyboard((key) => {
-    if (showPalette) {
-      return
-    }
+    if (showPalette) return
+    if (boardInteractionActive) return
     if (showHelp) {
-      if (key.name === "escape" || key.name === "?") {
-        setShowHelp(false)
-      }
+      if (key.name === "escape" || key.name === "?") setShowHelp(false)
       return
     }
-
     if ((key.ctrl && key.name === "k") || key.name === "/") {
       setShowPalette(true)
       return
     }
-
-    if (
-      key.ctrl &&
-      !projectInteractionActive &&
-      !jobsInteractionActive &&
-      (key.name === "left" || key.name === "right")
-    ) {
-      setSidebarWidth((current) =>
-        Math.min(36, Math.max(20, current + (key.name === "right" ? 2 : -2))),
-      )
-      setToast("Workspace panel resized")
-      return
-    }
-
-    if (key.name === "?" && !projectInteractionActive && !jobsInteractionActive) {
+    if (key.name === "?") {
       setShowHelp(true)
-      return
-    }
-
-    if (activeScreen === "projects") {
-      if (projectInteractionActive) {
-        return
-      }
-
-      const shortcut = screenFromShortcut(key.name)
-      if (shortcut) {
-        setActiveScreen(shortcut)
-        return
-      }
-      if (key.name === "right" || key.name === "l") {
-        setActiveScreen((current) => moveScreen(current, 1))
-        return
-      }
-      if (key.name === "left" || key.name === "h") {
-        setActiveScreen((current) => moveScreen(current, -1))
-      }
-      return
-    }
-
-    if (activeScreen === "agents") {
-      const shortcut = screenFromShortcut(key.name)
-      if (shortcut) {
-        setActiveScreen(shortcut)
-        return
-      }
-      if (key.name === "right" || key.name === "l") {
-        setActiveScreen((current) => moveScreen(current, 1))
-        return
-      }
-      if (key.name === "left" || key.name === "h") {
-        setActiveScreen((current) => moveScreen(current, -1))
-      }
-      return
-    }
-
-    if (activeScreen === "jobs") {
-      if (jobsInteractionActive) {
-        return
-      }
-      const shortcut = screenFromShortcut(key.name)
-      if (shortcut) {
-        setActiveScreen(shortcut)
-        return
-      }
-      if (key.name === "right" || key.name === "l") {
-        setActiveScreen((current) => moveScreen(current, 1))
-        return
-      }
-      if (key.name === "left" || key.name === "h") {
-        setActiveScreen((current) => moveScreen(current, -1))
-      }
       return
     }
 
@@ -165,6 +88,9 @@ export function App() {
       setActiveScreen(shortcut)
       return
     }
+
+    if (activeScreen === "board") return
+
     if (key.name === "right" || key.name === "down" || key.name === "j" || key.name === "l") {
       setActiveScreen((current) => moveScreen(current, 1))
       return
@@ -181,17 +107,12 @@ export function App() {
 
   useEffect(() => {
     let disposed = false
-
     const refresh = async () => {
-      const nextConnection = await probeDaemon()
-      if (!disposed) {
-        setConnection(nextConnection)
-      }
+      const next = await probeDaemon()
+      if (!disposed) setConnection(next)
     }
-
     void refresh()
     const interval = setInterval(() => void refresh(), 2000)
-
     return () => {
       disposed = true
       clearInterval(interval)
@@ -203,7 +124,7 @@ export function App() {
       setEventStreamState("closed")
       return
     }
-    const unsubscribe = subscribeToEvents({
+    return subscribeToEvents({
       afterSequence: lastSequenceRef.current,
       onEvent: (event) => {
         lastSequenceRef.current = event.sequence
@@ -211,9 +132,6 @@ export function App() {
       },
       onState: setEventStreamState,
     })
-    return unsubscribe
-    // Reconnect only when the daemon connection changes. The stream itself
-    // advances its cursor as durable events arrive.
   }, [connection.state])
 
   useEffect(() => {
@@ -224,8 +142,8 @@ export function App() {
     }
     const refresh = async () => {
       try {
-        const snapshot = await getDiagnostics()
-        if (!disposed) setDiagnostics(snapshot)
+        const next = await getDiagnostics()
+        if (!disposed) setDiagnostics(next)
       } catch {
         if (!disposed) setDiagnostics(null)
       }
@@ -266,53 +184,19 @@ export function App() {
     { id: "help", label: "Keyboard guide", detail: "Show contextual shortcuts", shortcut: "?" },
   ]
 
-  const footerShortcuts: Shortcut[] = (() => {
-    if (activeScreen === "projects") {
-      return projectInteractionActive
-        ? [
-            { key: "Esc", label: "cancel" },
-            { key: "?", label: "help" },
-          ]
-        : [
-            { key: "↑↓", label: "select" },
-            { key: "N", label: "new project" },
-            { key: "P", label: "new plan" },
-            { key: "W", label: "start work" },
-            { key: "?", label: "all shortcuts" },
-          ]
-    }
-    if (activeScreen === "agents") {
-      return [
-        { key: "↑↓", label: "project" },
-        { key: "Tab", label: "role" },
-        { key: "E", label: "enable / disable" },
-        { key: "S", label: "save" },
-        { key: "?", label: "all shortcuts" },
-      ]
-    }
-    if (activeScreen === "jobs") {
-      return jobsInteractionActive
-        ? [
-            { key: "Ctrl+S", label: "apply" },
-            { key: "Esc", label: "cancel" },
-          ]
-        : [
-            { key: "↑↓", label: "select" },
-            { key: "A", label: "approve" },
-            { key: "V", label: "revise" },
-            { key: "X", label: "reject" },
-            { key: "?", label: "all shortcuts" },
-          ]
-    }
-    return [
-      { key: "←→", label: "switch screen" },
-      { key: "R", label: "reconnect" },
-      { key: "?", label: "all shortcuts" },
-    ]
-  })()
-  const visibleFooterShortcuts = compactLayout
-    ? footerShortcuts.filter((shortcut) => shortcut.key !== "?")
-    : footerShortcuts
+  const footerShortcuts: Shortcut[] =
+    activeScreen === "board"
+      ? [
+          { key: "1–4", label: "switch area" },
+          { key: "/", label: "search actions" },
+          { key: "?", label: "help" },
+        ]
+      : [
+          { key: "←→", label: "switch area" },
+          { key: "1–4", label: "jump" },
+          { key: "/", label: "search actions" },
+          { key: "?", label: "help" },
+        ]
 
   return (
     <box flexDirection="column" width="100%" height="100%" backgroundColor={colors.canvas}>
@@ -338,6 +222,9 @@ export function App() {
         </box>
         <box flexDirection="row" gap={1} alignItems="center">
           <text fg={colors.faint}>{connection.protocolVersion}</text>
+          {eventStreamState === "reconnecting" ? (
+            <Chip label="live updates reconnecting" tone="warning" />
+          ) : null}
           <Chip label={connectionLabel[connection.state]} tone={connectionTone[connection.state]} />
         </box>
       </box>
@@ -345,7 +232,7 @@ export function App() {
       <box flexGrow={1} flexDirection="row" padding={1} gap={1}>
         {!compactLayout ? (
           <box
-            width={sidebarWidth}
+            width={25}
             flexDirection="column"
             gap={1}
             padding={1}
@@ -372,16 +259,16 @@ export function App() {
                       {`${index + 1} ${item.label}`}
                     </text>
                   </box>
-                  <text
-                    fg={selected ? colors.muted : colors.faint}
-                  >{`   ${item.description}`}</text>
+                  <text fg={selected ? colors.muted : colors.faint}>
+                    {`   ${item.description}`}
+                  </text>
                 </box>
               )
             })}
             <box flexGrow={1} />
             <box flexDirection="row" gap={1} alignItems="center">
               <Key>?</Key>
-              <text fg={colors.faint}>all shortcuts</text>
+              <text fg={colors.faint}>keyboard guide</text>
             </box>
             <box flexDirection="row" gap={1} alignItems="center">
               <Key>/</Key>
@@ -400,47 +287,23 @@ export function App() {
           gap={1}
         >
           {showHelp ? (
-            activeScreen === "projects" ? (
-              <ProjectScreen
-                connection={connection}
-                onInteractionChange={setProjectInteractionActive}
-                helpOpen
-              />
-            ) : (
-              <HelpScreen screen={activeScreen} />
-            )
-          ) : activeScreen === "projects" ? (
-            <ProjectScreen
+            <HelpScreen screen={activeScreen} />
+          ) : activeScreen === "board" ? (
+            <BoardScreen
               connection={connection}
-              onInteractionChange={setProjectInteractionActive}
-            />
-          ) : (
-            <ScreenContent
-              screen={activeScreen}
-              connection={connection}
-              onJobsInteractionChange={setJobsInteractionActive}
               lastEvent={lastEvent}
-              eventStreamState={eventStreamState}
-              diagnostics={diagnostics}
+              onInteractionChange={setBoardInteractionActive}
             />
+          ) : activeScreen === "agents" ? (
+            <AgentSettingsScreen connection={connection} />
+          ) : activeScreen === "settings" ? (
+            <SettingsScreen connection={connection} />
+          ) : (
+            <SystemScreen connection={connection} diagnostics={diagnostics} />
           )}
         </box>
       </box>
-      {showHelp && activeScreen === "projects" ? (
-        <box
-          position="absolute"
-          top={4}
-          left={compactLayout ? 1 : sidebarWidth + 2}
-          right={1}
-          bottom={2}
-          padding={2}
-          borderStyle="rounded"
-          borderColor={colors.accent}
-          backgroundColor={colors.canvas}
-        >
-          <HelpScreen screen={activeScreen} />
-        </box>
-      ) : null}
+
       <box
         height={2}
         paddingLeft={1}
@@ -449,8 +312,13 @@ export function App() {
         alignItems="center"
         backgroundColor={colors.surface}
       >
-        <KeyHints shortcuts={visibleFooterShortcuts} />
+        <KeyHints
+          shortcuts={
+            compactLayout ? footerShortcuts.filter((item) => item.key !== "?") : footerShortcuts
+          }
+        />
       </box>
+
       {showPalette ? (
         <CommandPalette
           commands={paletteCommands}
@@ -481,45 +349,25 @@ export function App() {
   )
 }
 
-function ScreenContent({
-  screen,
+function SystemScreen({
   connection,
-  onJobsInteractionChange,
-  lastEvent,
-  eventStreamState,
   diagnostics,
 }: {
-  screen: Screen
   connection: DaemonConnection
-  onJobsInteractionChange: (active: boolean) => void
-  lastEvent: ActivityEvent | null
-  eventStreamState: "connected" | "reconnecting" | "closed"
   diagnostics: DiagnosticsSnapshot | null
 }) {
-  if (screen === "agents") {
-    return <AgentSettingsScreen connection={connection} />
-  }
-
-  if (screen === "jobs") {
-    return <JobsScreen connection={connection} onInteractionChange={onJobsInteractionChange} />
-  }
-
-  if (screen === "settings") {
-    return <SettingsScreen connection={connection} />
-  }
-
   return (
     <box flexDirection="column" gap={1} flexGrow={1}>
       <PageHeader
         title="System status"
-        description="A quick health check of the local daemon that runs your workflows."
-        meta="press R to refresh"
+        description="Health of the local daemon that runs every board workflow."
+        meta="press R to reconnect"
       />
       <Section title="Daemon">
         <Card>
           <box flexDirection="row" gap={1} alignItems="center">
             <Chip
-              label={connection.state === "connected" ? "connected" : connection.state}
+              label={connectionLabel[connection.state]}
               tone={connectionTone[connection.state]}
             />
             <text fg={colors.muted}>{connection.message}</text>
@@ -532,15 +380,10 @@ function ScreenContent({
         <Card>
           {diagnostics ? (
             <box flexDirection="column" gap={1}>
-              <box flexDirection="row" gap={1} alignItems="center">
-                <Chip
-                  label={diagnostics.status === "ready" ? "ready" : "degraded"}
-                  tone={diagnostics.status === "ready" ? "success" : "warning"}
-                />
-                <text
-                  fg={colors.faint}
-                >{`database schema v${diagnostics.database.schema_version} · SQLite ${diagnostics.database.integrity}`}</text>
-              </box>
+              <Chip
+                label={diagnostics.status === "ready" ? "ready" : "degraded"}
+                tone={diagnostics.status === "ready" ? "success" : "warning"}
+              />
               <Info label="Waiting" value={`${diagnostics.queue.queued}`} />
               <Info label="Running" value={`${diagnostics.queue.running}`} tone="accent" />
               <Info
@@ -552,116 +395,55 @@ function ScreenContent({
                 label="Workspace leases"
                 value={`${diagnostics.workspaces.active_leases}/${diagnostics.workspaces.total}`}
               />
+              <Info
+                label="Database"
+                value={`schema v${diagnostics.database.schema_version} · ${diagnostics.database.integrity}`}
+              />
             </box>
           ) : (
             <text fg={colors.faint}>Diagnostics are temporarily unavailable.</text>
           )}
         </Card>
       </Section>
-      <Section title="Live updates">
-        <Card>
-          <box flexDirection="row" gap={1} alignItems="center">
-            <Chip
-              label={eventStreamState === "connected" ? "streaming" : eventStreamState}
-              tone={eventStreamState === "connected" ? "success" : "warning"}
-            />
-            {lastEvent ? (
-              <text
-                fg={colors.muted}
-              >{`last update #${lastEvent.sequence} · ${lastEvent.type}`}</text>
-            ) : (
-              <text fg={colors.faint}>Waiting for the first live update.</text>
-            )}
-          </box>
-          {lastEvent ? <text fg={colors.faint}>{lastEvent.created_at}</text> : null}
-        </Card>
-      </Section>
-      {connection.state === "disconnected" ? (
-        <Card tone="warning">
-          <text fg={colors.warning} attributes={BOLD}>
-            The daemon is offline
-          </text>
-          <text fg={colors.muted}>Start it in another terminal with: make api</text>
-        </Card>
-      ) : null}
     </box>
   )
 }
 
 function HelpScreen({ screen }: { screen: Screen }) {
-  const screenShortcuts: Record<Screen, Array<{ key: string; label: string }>> = {
-    projects: [
-      { key: "↑↓", label: "select project" },
-      { key: "N", label: "new project" },
-      { key: "P", label: "new plan" },
-      { key: "S", label: "scan HEAD" },
-      { key: "O", label: "normalize plan" },
-      { key: "A", label: "run planning agent" },
-      { key: "Q", label: "answer questions" },
-      { key: "W", label: "create workflow" },
-      { key: "B", label: "choose base branch" },
-      { key: "T", label: "toggle repository trust" },
-      { key: "I", label: "edit ignore policy" },
-      { key: "G", label: "refresh selected" },
-      { key: "D", label: "delete registration" },
-      { key: "R", label: "reload list" },
-    ],
-    agents: [
-      { key: "↑↓", label: "select project" },
-      { key: "Tab", label: "switch role" },
-      { key: "E", label: "toggle agent" },
-      { key: "N", label: "cycle network access" },
-      { key: "F", label: "cycle filesystem access" },
-      { key: "S", label: "save settings" },
-      { key: "R", label: "reload" },
-    ],
-    jobs: [
-      { key: "↑↓", label: "select job" },
-      { key: "A", label: "approve" },
-      { key: "V", label: "request revision" },
-      { key: "X", label: "reject" },
-      { key: "E", label: "take over or release workspace" },
-      { key: "R", label: "reload jobs" },
-    ],
-    settings: [{ key: "R", label: "reconnect" }],
-    diagnostics: [{ key: "R", label: "reconnect" }],
-  }
-
+  const boardShortcuts: Shortcut[] = [
+    { key: "←→", label: "move between kanban columns" },
+    { key: "↑↓", label: "select a work card" },
+    { key: "Enter", label: "run the card's next action" },
+    { key: "Space", label: "open every valid action" },
+    { key: "N", label: "create work for the current project" },
+    { key: "Shift+N", label: "add a Git project" },
+    { key: "Tab", label: "cycle the project filter" },
+    { key: "F", label: "toggle active-only / all work" },
+    { key: "A / V / X", label: "approve, revise, or reject inside workflow detail" },
+  ]
+  const general: Shortcut[] = [
+    { key: "1–4", label: "jump to Board, Agents, Settings, or System" },
+    { key: "/", label: "search actions" },
+    { key: "? / Esc", label: "open or close this guide" },
+  ]
   return (
-    <box flexDirection="column" gap={1} flexGrow={1}>
+    <box flexDirection="column" flexGrow={1} gap={1}>
       <PageHeader
-        title="Everything you can do from here"
-        description="Arrow keys move. Letter keys act. The current screen's shortcuts are listed below, and every key is shown next to where it works."
-        meta="press ? or Esc to close"
+        title={`${screenLabel(screen)} keyboard guide`}
+        description="The Board is designed around arrows, Enter, Escape, and a visible action menu. Letter shortcuts are optional."
       />
-      <Section title="GLOBAL">
-        <Card tone="accent">
+      <Section title={screen === "board" ? "Board" : "Current area"}>
+        <Card>
           <KeyHints
-            shortcuts={[
-              { key: "←→", label: "previous / next screen" },
-              { key: "1–5", label: "jump to screen" },
-              { key: "/", label: "search actions" },
-              { key: "?", label: "toggle this guide" },
-              { key: "Ctrl+C", label: "quit" },
-            ]}
+            shortcuts={screen === "board" ? boardShortcuts : [{ key: "←→", label: "switch area" }]}
           />
         </Card>
       </Section>
-      <Section title={`${screenLabel(screen)} shortcuts`}>
+      <Section title="Global">
         <Card>
-          <box flexDirection="row" flexWrap="wrap" columnGap={2} rowGap={0}>
-            {screenShortcuts[screen].map((shortcut) => (
-              <box key={`${shortcut.key}-${shortcut.label}`} flexDirection="row" gap={1}>
-                <Key>{shortcut.key}</Key>
-                <text fg={colors.muted}>{shortcut.label}</text>
-              </box>
-            ))}
-          </box>
+          <KeyHints shortcuts={general} />
         </Card>
       </Section>
-      <text fg={colors.faint}>
-        Inside text fields: Tab moves to the next field, Esc cancels, Ctrl+S saves or submits.
-      </text>
     </box>
   )
 }

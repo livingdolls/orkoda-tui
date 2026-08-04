@@ -154,9 +154,36 @@ User, membership, tenant, remote token, dan organization tidak termasuk MVP.
 - [x] Jalankan end-to-end dan security tests.
 - [x] Release local MVP.
 
+## Epic 13 — Unified Kanban Workspace
+
+- [x] Jadikan Board sebagai layar default.
+- [x] Sederhanakan navigasi utama menjadi Board, Agents, Settings, dan System.
+- [x] Definisikan view model kartu dengan ID stabil berbasis plan.
+- [x] Petakan seluruh plan dan workflow status ke lima kolom secara exhaustive.
+- [x] Tambahkan contextual action menu tanpa drag-and-drop status.
+- [x] Tambahkan responsive layout lima, tiga, dan satu kolom.
+- [x] Tambahkan project filter dan active/all filter.
+- [x] Pindahkan pembuatan project ke flow di dalam Board.
+- [x] Gunakan Plan Editor dan Planning Question Editor dari Board.
+- [x] Otomatiskan repository summary, normalization, dan Planning Agent prerequisites.
+- [x] Mulai workflow dari kartu plan READY.
+- [x] Lazy-load execution, checks, review, changed files, diff, dan workspace saat kartu dibuka.
+- [x] Pertahankan immutable approval fingerprint dan Reviewer override.
+- [x] Tambahkan approve, request revision, reject, retry, cancel, dan manual workspace dari Board.
+- [x] Hubungkan durable SSE events ke refresh dan perpindahan kartu.
+- [x] Pertahankan selection saat kartu berpindah kolom.
+- [x] Tambahkan endpoint summary `GET /projects/:projectID/board`.
+- [x] Tambahkan fallback client untuk daemon lama saat local rolling upgrade.
+- [x] Tambahkan unit test status mapping dan stable identity.
+- [x] Tambahkan API test untuk Board summary.
+- [x] Ganti E2E lama dengan approval flow dari Unified Board.
+- [x] Dokumentasikan interaction model, data loading, responsive behavior, dan safety boundary.
+
 ## Outside Current Scope
 
 - Hosted SaaS dan multi-user control plane.
 - Remote execution dan distributed workers.
 - PostgreSQL, Redis, RabbitMQ, NATS, dan object storage.
 - Multi-machine synchronization.
+- Generic project-management fields seperti sprint, assignee, due date, story points, dan custom columns.
+- Manual drag-and-drop yang dapat melewati workflow state machine.
