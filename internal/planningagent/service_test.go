@@ -21,6 +21,15 @@ type mutableContextReader struct {
 	err   error
 }
 
+type cancellingGateway struct {
+	cancel context.CancelFunc
+}
+
+func (g cancellingGateway) Complete(context.Context, string, llm.Request) (llm.Response, error) {
+	g.cancel()
+	return llm.Response{}, context.Canceled
+}
+
 func (r *mutableContextReader) Current(context.Context, string) (planningcontext.Context, error) {
 	return r.value, r.err
 }
@@ -249,6 +258,113 @@ func TestPlanningAgentRejectsStaleQuestionAnswers(t *testing.T) {
 	_, err = service.Answer(ctx, run.ID, []AnswerInput{{QuestionID: run.Questions[0].ID, Answer: "REST"}})
 	if !errors.Is(err, ErrStaleRun) {
 		t.Fatalf("expected stale run error, got %v", err)
+	}
+}
+
+func TestPlanningAgentPersistsFailureAfterRequestCancellation(t *testing.T) {
+	background := context.Background()
+	db, err := database.Open(background, filepath.Join(t.TempDir(), "cancelled.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(background, db); err != nil {
+		t.Fatal(err)
+	}
+
+	planRepository, planningContext := seedPlanningAgentState(t, background, db)
+	runCtx, cancel := context.WithCancel(background)
+	service, err := NewService(
+		db,
+		&mutableContextReader{value: planningContext},
+		planRepository,
+		cancellingGateway{cancel: cancel},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.Start(runCtx, planningContext.PlanID, "fake", "fake-model"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancelled planning request, got %v", err)
+	}
+	current, err := service.Current(background, planningContext.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Status == RunStatusRunning {
+		t.Fatalf("cancelled request left planning run active: %#v", current)
+	}
+	plan, err := planRepository.Get(background, planningContext.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Status != plans.StatusDraft {
+		t.Fatalf("expected retryable DRAFT plan, got %s", plan.Status)
+	}
+}
+
+func TestRecoverInterruptedPlanningRuns(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "recovery.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+
+	planRepository, planningContext := seedPlanningAgentState(t, ctx, db)
+	service, err := NewService(
+		db,
+		&mutableContextReader{value: planningContext},
+		planRepository,
+		cancellingGateway{cancel: func() {}},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.createRun(ctx, planningContext, "", "fake", "fake-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := planRepository.Get(ctx, planningContext.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := planRepository.Update(ctx, plan.ID, plan.Title, plans.StatusPlanning); err != nil {
+		t.Fatal(err)
+	}
+
+	recovered, err := service.RecoverInterruptedRuns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered != 1 {
+		t.Fatalf("expected one recovered run, got %d", recovered)
+	}
+	storedRun, err := service.Get(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedRun.Status != RunStatusCancelled || storedRun.ErrorCode != llm.ErrorCancelled {
+		t.Fatalf("expected cancelled interrupted run, got %#v", storedRun)
+	}
+	storedPlan, err := planRepository.Get(ctx, planningContext.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedPlan.Status != plans.StatusDraft {
+		t.Fatalf("expected recovered DRAFT plan, got %s", storedPlan.Status)
+	}
+	secondRecovery, err := service.RecoverInterruptedRuns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondRecovery != 0 {
+		t.Fatalf("expected idempotent recovery, got %d", secondRecovery)
 	}
 }
 
