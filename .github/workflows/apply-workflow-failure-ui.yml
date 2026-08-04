@@ -3,12 +3,15 @@ name: Apply workflow failure UI fix
 on:
   push:
     branches: [fix/workflow-failure-explanation]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   apply:
+    if: github.head_ref == 'fix/workflow-failure-explanation' || github.ref_name == 'fix/workflow-failure-explanation'
     name: Apply workflow failure explanation fix
     runs-on: ubuntu-latest
     steps:
