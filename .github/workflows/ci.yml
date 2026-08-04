@@ -6,52 +6,9 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-workflow-failure-ui:
-    if: github.event_name == 'pull_request' && github.head_ref == 'fix/workflow-failure-explanation'
-    name: Apply workflow failure UI fix
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: fix/workflow-failure-explanation
-          fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.14"
-      - run: bun install
-      - name: Apply source patch
-        run: |
-          python3 scripts/apply_workflow_failure_ui.py
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('apps/tui/src/board-detail.tsx')
-          text = path.read_text()
-          text = text.replace(
-              'failureEvidence.map((failure, index) => (\n                    <box key={`${failure.source}:${index}`} flexDirection="column" gap={0}>',
-              'failureEvidence.map((failure) => (\n                    <box\n                      key={`${failure.source}:${failure.code ?? failure.message}`}\n                      flexDirection="column"\n                      gap={0}\n                    >',
-          )
-          path.write_text(text)
-          PY
-      - name: Format and validate patched TUI
-        run: |
-          bunx biome check --write apps/tui/src/board-model.ts apps/tui/src/board-model.test.ts apps/tui/src/board-screen.tsx apps/tui/src/board-detail.tsx apps/tui/src/workflow-failure.ts apps/tui/src/workflow-failure.test.ts
-          bun run lint:ts
-          bun run typecheck
-          bun run test:ts
-      - name: Commit final source changes
-        run: |
-          git fetch origin main
-          git checkout origin/main -- .github/workflows/ci.yml
-          rm .github/workflows/apply-workflow-failure-ui.yml scripts/apply_workflow_failure_ui.py
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add apps/tui/src .github/workflows/ci.yml .github/workflows/apply-workflow-failure-ui.yml scripts/apply_workflow_failure_ui.py
-          git commit -m "fix: explain workflow failures in Board"
-          git push origin HEAD:fix/workflow-failure-explanation
-
   go:
     name: Go
     runs-on: ubuntu-latest

@@ -1,6 +1,7 @@
 import type { Plan } from "./plans"
 import type { Project, ProjectRepository } from "./projects"
 import type { StatusTone } from "./ui"
+import { workflowFailureSummary } from "./workflow-failure"
 import type { WorkflowJob, WorkflowStatus } from "./workflow-jobs"
 
 export const boardColumns = ["PLANNING", "READY", "WORKING", "NEEDS_USER", "DONE"] as const
@@ -127,7 +128,7 @@ export function resolveAttentionReason(plan: Plan, workflow?: WorkflowJob): stri
     case "REVISION_REQUIRED":
       return "Revision feedback is ready for the next execution"
     case "FAILED":
-      return workflow.failure_message || "The workflow failed and needs a retry or inspection"
+      return workflowFailureSummary(workflow)
     default:
       return undefined
   }
@@ -192,9 +193,19 @@ export function boardActions(item: BoardItem): BoardAction[] {
       label:
         item.workflow.status === "WAITING_FOR_APPROVAL"
           ? "Review and decide"
-          : "Open workflow details",
-      description: "See progress, checks, review findings, changed files, and diff.",
-      tone: item.workflow.status === "WAITING_FOR_APPROVAL" ? "warning" : "neutral",
+          : item.workflow.status === "FAILED"
+            ? "See why it failed"
+            : "Open workflow details",
+      description:
+        item.workflow.status === "FAILED"
+          ? "Show the failing stage, daemon message, workspace, executor, checks, and reviewer evidence."
+          : "See progress, checks, review findings, changed files, and diff.",
+      tone:
+        item.workflow.status === "WAITING_FOR_APPROVAL"
+          ? "warning"
+          : item.workflow.status === "FAILED"
+            ? "danger"
+            : "neutral",
     },
   ]
 

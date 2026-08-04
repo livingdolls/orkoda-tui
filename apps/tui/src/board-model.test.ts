@@ -99,5 +99,20 @@ describe("board status mapping", () => {
         (item) => item.id,
       ),
     ).toEqual(["open-details", "retry"])
+    const failureActions = boardActions(
+      createBoardItem(project, plan("READY"), {
+        ...workflow("FAILED"),
+        failure_code: "WORKSPACE_PREPARATION_FAILED",
+        failure_message: "source repository has uncommitted changes",
+      }),
+    )
+    expect(failureActions[0]?.label).toBe("See why it failed")
+    expect(
+      createBoardItem(project, plan("READY"), {
+        ...workflow("FAILED"),
+        failure_code: "WORKSPACE_PREPARATION_FAILED",
+        failure_message: "source repository has uncommitted changes",
+      }).attentionReason,
+    ).toContain("source repository has uncommitted changes")
   })
 })
