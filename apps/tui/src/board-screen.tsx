@@ -41,6 +41,7 @@ import {
   PageHeader,
   truncate,
 } from "./ui"
+import { workflowFailureSummary } from "./workflow-failure"
 import { createWorkflowJob, performWorkflowAction, type WorkflowJob } from "./workflow-jobs"
 
 type BoardMode = "board" | "new-project" | "new-plan" | "questions" | "detail"
@@ -118,6 +119,9 @@ export function BoardScreen({
   const selectedItem = columnItems[selectedIndex] ?? null
   const selectedActions = selectedItem ? boardActions(selectedItem) : []
   const hasPlanningItems = items.some((item) => !item.workflow && item.plan.status === "PLANNING")
+  const selectedFailure =
+    selectedItem?.workflow?.status === "FAILED" ? workflowFailureSummary(selectedItem.workflow) : ""
+  const visibleMessage = selectedFailure && !busy ? selectedFailure : message
 
   const restoreSelection = useCallback((nextItems: BoardItem[]) => {
     const wantedID = selectedItemIDRef.current
@@ -677,11 +681,24 @@ export function BoardScreen({
         })}
       </box>
 
-      {message ? (
+      {visibleMessage ? (
         <Banner
-          tone={message.toLowerCase().includes("failed") ? "danger" : busy ? "warning" : "accent"}
+          tone={
+            selectedFailure && !busy
+              ? "danger"
+              : visibleMessage.toLowerCase().includes("failed")
+                ? "danger"
+                : busy
+                  ? "warning"
+                  : "accent"
+          }
         >
-          <text fg={busy ? colors.warning : colors.muted}>{message}</text>
+          <text
+            fg={selectedFailure && !busy ? colors.danger : busy ? colors.warning : colors.muted}
+            wrapMode="word"
+          >
+            {visibleMessage}
+          </text>
         </Banner>
       ) : null}
       <KeyHints

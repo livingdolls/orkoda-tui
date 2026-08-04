@@ -34,6 +34,7 @@ import {
   Section,
   truncate,
 } from "./ui"
+import { collectWorkflowFailureEvidence, workflowFailureSummary } from "./workflow-failure"
 import {
   getWorkflowWorkspace,
   releaseWorkspace,
@@ -128,6 +129,16 @@ export function BoardDetail({
   useEffect(() => {
     if (composer) noteRef.current?.focus()
   }, [composer])
+
+  const failureEvidence = workflow
+    ? collectWorkflowFailureEvidence({
+        workflow,
+        workspace: snapshot.workspace,
+        execution: snapshot.execution,
+        checkSteps: snapshot.checkSteps,
+        review: snapshot.review,
+      })
+    : []
 
   const canDecide =
     workflow?.status === "WAITING_FOR_APPROVAL" &&
@@ -305,6 +316,18 @@ export function BoardDetail({
         ) : null}
       </box>
 
+      {workflow.status === "FAILED" ? (
+        <Banner tone="danger">
+          <text fg={colors.danger} attributes={BOLD}>
+            Why the workflow stopped
+          </text>
+          <text fg={colors.text} wrapMode="word">
+            {workflowFailureSummary(workflow)}
+          </text>
+          <text fg={colors.muted}>Fix the cause, press Esc, then choose Retry workflow.</text>
+        </Banner>
+      ) : null}
+
       {state === "loading" ? (
         <Card>
           <text fg={colors.warning}>Loading workflow evidence...</text>
@@ -319,6 +342,27 @@ export function BoardDetail({
       {state === "ready" ? (
         <scrollbox flexGrow={1} scrollY={true}>
           <box flexDirection="column" gap={1}>
+            {failureEvidence.length > 0 ? (
+              <Section title="Failure evidence" action="fix the cause, then retry from Board">
+                <Card tone="danger">
+                  {failureEvidence.map((failure) => (
+                    <box
+                      key={`${failure.source}:${failure.code ?? failure.message}`}
+                      flexDirection="column"
+                      gap={0}
+                    >
+                      <text fg={colors.danger} attributes={BOLD}>
+                        {failure.code ? `${failure.source} · ${failure.code}` : failure.source}
+                      </text>
+                      <text fg={colors.text} wrapMode="word">
+                        {failure.message}
+                      </text>
+                    </box>
+                  ))}
+                </Card>
+              </Section>
+            ) : null}
+
             <Section title="Progress" action="the card moves automatically as stages finish">
               <Card>
                 <ProgressRow
