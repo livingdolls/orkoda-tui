@@ -21,7 +21,7 @@ COPY go.mod go.sum /tmp/orkoda-mod/
 RUN cd /tmp/orkoda-mod && GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org go mod download
 
 WORKDIR /workspace
-COPY package.json bun.lock /workspace/
+COPY package.json /workspace/package.json
 COPY apps/tui/package.json /workspace/apps/tui/package.json
 COPY packages/protocol/package.json /workspace/packages/protocol/package.json
-RUN bun install --frozen-lockfile --ignore-scripts
+RUN bun install --ignore-scripts
