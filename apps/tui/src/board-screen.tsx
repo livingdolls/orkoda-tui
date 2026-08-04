@@ -4,6 +4,7 @@ import { useKeyboard, useOnResize } from "@opentui/react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { loadBoardItems } from "./board-data"
 import { BoardDetail } from "./board-detail"
+import { boardKeyRoute } from "./board-keyboard"
 import {
   type BoardAction,
   type BoardColumn,
@@ -178,10 +179,10 @@ export function BoardScreen({
   }, [reload])
 
   useEffect(() => {
-    if (!lastEvent || mode !== "board") return
+    if (!lastEvent || mode !== "board" || actionMenuOpen) return
     const timeout = setTimeout(() => void reload(), 120)
     return () => clearTimeout(timeout)
-  }, [lastEvent, mode, reload])
+  }, [lastEvent, mode, actionMenuOpen, reload])
 
   useEffect(() => {
     onInteractionChange?.(mode !== "board" || actionMenuOpen || busy)
@@ -384,9 +385,10 @@ export function BoardScreen({
   }
 
   useKeyboard((key) => {
-    if (mode !== "board" || busy || loadState === "loading") return
+    const keyRoute = boardKeyRoute({ mode, actionMenuOpen, busy })
+    if (keyRoute === "ignore") return
 
-    if (actionMenuOpen) {
+    if (keyRoute === "menu") {
       if (key.name === "escape") {
         setActionMenuOpen(false)
         return
