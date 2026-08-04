@@ -49,7 +49,7 @@ jobs:
       - run: bun install
       - name: Generate exact Biome-formatted source
         run: |
-          bun run format:ts
+          bunx biome check --write apps packages
           tar -czf /tmp/biome-formatted.tar.gz apps/tui/src
       - name: Upload exact Biome-formatted source
         uses: actions/upload-artifact@v4
