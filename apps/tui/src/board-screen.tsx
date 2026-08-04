@@ -117,6 +117,7 @@ export function BoardScreen({
   const selectedIndex = Math.min(selectedIndexes[activeColumn], Math.max(columnItems.length - 1, 0))
   const selectedItem = columnItems[selectedIndex] ?? null
   const selectedActions = selectedItem ? boardActions(selectedItem) : []
+  const hasPlanningItems = items.some((item) => !item.workflow && item.plan.status === "PLANNING")
 
   const restoreSelection = useCallback((nextItems: BoardItem[]) => {
     const wantedID = selectedItemIDRef.current
@@ -185,6 +186,21 @@ export function BoardScreen({
   }, [lastEvent, mode, actionMenuOpen, reload])
 
   useEffect(() => {
+    if (
+      connection.state !== "connected" ||
+      mode !== "board" ||
+      actionMenuOpen ||
+      busy ||
+      loadState === "loading" ||
+      !hasPlanningItems
+    ) {
+      return
+    }
+    const timeout = setTimeout(() => void reload(), 1500)
+    return () => clearTimeout(timeout)
+  }, [connection.state, mode, actionMenuOpen, busy, loadState, hasPlanningItems, reload])
+
+  useEffect(() => {
     onInteractionChange?.(mode !== "board" || actionMenuOpen || busy)
     return () => onInteractionChange?.(false)
   }, [mode, actionMenuOpen, busy, onInteractionChange])
@@ -244,7 +260,9 @@ export function BoardScreen({
         setMessage(
           run.status === "COMPLETED"
             ? `Plan prepared with ${run.result?.steps.length ?? 0} implementation step(s).`
-            : `Planning finished with status ${run.status}.`,
+            : run.status === "RUNNING"
+              ? "Planning Agent is still running. The card will refresh automatically."
+              : run.error_message || `Planning ended with status ${run.status}.`,
         )
         await reload()
       }

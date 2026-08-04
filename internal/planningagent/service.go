@@ -536,6 +536,70 @@ func (s *Service) execute(
 	return s.Get(ctx, run.ID)
 }
 
+func (s *Service) RecoverInterruptedRuns(ctx context.Context) (int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, plan_id FROM planning_runs WHERE status = ?
+	`, RunStatusRunning)
+	if err != nil {
+		return 0, fmt.Errorf("list interrupted planning runs: %w", err)
+	}
+	interrupted := make([]Run, 0)
+	for rows.Next() {
+		var run Run
+		if err := rows.Scan(&run.ID, &run.PlanID); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scan interrupted planning run: %w", err)
+		}
+		interrupted = append(interrupted, run)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, fmt.Errorf("iterate interrupted planning runs: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, fmt.Errorf("close interrupted planning runs: %w", err)
+	}
+	if len(interrupted) == 0 {
+		return 0, nil
+	}
+
+	now := time.Now().UTC()
+	message := "planning was interrupted before completion; start it again"
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin interrupted planning recovery: %w", err)
+	}
+	defer tx.Rollback()
+	for _, run := range interrupted {
+		result, err := tx.ExecContext(ctx, `
+			UPDATE planning_runs
+			SET status = ?, error_code = ?, error_message = ?, updated_at = ?
+			WHERE id = ? AND status = ?
+		`, RunStatusCancelled, llm.ErrorCancelled, message, now.UnixMilli(), run.ID, RunStatusRunning)
+		if err != nil {
+			return 0, fmt.Errorf("recover interrupted planning run: %w", err)
+		}
+		if err := requireOne(result, ErrRunNotFound); err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE plans SET status = ?, updated_at = ?
+			WHERE id = ? AND status = ?
+		`, plans.StatusDraft, now.UnixMilli(), run.PlanID, plans.StatusPlanning); err != nil {
+			return 0, fmt.Errorf("reset interrupted plan: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit interrupted planning recovery: %w", err)
+	}
+	for _, run := range interrupted {
+		s.record(ctx, "planning.agent_interrupted", map[string]any{
+			"run_id": run.ID, "plan_id": run.PlanID, "status": RunStatusCancelled,
+		}, now)
+	}
+	return len(interrupted), nil
+}
+
 func (s *Service) failRun(ctx context.Context, run Run, cause error) {
 	status := RunStatusFailed
 	code := llm.ErrorUnknown
@@ -547,8 +611,10 @@ func (s *Service) failRun(ctx context.Context, run Run, cause error) {
 			status = RunStatusCancelled
 		}
 	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
 	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.db.ExecContext(cleanupCtx, `
 		UPDATE planning_runs
 		SET status = ?, error_code = ?, error_message = ?, updated_at = ?
 		WHERE id = ? AND status = ?
@@ -556,12 +622,12 @@ func (s *Service) failRun(ctx context.Context, run Run, cause error) {
 	if err != nil {
 		slog.Warn("store failed planning run", "run_id", run.ID, "error", err)
 	}
-	if plan, err := s.plans.Get(ctx, run.PlanID); err == nil {
-		if _, err := s.plans.Update(ctx, plan.ID, plan.Title, plans.StatusDraft); err != nil {
+	if plan, err := s.plans.Get(cleanupCtx, run.PlanID); err == nil {
+		if _, err := s.plans.Update(cleanupCtx, plan.ID, plan.Title, plans.StatusDraft); err != nil {
 			slog.Warn("reset failed plan status", "plan_id", run.PlanID, "error", err)
 		}
 	}
-	s.record(ctx, "planning.agent_failed", map[string]any{
+	s.record(cleanupCtx, "planning.agent_failed", map[string]any{
 		"run_id": run.ID, "plan_id": run.PlanID, "status": status, "error_code": code,
 	}, now)
 }

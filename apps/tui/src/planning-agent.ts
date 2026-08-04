@@ -84,13 +84,15 @@ export type PlanningAgentFetch = (
 type DataResponse<T> = { data: T }
 type ErrorResponse = { error?: { message?: string } }
 
+const planningAgentRequestTimeoutMs = 5 * 60 * 1000
+
 async function request<T>(
   path: string,
   init: RequestInit,
   fetcher: PlanningAgentFetch,
 ): Promise<T> {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 30000)
+  const timeout = setTimeout(() => controller.abort(), planningAgentRequestTimeoutMs)
 
   try {
     const headers = new Headers(init.headers)

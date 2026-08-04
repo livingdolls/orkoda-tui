@@ -240,6 +240,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	interruptedPlanningRuns, err := planningAgentService.RecoverInterruptedRuns(runtimeCtx)
+	if err != nil {
+		return err
+	}
+	if interruptedPlanningRuns > 0 {
+		logger.Warn("recovered interrupted planning runs", "count", interruptedPlanningRuns)
+	}
 
 	queue := jobqueue.New(db)
 	workflowJobRepository, err := workflowjob.NewRepository(db, queue, activityRecorder)

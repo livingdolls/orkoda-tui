@@ -6,50 +6,9 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-planning-lifecycle-fix:
-    name: Apply planning lifecycle fix
-    if: github.event_name == 'pull_request' && github.head_ref == 'fix/planning-run-lifecycle'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: fix/planning-run-lifecycle
-          fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.14"
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26.x"
-          cache: true
-      - run: bun install
-      - name: Apply source fixes
-        run: python3 scripts/apply_planning_run_lifecycle_fix.py
-      - name: Format sources
-        run: |
-          bunx biome check --write apps packages
-          gofmt -w cmd internal
-      - name: Validate TUI
-        run: |
-          bun run lint:ts
-          bun run typecheck
-          bun run test:ts
-      - name: Validate Go
-        run: go test ./...
-      - name: Commit final fix
-        run: |
-          git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
-          rm scripts/apply_planning_run_lifecycle_fix.py
-          rm docs/.planning-lifecycle-fix-trigger
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/tui/src/planning-agent.ts apps/tui/src/board-screen.tsx internal/planningagent/service.go internal/planningagent/service_test.go cmd/api/main.go .github/workflows/ci.yml scripts/apply_planning_run_lifecycle_fix.py docs/.planning-lifecycle-fix-trigger
-          git commit -m "fix: complete and recover planning run lifecycle"
-          git push origin HEAD:fix/planning-run-lifecycle
-
   go:
     name: Go
     runs-on: ubuntu-latest
