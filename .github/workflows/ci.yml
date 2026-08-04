@@ -1,6 +1,7 @@
 name: Apply Board keyboard fix
 
 on:
+  pull_request:
   push:
     branches: [fix/board-action-menu-keyboard]
 
