@@ -47,6 +47,16 @@ jobs:
         with:
           bun-version: "1.3.14"
       - run: bun install
+      - name: Generate exact Biome-formatted source
+        run: |
+          bun run format:ts
+          tar -czf /tmp/biome-formatted.tar.gz apps/tui/src
+      - name: Upload exact Biome-formatted source
+        uses: actions/upload-artifact@v4
+        with:
+          name: biome-formatted-source
+          path: /tmp/biome-formatted.tar.gz
+          retention-days: 1
       - run: bun run lint:ts
       - run: bun run typecheck
       - run: bun run test:ts
