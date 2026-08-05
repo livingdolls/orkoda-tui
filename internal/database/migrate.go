@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const latestSchemaVersion = 3
+const latestSchemaVersion = 4
 
 var foundationStatements = []string{
 	`CREATE TABLE IF NOT EXISTS projects (
@@ -296,6 +296,24 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, applied_at) VALUES (3, 'repository-trust-check-artifact-and-idempotency', strftime('%s','now') * 1000)`); err != nil {
 			return fmt.Errorf("record repository migration: %w", err)
+		}
+	}
+
+	if version < 4 {
+		if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS llm_provider_configs (
+			name TEXT PRIMARY KEY,
+			base_url TEXT NOT NULL,
+			default_model TEXT NOT NULL,
+			json_mode TEXT NOT NULL CHECK (json_mode IN ('json_schema','json_object','prompt_only')),
+			timeout_ms INTEGER NOT NULL CHECK (timeout_ms >= 1000 AND timeout_ms <= 600000),
+			headers_json TEXT NOT NULL DEFAULT '{}',
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`); err != nil {
+			return fmt.Errorf("create LLM provider configuration table: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, applied_at) VALUES (4, 'tui-managed-llm-providers', strftime('%s','now') * 1000)`); err != nil {
+			return fmt.Errorf("record LLM provider migration: %w", err)
 		}
 	}
 

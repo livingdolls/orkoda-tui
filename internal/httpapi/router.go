@@ -46,6 +46,7 @@ type RouterServices struct {
 	Reviews             ReviewRegistry
 	Approvals           ApprovalRegistry
 	LLMProviders        LLMProviderCatalog
+	LLMProviderAdmin    LLMProviderAdmin
 	LLMPolicy           LLMPolicyReader
 	DefaultLLMProvider  string
 	DefaultLLMModel     string
@@ -193,7 +194,7 @@ func NewRouterWithServices(
 	)
 	registerApprovalRoutes(api, services.Approvals)
 	registerPublicationRoutes(api, services.Publications, services.WorkflowJobs, services.Repositories, services.Workspaces, services.RemotePublisher)
-	registerLLMRoutes(api, services.LLMProviders, services.LLMPolicy)
+	registerLLMRoutes(api, services.LLMProviders, services.LLMProviderAdmin, services.LLMPolicy)
 
 	return router
 }
