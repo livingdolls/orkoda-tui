@@ -55,6 +55,7 @@ export function App() {
   const [connection, setConnection] = useState<DaemonConnection>(initialDaemonConnection)
   const [terminalWidth, setTerminalWidth] = useState(0)
   const [boardInteractionActive, setBoardInteractionActive] = useState(false)
+  const [settingsInteractionActive, setSettingsInteractionActive] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [lastEvent, setLastEvent] = useState<ActivityEvent | null>(null)
@@ -69,7 +70,7 @@ export function App() {
 
   useKeyboard((key) => {
     if (showPalette) return
-    if (boardInteractionActive) return
+    if (boardInteractionActive || settingsInteractionActive) return
     if (showHelp) {
       if (key.name === "escape" || key.name === "?") setShowHelp(false)
       return
@@ -297,7 +298,10 @@ export function App() {
           ) : activeScreen === "agents" ? (
             <AgentSettingsScreen connection={connection} />
           ) : activeScreen === "settings" ? (
-            <SettingsScreen connection={connection} />
+            <SettingsScreen
+              connection={connection}
+              onInteractionChange={setSettingsInteractionActive}
+            />
           ) : (
             <SystemScreen connection={connection} diagnostics={diagnostics} />
           )}
@@ -422,6 +426,13 @@ function HelpScreen({ screen }: { screen: Screen }) {
     { key: "A / V / X", label: "approve, revise, or reject inside workflow detail" },
     { key: "R", label: "refresh all execution and review stages" },
   ]
+  const settingsShortcuts: Shortcut[] = [
+    { key: "↑↓", label: "select provider" },
+    { key: "N", label: "add provider" },
+    { key: "Enter", label: "edit provider" },
+    { key: "T", label: "test connection" },
+    { key: "D", label: "delete TUI provider" },
+  ]
   const general: Shortcut[] = [
     { key: "1–4", label: "jump to Board, Agents, Settings, or System" },
     { key: "/", label: "search actions" },
@@ -436,7 +447,13 @@ function HelpScreen({ screen }: { screen: Screen }) {
       <Section title={screen === "board" ? "Unified Board" : "Current area"}>
         <Card>
           <KeyHints
-            shortcuts={screen === "board" ? boardShortcuts : [{ key: "←→", label: "switch area" }]}
+            shortcuts={
+              screen === "board"
+                ? boardShortcuts
+                : screen === "settings"
+                  ? settingsShortcuts
+                  : [{ key: "←→", label: "switch area" }]
+            }
           />
         </Card>
       </Section>
