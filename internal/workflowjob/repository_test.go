@@ -505,3 +505,52 @@ func TestRestartFailedWorkflowFromBeginning(t *testing.T) {
 		t.Fatalf("dispatch type=%q payload=%s", jobType, payloadJSON)
 	}
 }
+
+func TestExecutionStartedPreservesCurrentDispatch(t *testing.T) {
+	repository, _, db, _, input := openWorkflowRepository(t, "READY")
+	defer db.Close()
+	ctx := context.Background()
+
+	job, err := repository.Create(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err = repository.Transition(ctx, job.ID, TransitionInput{
+		ExpectedVersion: job.Version,
+		Action:          ActionStart,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err = repository.Transition(ctx, job.ID, TransitionInput{
+		ExpectedVersion: job.Version,
+		Action:          ActionWorkspaceReady,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchID := job.CurrentDispatchID
+	if dispatchID == "" {
+		t.Fatal("queued workflow has no execute dispatch")
+	}
+
+	job, err = repository.Transition(ctx, job.ID, TransitionInput{
+		ExpectedVersion: job.Version,
+		Action:          ActionExecutionStarted,
+		Details:         map[string]any{"dispatch_job_id": dispatchID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != StatusExecuting || job.CurrentDispatchID != dispatchID {
+		t.Fatalf("job = %#v", job)
+	}
+	transitions, err := repository.ListTransitions(ctx, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := transitions[len(transitions)-1]
+	if last.Action != ActionExecutionStarted || last.DispatchJobID != dispatchID {
+		t.Fatalf("last transition = %#v", last)
+	}
+}

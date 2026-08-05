@@ -186,6 +186,8 @@ func openFailureRecoveryDB(t *testing.T) *sql.DB {
 		CREATE TABLE workflow_jobs (
 			id TEXT PRIMARY KEY,
 			status TEXT NOT NULL,
+			version INTEGER NOT NULL DEFAULT 1,
+			current_dispatch_id TEXT,
 			execution_version INTEGER NOT NULL
 		);
 		CREATE TABLE executions (
@@ -196,6 +198,18 @@ func openFailureRecoveryDB(t *testing.T) *sql.DB {
 			failure_code TEXT,
 			failure_message TEXT,
 			updated_at INTEGER NOT NULL
+		);
+		CREATE TABLE jobs (
+			id TEXT PRIMARY KEY,
+			type TEXT NOT NULL,
+			status TEXT NOT NULL,
+			last_error TEXT
+		);
+		CREATE TABLE workflow_job_transitions (
+			workflow_job_id TEXT NOT NULL,
+			action TEXT NOT NULL,
+			workflow_version INTEGER NOT NULL,
+			details_json TEXT NOT NULL DEFAULT '{}'
 		)
 	`)
 	if err != nil {
@@ -203,4 +217,107 @@ func openFailureRecoveryDB(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	return db
+}
+
+func TestSettleFinalDispatchFailureMarksWorkflowFailed(t *testing.T) {
+	store := &failureWorkflowStore{jobs: map[string]workflowjob.Job{
+		"workflow-1": {
+			ID: "workflow-1", Status: workflowjob.StatusExecuting, Version: 4,
+			CurrentDispatchID: "dispatch-1",
+		},
+	}}
+	handler := &Handler{workflows: store}
+	settled, err := handler.settleFinalDispatchFailure(
+		context.Background(),
+		"workflow-1",
+		jobqueue.Job{ID: "dispatch-1", Attempts: 3, MaxAttempts: 3},
+		errors.New("load Executor settings: provider unavailable"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !settled || store.jobs["workflow-1"].Status != workflowjob.StatusFailed {
+		t.Fatalf("settled=%v workflow=%#v", settled, store.jobs["workflow-1"])
+	}
+	if store.jobs["workflow-1"].FailureCode != "EXECUTOR_FAILED" {
+		t.Fatalf("failure code = %q", store.jobs["workflow-1"].FailureCode)
+	}
+}
+
+func TestSettleDispatchFailureWaitsForFinalAttemptAndRejectsStaleJob(t *testing.T) {
+	store := &failureWorkflowStore{jobs: map[string]workflowjob.Job{
+		"workflow-1": {
+			ID: "workflow-1", Status: workflowjob.StatusExecuting, Version: 4,
+			CurrentDispatchID: "dispatch-current",
+		},
+	}}
+	handler := &Handler{workflows: store}
+	settled, err := handler.settleFinalDispatchFailure(
+		context.Background(), "workflow-1",
+		jobqueue.Job{ID: "dispatch-current", Attempts: 1, MaxAttempts: 3},
+		errors.New("temporary error"),
+	)
+	if err != nil || settled {
+		t.Fatalf("non-final settled=%v error=%v", settled, err)
+	}
+	settled, err = handler.settleFinalDispatchFailure(
+		context.Background(), "workflow-1",
+		jobqueue.Job{ID: "dispatch-stale", Attempts: 3, MaxAttempts: 3},
+		errors.New("stale error"),
+	)
+	if err != nil || settled || len(store.transitions) != 0 {
+		t.Fatalf("stale settled=%v error=%v transitions=%#v", settled, err, store.transitions)
+	}
+}
+
+func TestReconcileDeadExecutionDispatchesRepairsCurrentAndLegacyWorkflows(t *testing.T) {
+	db := openFailureRecoveryDB(t)
+	defer db.Close()
+	_, err := db.Exec(`
+		INSERT INTO workflow_jobs (
+			id, status, version, current_dispatch_id, execution_version
+		) VALUES
+			('workflow-queued', 'QUEUED', 3, 'dispatch-queued', 1),
+			('workflow-legacy', 'EXECUTING', 7, NULL, 2),
+			('workflow-live', 'EXECUTING', 4, 'dispatch-live', 1);
+		INSERT INTO jobs (id, type, status, last_error) VALUES
+			('dispatch-queued', 'workflow.execute', 'DEAD', 'settings unavailable'),
+			('dispatch-legacy', 'workflow.execute', 'DEAD', 'write lease failed'),
+			('dispatch-live', 'workflow.execute', 'RUNNING', NULL);
+		INSERT INTO workflow_job_transitions (
+			workflow_job_id, action, workflow_version, details_json
+		) VALUES
+			('workflow-legacy', 'EXECUTION_STARTED', 7, '{"dispatch_job_id":"dispatch-legacy"}')
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, _ := NewRepository(db)
+	store := &failureWorkflowStore{jobs: map[string]workflowjob.Job{
+		"workflow-queued": {
+			ID: "workflow-queued", Status: workflowjob.StatusQueued, Version: 3,
+			CurrentDispatchID: "dispatch-queued", ExecutionVersion: 1,
+		},
+		"workflow-legacy": {
+			ID: "workflow-legacy", Status: workflowjob.StatusExecuting, Version: 7,
+			ExecutionVersion: 2,
+		},
+		"workflow-live": {
+			ID: "workflow-live", Status: workflowjob.StatusExecuting, Version: 4,
+			CurrentDispatchID: "dispatch-live", ExecutionVersion: 1,
+		},
+	}}
+
+	recovered, err := repository.ReconcileDeadExecutionDispatches(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered != 2 || len(store.transitions) != 2 {
+		t.Fatalf("recovered=%d transitions=%#v", recovered, store.transitions)
+	}
+	if store.jobs["workflow-queued"].Status != workflowjob.StatusFailed ||
+		store.jobs["workflow-legacy"].Status != workflowjob.StatusFailed ||
+		store.jobs["workflow-live"].Status != workflowjob.StatusExecuting {
+		t.Fatalf("jobs = %#v", store.jobs)
+	}
 }

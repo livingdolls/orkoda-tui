@@ -306,6 +306,20 @@ func run() error {
 			recoveredExecutorFailures,
 		)
 	}
+	recoveredDeadExecutorDispatches, err := executionRepository.ReconcileDeadExecutionDispatches(
+		runtimeCtx,
+		workflowJobRepository,
+	)
+	if err != nil {
+		return err
+	}
+	if recoveredDeadExecutorDispatches > 0 {
+		logger.Warn(
+			"recovered workflows with dead Executor dispatches",
+			"count",
+			recoveredDeadExecutorDispatches,
+		)
+	}
 	checkRepository, err := checks.NewRepository(db)
 	if err != nil {
 		return err

@@ -102,7 +102,7 @@ type dispatchPayload struct {
 	TargetStatus    workflowjob.Status `json:"target_status"`
 }
 
-func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) error {
+func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) (resultErr error) {
 	payload, err := decodeExecutionDispatch(queueJob.PayloadJSON)
 	if err != nil {
 		return err
@@ -121,6 +121,27 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 	if job.CancellationRequested {
 		return context.Canceled
 	}
+	if job.CurrentDispatchID != "" && job.CurrentDispatchID != queueJob.ID {
+		// A newer Retry, Continue, or Restart dispatch replaced this job.
+		return nil
+	}
+	defer func() {
+		if resultErr == nil || ctx.Err() != nil || errors.Is(resultErr, context.Canceled) {
+			return
+		}
+		settled, settleErr := h.settleFinalDispatchFailure(
+			context.WithoutCancel(ctx), payload.WorkflowJobID, queueJob, resultErr,
+		)
+		if settleErr != nil {
+			resultErr = errors.Join(resultErr, settleErr)
+			return
+		}
+		if settled {
+			// The workflow now carries the durable error and exposes Retry/Restart.
+			// Completing the queue job avoids leaving a redundant DEAD dispatch.
+			resultErr = nil
+		}
+	}()
 
 	job, err = h.ensureExecuting(ctx, job, payload, queueJob.ID)
 	if err != nil {
@@ -416,40 +437,70 @@ func (h *Handler) failWorkflow(
 	queueJob jobqueue.Job,
 	cause error,
 ) error {
-	current, err := h.workflows.Get(ctx, job.ID)
+	_, err := h.markWorkflowFailed(ctx, job.ID, queueJob, cause)
+	return err
+}
+
+func (h *Handler) settleFinalDispatchFailure(
+	ctx context.Context,
+	workflowID string,
+	queueJob jobqueue.Job,
+	cause error,
+) (bool, error) {
+	if queueJob.Attempts < queueJob.MaxAttempts {
+		return false, nil
+	}
+	return h.markWorkflowFailed(ctx, workflowID, queueJob, cause)
+}
+
+func (h *Handler) markWorkflowFailed(
+	ctx context.Context,
+	workflowID string,
+	queueJob jobqueue.Job,
+	cause error,
+) (bool, error) {
+	current, err := h.workflows.Get(ctx, workflowID)
 	if err != nil {
-		return fmt.Errorf("load workflow after Executor failure: %w", err)
+		return false, fmt.Errorf("load workflow after Executor failure: %w", err)
 	}
-	if current.Status != workflowjob.StatusExecuting {
-		return nil
+	if current.Status != workflowjob.StatusExecuting && current.Status != workflowjob.StatusQueued {
+		return false, nil
 	}
-	code, message, _ := classifyExecutorError(cause)
+	if current.CurrentDispatchID != "" && current.CurrentDispatchID != queueJob.ID {
+		return false, nil
+	}
+	code, message, paused := classifyExecutorError(cause)
+	if paused {
+		return false, nil
+	}
 	updated, err := h.workflows.Transition(ctx, current.ID, workflowjob.TransitionInput{
 		ExpectedVersion: current.Version,
 		Action:          workflowjob.ActionFail,
 		FailureCode:     code,
 		FailureMessage:  message,
 		Details: map[string]any{
-			"attempt":      queueJob.Attempts,
-			"max_attempts": queueJob.MaxAttempts,
-			"terminal":     true,
+			"attempt":         queueJob.Attempts,
+			"max_attempts":    queueJob.MaxAttempts,
+			"terminal":        true,
+			"dispatch_job_id": queueJob.ID,
 		},
 	})
 	if err != nil {
-		if errors.Is(err, workflowjob.ErrVersionConflict) {
+		if errors.Is(err, workflowjob.ErrVersionConflict) || errors.Is(err, workflowjob.ErrInvalidTransition) {
 			latest, getErr := h.workflows.Get(ctx, current.ID)
-			if getErr == nil && latest.Status != workflowjob.StatusExecuting {
-				return nil
+			if getErr == nil && latest.Status != workflowjob.StatusExecuting && latest.Status != workflowjob.StatusQueued {
+				return false, nil
 			}
 		}
-		return fmt.Errorf("mark workflow failed after Executor failure: %w", err)
+		return false, fmt.Errorf("mark workflow failed after Executor failure: %w", err)
 	}
 	h.record(ctx, updated.ID, "execution.failed", map[string]any{
 		"failure_code":    code,
 		"failure_message": message,
 		"attempt":         queueJob.Attempts,
+		"dispatch_job_id": queueJob.ID,
 	}, time.Now().UTC())
-	return nil
+	return true, nil
 }
 
 func (h *Handler) renewLease(
