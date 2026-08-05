@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const latestSchemaVersion = 5
+const latestSchemaVersion = 6
 
 var foundationStatements = []string{
 	`CREATE TABLE IF NOT EXISTS projects (
@@ -334,6 +334,24 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, applied_at) VALUES (5, 'workflow-agent-selection', strftime('%s','now') * 1000)`); err != nil {
 			return fmt.Errorf("record workflow agent selection migration: %w", err)
+		}
+	}
+
+	if version < 6 {
+		for _, column := range []struct {
+			name       string
+			definition string
+		}{
+			{name: "max_executor_turns", definition: "INTEGER NOT NULL DEFAULT 32 CHECK (max_executor_turns > 0)"},
+			{name: "max_consecutive_tool_errors", definition: "INTEGER NOT NULL DEFAULT 3 CHECK (max_consecutive_tool_errors > 0)"},
+			{name: "max_no_progress_turns", definition: "INTEGER NOT NULL DEFAULT 4 CHECK (max_no_progress_turns > 0)"},
+		} {
+			if err := ensureColumn(ctx, tx, "workflow_jobs", column.name, column.definition); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, applied_at) VALUES (6, 'executor-budget-controls', strftime('%s','now') * 1000)`); err != nil {
+			return fmt.Errorf("record executor budget migration: %w", err)
 		}
 	}
 

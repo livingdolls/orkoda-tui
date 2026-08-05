@@ -28,8 +28,9 @@ type createWorkflowJobRequest struct {
 }
 
 type workflowActionRequest struct {
-	ExpectedVersion int            `json:"expected_version"`
-	Details         map[string]any `json:"details"`
+	ExpectedVersion         int            `json:"expected_version"`
+	Details                 map[string]any `json:"details"`
+	AdditionalExecutorTurns int            `json:"additional_executor_turns"`
 }
 
 func registerWorkflowJobRoutes(api *gin.RouterGroup, registry WorkflowJobRegistry) {
@@ -112,6 +113,27 @@ func registerWorkflowJobRoutes(api *gin.RouterGroup, registry WorkflowJobRegistr
 	registerWorkflowAction(api, registry, "/jobs/:jobID/start", workflowjob.ActionStart)
 	registerWorkflowAction(api, registry, "/jobs/:jobID/cancel", workflowjob.ActionCancel)
 	registerWorkflowAction(api, registry, "/jobs/:jobID/retry", workflowjob.ActionRetry)
+	api.POST("/jobs/:jobID/continue", func(c *gin.Context) {
+		if !requireWorkflowJobRegistry(c, registry) {
+			return
+		}
+		var request workflowActionRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			writeError(c, http.StatusBadRequest, "request body must contain expected_version and additional_executor_turns")
+			return
+		}
+		job, err := registry.Transition(c.Request.Context(), c.Param("jobID"), workflowjob.TransitionInput{
+			ExpectedVersion:         request.ExpectedVersion,
+			Action:                  workflowjob.ActionContinueExecution,
+			AdditionalExecutorTurns: request.AdditionalExecutorTurns,
+			Details:                 request.Details,
+		})
+		if err != nil {
+			writeWorkflowJobError(c, err)
+			return
+		}
+		writeData(c, http.StatusOK, job)
+	})
 	registerWorkflowAction(api, registry, "/jobs/:jobID/publish", workflowjob.ActionPublish)
 }
 

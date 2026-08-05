@@ -210,3 +210,25 @@ func TestWorkflowRoutesRequireRegistryAndValidJSON(t *testing.T) {
 		t.Fatalf("invalid status = %d body = %s", invalid.Code, invalid.Body.String())
 	}
 }
+
+func TestWorkflowContinueRoute(t *testing.T) {
+	registry := &fakeWorkflowJobRegistry{job: testWorkflowJob()}
+	router := workflowRouter(registry)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/jobs/workflow-1/continue", strings.NewReader(`{
+		"expected_version":7,
+		"additional_executor_turns":16,
+		"details":{"requested_by":"board"}
+	}`))
+	request.Header.Set("content-type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("continue status = %d body = %s", response.Code, response.Body.String())
+	}
+	if registry.transitionInput.Action != workflowjob.ActionContinueExecution ||
+		registry.transitionInput.ExpectedVersion != 7 ||
+		registry.transitionInput.AdditionalExecutorTurns != 16 ||
+		registry.transitionInput.Details["requested_by"] != "board" {
+		t.Fatalf("continue input = %#v", registry.transitionInput)
+	}
+}

@@ -42,7 +42,12 @@ import {
   truncate,
 } from "./ui"
 import { workflowFailureSummary } from "./workflow-failure"
-import { createWorkflowJob, performWorkflowAction, type WorkflowJob } from "./workflow-jobs"
+import {
+  continueWorkflow,
+  createWorkflowJob,
+  performWorkflowAction,
+  type WorkflowJob,
+} from "./workflow-jobs"
 
 type BoardMode = "board" | "new-project" | "new-plan" | "questions" | "detail"
 type LoadState = "idle" | "loading" | "ready" | "error"
@@ -369,6 +374,34 @@ export function BoardScreen({
     }
   }
 
+  const continueExecutor = async (item: BoardItem, additionalTurns: 8 | 16) => {
+    if (!item.workflow || busy) return
+    setBusy(true)
+    setMessage(`Continuing Executor with ${additionalTurns} additional turns...`)
+    try {
+      const workflow = await continueWorkflow(
+        item.workflow.id,
+        item.workflow.version,
+        additionalTurns,
+      )
+      setItems((current) =>
+        current.map((candidate) =>
+          candidate.id === item.id
+            ? createBoardItem(candidate.project, candidate.plan, workflow, candidate.reviewCard)
+            : candidate,
+        ),
+      )
+      setMessage(
+        `Executor resumed with a ${workflow.limits.max_executor_turns ?? "larger"}-turn budget.`,
+      )
+      await reload()
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to continue the Executor")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const executeAction = async (action: BoardAction, item: BoardItem) => {
     setActionMenuOpen(false)
     setActionIndex(0)
@@ -389,6 +422,12 @@ export function BoardScreen({
         break
       case "retry":
         await transitionWorkflow(item, "retry")
+        break
+      case "continue-8":
+        await continueExecutor(item, 8)
+        break
+      case "continue-16":
+        await continueExecutor(item, 16)
         break
       case "cancel":
         await transitionWorkflow(item, "cancel")

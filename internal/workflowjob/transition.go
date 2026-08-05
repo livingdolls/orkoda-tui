@@ -40,6 +40,7 @@ const (
 	ActionFail                 Action = "FAIL"
 	ActionRetry                Action = "RETRY"
 	ActionCancel               Action = "CANCEL"
+	ActionContinueExecution    Action = "CONTINUE_EXECUTION"
 )
 
 var transitionTable = map[Status]map[Action]Status{
@@ -99,6 +100,12 @@ func nextStatus(current Status, action Action, retryStatus Status) (Status, erro
 		}
 		return StatusFailed, nil
 	}
+	if action == ActionContinueExecution {
+		if current != StatusFailed || (retryStatus != StatusExecuting && retryStatus != StatusQueued) {
+			return "", invalidTransition(current, action)
+		}
+		return StatusQueued, nil
+	}
 	if action == ActionRetry {
 		if current != StatusFailed || retryStatus == "" {
 			return "", invalidTransition(current, action)
@@ -120,7 +127,7 @@ func dispatchFor(action Action) (string, bool) {
 	switch action {
 	case ActionStart:
 		return "workflow.prepare_workspace", true
-	case ActionWorkspaceReady, ActionQueueRevision:
+	case ActionWorkspaceReady, ActionQueueRevision, ActionContinueExecution:
 		return "workflow.execute", true
 	case ActionExecutionCompleted:
 		return "workflow.run_checks", true
@@ -144,4 +151,15 @@ func isTerminal(status Status) bool {
 
 func invalidTransition(status Status, action Action) error {
 	return fmt.Errorf("%w: action %s is not allowed from %s", ErrInvalidTransition, action, status)
+}
+
+func isExecutorPauseCode(code string) bool {
+	switch code {
+	case "EXECUTOR_BUDGET_EXHAUSTED", "EXECUTOR_NO_PROGRESS",
+		"EXECUTOR_REPEATED_TOOL_FAILURE", "EXECUTOR_REPEATED_ACTION",
+		"EXECUTOR_TOOL_CALL_LIMIT":
+		return true
+	default:
+		return false
+	}
 }

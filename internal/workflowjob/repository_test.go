@@ -106,7 +106,9 @@ func TestCreateAndStartWorkflowAtomicallyEnqueuesDispatch(t *testing.T) {
 		t.Fatalf("created = %#v", created)
 	}
 	if created.Limits.MaxRevisions != 3 || created.Limits.MaxStageAttempts != 3 ||
-		created.Limits.MaxToolCalls != 120 || created.Limits.WallClockSeconds != 3600 {
+		created.Limits.MaxExecutorTurns != 32 || created.Limits.MaxToolCalls != 24 ||
+		created.Limits.MaxConsecutiveToolErrors != 3 || created.Limits.MaxNoProgressTurns != 4 ||
+		created.Limits.WallClockSeconds != 3600 {
 		t.Fatalf("default limits = %#v", created.Limits)
 	}
 
@@ -372,5 +374,66 @@ func TestCreateRejectsIdenticalWorkflowAgents(t *testing.T) {
 	_, err := repository.Create(context.Background(), input)
 	if !errors.Is(err, ErrInvalidJob) || !strings.Contains(err.Error(), "different provider/model") {
 		t.Fatalf("Create() error = %v", err)
+	}
+}
+
+func TestContinuePausedExecutor(t *testing.T) {
+	repository, _, db, _, input := openWorkflowRepository(t, "READY")
+	defer db.Close()
+	ctx := context.Background()
+
+	job, err := repository.Create(ctx, input)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	for _, action := range []Action{ActionStart, ActionWorkspaceReady, ActionExecutionStarted} {
+		job, err = repository.Transition(ctx, job.ID, TransitionInput{
+			ExpectedVersion: job.Version,
+			Action:          action,
+		})
+		if err != nil {
+			t.Fatalf("Transition(%s) error = %v", action, err)
+		}
+	}
+	failed, err := repository.Transition(ctx, job.ID, TransitionInput{
+		ExpectedVersion: job.Version,
+		Action:          ActionFail,
+		FailureCode:     "EXECUTOR_BUDGET_EXHAUSTED",
+		FailureMessage:  "implementation still needs two files",
+	})
+	if err != nil {
+		t.Fatalf("pause Executor error = %v", err)
+	}
+	if failed.Status != StatusFailed || failed.RetryStatus != StatusExecuting {
+		t.Fatalf("failed = %#v", failed)
+	}
+
+	continued, err := repository.Transition(ctx, failed.ID, TransitionInput{
+		ExpectedVersion:         failed.Version,
+		Action:                  ActionContinueExecution,
+		AdditionalExecutorTurns: 8,
+		Details:                 map[string]any{"requested_by": "test"},
+	})
+	if err != nil {
+		t.Fatalf("continue error = %v", err)
+	}
+	if continued.Status != StatusQueued || continued.Limits.MaxExecutorTurns != 40 ||
+		continued.FailureCode != "" || continued.FailureMessage != "" ||
+		continued.RetryStatus != "" || continued.CurrentDispatchID == "" {
+		t.Fatalf("continued = %#v", continued)
+	}
+	if continued.ExecutionVersion != 1 {
+		t.Fatalf("execution version changed before dispatch: %d", continued.ExecutionVersion)
+	}
+
+	executing, err := repository.Transition(ctx, continued.ID, TransitionInput{
+		ExpectedVersion: continued.Version,
+		Action:          ActionExecutionStarted,
+	})
+	if err != nil {
+		t.Fatalf("execution started error = %v", err)
+	}
+	if executing.Status != StatusExecuting || executing.ExecutionVersion != 2 {
+		t.Fatalf("executing = %#v", executing)
 	}
 }

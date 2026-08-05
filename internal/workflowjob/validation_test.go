@@ -37,3 +37,12 @@ func TestValidateBaseBranchRejectsUnsafeNames(t *testing.T) {
 		}
 	}
 }
+
+func TestExecutorContinuationCodes(t *testing.T) {
+	if !isExecutorPauseCode("EXECUTOR_BUDGET_EXHAUSTED") || isExecutorPauseCode("EXECUTOR_FAILED") {
+		t.Fatal("unexpected executor pause code classification")
+	}
+	if next, err := nextStatus(StatusFailed, ActionContinueExecution, StatusExecuting); err != nil || next != StatusQueued {
+		t.Fatalf("continue next = %s, %v", next, err)
+	}
+}

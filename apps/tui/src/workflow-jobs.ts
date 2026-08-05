@@ -27,7 +27,10 @@ export type WorkspaceStatus =
 export type WorkflowLimits = {
   max_revisions: number
   max_stage_attempts: number
+  max_executor_turns?: number
   max_tool_calls: number
+  max_consecutive_tool_errors?: number
+  max_no_progress_turns?: number
   wall_clock_seconds: number
 }
 
@@ -256,6 +259,26 @@ export function performWorkflowAction(
     {
       method: "POST",
       body: JSON.stringify({ expected_version: expectedVersion, details }),
+    },
+    fetcher,
+  )
+}
+
+export function continueWorkflow(
+  jobID: string,
+  expectedVersion: number,
+  additionalExecutorTurns: 8 | 16,
+  fetcher: WorkflowFetch = fetch,
+): Promise<WorkflowJob> {
+  return request<WorkflowJob>(
+    `/api/v1/jobs/${jobID}/continue`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        expected_version: expectedVersion,
+        additional_executor_turns: additionalExecutorTurns,
+        details: { requested_by: "kanban-board" },
+      }),
     },
     fetcher,
   )

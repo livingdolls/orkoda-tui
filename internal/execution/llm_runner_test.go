@@ -14,6 +14,7 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/agentconfig"
 	"github.com/livingdolls/orkoda-tui/internal/database"
 	"github.com/livingdolls/orkoda-tui/internal/llm"
+	"github.com/livingdolls/orkoda-tui/internal/workflowjob"
 	"github.com/livingdolls/orkoda-tui/internal/workspace"
 )
 
@@ -214,5 +215,166 @@ func TestSafeActionSummaryDoesNotPersistFileContent(t *testing.T) {
 	}
 	if strings.Contains(string(payload), "do-not-persist") || summary["content_bytes"] != len("do-not-persist") {
 		t.Fatalf("unsafe summary = %s", payload)
+	}
+}
+
+func TestNormalizeExecutorBudget(t *testing.T) {
+	budget := normalizeExecutorBudget(ExecutorBudget{})
+	if budget.MaxTurns != 32 || budget.MaxConsecutiveToolErrors != 3 || budget.MaxNoProgressTurns != 4 {
+		t.Fatalf("budget = %#v", budget)
+	}
+}
+
+func TestClassifyExecutorPauseError(t *testing.T) {
+	code, message, paused := classifyExecutorError(pauseExecutor(ExecutorBudgetExhaustedCode, "more work"))
+	if !paused || code != ExecutorBudgetExhaustedCode || message != "more work" {
+		t.Fatalf("classification = %q %q %v", code, message, paused)
+	}
+}
+
+func TestLLMRunnerUsesReservedFinalizationTurn(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "orkoda.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@example.com")
+	runGit(t, root, "config", "user.name", "Test")
+	writeTestFile(t, root, "README.md", "# Fixture\n")
+	runGit(t, root, "add", "README.md")
+	runGit(t, root, "commit", "-m", "initial")
+	head := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+	seedExecutorLoop(t, db, root, head)
+	repository, _ := NewRepository(db)
+	executionItem, _, err := repository.CreateOrGet(ctx, CreateInput{
+		WorkflowJobID: "workflow-1", WorkflowVersion: 3, ExecutionVersion: 1,
+		PlanVersionID: "plan-version-1", WorkspaceID: "workspace-1", BaseCommitSHA: head,
+		AgentSettingsVersion: 1, Provider: "fake", Model: "fake-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector, _ := NewContextSelector(db)
+	runner, _ := NewLLMRunner(&sequenceGateway{responses: []llm.Response{
+		fakeExecutorResponse(`{"type":"tool","tool":"git_status","arguments":{},"summary":"inspect"}`),
+		fakeExecutorResponse(`{"type":"finish","summary":"done"}`),
+	}}, selector, repository)
+	policy := agentconfig.ToolPolicy{Role: agentconfig.RoleExecutor, AllowedTools: []string{agentconfig.ToolGitStatus}, FilesystemAccess: agentconfig.FilesystemWorkspaceWrite, MaxFileBytes: 1024 * 1024, MaxPatchBytes: 1024 * 1024}
+	tools := &RecordedTools{repository: repository, execution: executionItem, toolset: Toolset{Root: root, Policy: policy}, maxCalls: 10}
+	if err := runner.Run(ctx, RunContext{Execution: executionItem, Workspace: workspace.Workspace{ID: "workspace-1", Path: root}, Tools: tools, Budget: ExecutorBudget{MaxTurns: 2}}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	iterations, _ := repository.ListIterations(ctx, executionItem.ID)
+	if len(iterations) != 2 || iterations[1].ActionType != "finish" {
+		t.Fatalf("iterations = %#v", iterations)
+	}
+}
+
+func TestWorkspaceProgressFingerprintTracksPatchContent(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@example.com")
+	runGit(t, root, "config", "user.name", "Test")
+	writeTestFile(t, root, "main.go", "package main\n")
+	runGit(t, root, "add", "main.go")
+	runGit(t, root, "commit", "-m", "initial")
+	run := RunContext{
+		Workspace: workspace.Workspace{Path: root},
+		Tools:     &RecordedTools{toolset: Toolset{Root: root, Policy: agentconfig.ToolPolicy{MaxPatchBytes: 1024 * 1024}}},
+	}
+	initial, err := workspaceProgressFingerprint(ctx, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, root, "main.go", "package main\n\nfunc one() {}\n")
+	first, err := workspaceProgressFingerprint(ctx, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, root, "main.go", "package main\n\nfunc one() {}\nfunc two() {}\n")
+	second, err := workspaceProgressFingerprint(ctx, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initial == first || first == second || initial == second {
+		t.Fatalf("fingerprints did not track patch changes: %q %q %q", initial, first, second)
+	}
+}
+
+func TestSavePausedCheckpointPersistsPartialDiff(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "orkoda.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@example.com")
+	runGit(t, root, "config", "user.name", "Test")
+	writeTestFile(t, root, "README.md", "# Fixture\n")
+	runGit(t, root, "add", "README.md")
+	runGit(t, root, "commit", "-m", "initial")
+	head := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+	seedExecutorLoop(t, db, root, head)
+
+	repository, err := NewRepository(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionItem, _, err := repository.CreateOrGet(ctx, CreateInput{
+		WorkflowJobID:        "workflow-1",
+		WorkflowVersion:      3,
+		ExecutionVersion:     1,
+		PlanVersionID:        "plan-version-1",
+		WorkspaceID:          "workspace-1",
+		BaseCommitSHA:        head,
+		AgentSettingsVersion: 1,
+		Provider:             "fake",
+		Model:                "fake-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, root, "README.md", "# Fixture\n\npartial implementation\n")
+
+	handler := &Handler{executions: repository}
+	checkpoint, err := handler.savePausedCheckpoint(
+		ctx,
+		workflowjob.Job{ID: "workflow-1", BaseCommitSHA: head},
+		executionItem,
+		workspace.Workspace{ID: "workspace-1", Path: root},
+		agentconfig.ToolPolicy{MaxPatchBytes: 1024 * 1024},
+	)
+	if err != nil {
+		t.Fatalf("savePausedCheckpoint() error = %v", err)
+	}
+	if checkpoint.PatchBytes == 0 || checkpoint.PatchChecksum == "" {
+		t.Fatalf("checkpoint = %#v", checkpoint)
+	}
+	var changedFiles []string
+	if err := json.Unmarshal(checkpoint.ChangedFilesJSON, &changedFiles); err != nil {
+		t.Fatal(err)
+	}
+	if len(changedFiles) != 1 || changedFiles[0] != "README.md" {
+		t.Fatalf("changed files = %#v", changedFiles)
+	}
+	items, err := repository.ListCheckpoints(ctx, executionItem.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].PatchChecksum != checkpoint.PatchChecksum {
+		t.Fatalf("stored checkpoints = %#v", items)
 	}
 }
