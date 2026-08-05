@@ -10,9 +10,11 @@ import { workflowStatusLabel, workflowTone } from "./board-model"
 import { type CheckRun, type CheckStep, listCheckSteps, listChecks } from "./checks"
 import {
   type Execution,
+  type ExecutorIteration,
   getExecutionDiff,
   listCheckpoints,
   listExecutions,
+  listExecutorIterations,
   type PatchCheckpoint,
 } from "./executions"
 import { compareReviewIssues } from "./review-board-model"
@@ -55,6 +57,7 @@ type DetailSnapshot = {
   previousReviewIssues: ReviewIssue[]
   workspace?: Workspace
   diffLines: string[]
+  iterations: ExecutorIteration[]
 }
 
 type ManualLease = {
@@ -76,6 +79,7 @@ export function BoardDetail({
     reviewIssues: [],
     previousReviewIssues: [],
     diffLines: [],
+    iterations: [],
   })
   const [state, setState] = useState<"loading" | "ready" | "error">("loading")
   const [message, setMessage] = useState("")
@@ -100,13 +104,14 @@ export function BoardDetail({
       const check = checks[0]
       const review = reviews[0]
       const previousReview = reviews[1]
-      const [checkSteps, reviewIssues, previousReviewIssues, checkpoints, workspace] =
+      const [checkSteps, reviewIssues, previousReviewIssues, checkpoints, workspace, iterations] =
         await Promise.all([
           check ? listCheckSteps(check.id) : Promise.resolve([]),
           review ? listReviewIssues(review.id) : Promise.resolve([]),
           previousReview ? listReviewIssues(previousReview.id) : Promise.resolve([]),
           execution ? listCheckpoints(execution.id) : Promise.resolve([]),
           getWorkflowWorkspace(workflow.id).catch(() => undefined),
+          execution ? listExecutorIterations(execution.id) : Promise.resolve([]),
         ])
       const checkpoint = checkpoints.at(-1)
       const diff = execution
@@ -123,6 +128,7 @@ export function BoardDetail({
         previousReviewIssues,
         workspace,
         diffLines: diff?.lines ?? [],
+        iterations,
       })
       setState("ready")
     } catch (error) {
@@ -426,6 +432,31 @@ export function BoardDetail({
                 />
               </Card>
             </Section>
+
+            {snapshot.iterations.length > 0 ? (
+              <Section title="Executor iteration timeline" action="latest 12 durable turns">
+                <Card>
+                  {snapshot.iterations.slice(-12).map((iteration) => (
+                    <box key={iteration.id} flexDirection="column" gap={0}>
+                      <box flexDirection="row" justifyContent="space-between" gap={1}>
+                        <text fg={iteration.status === "FAILED" ? colors.danger : colors.text}>
+                          {`${iteration.sequence}. ${iteration.action_type === "finish" ? "finish" : (iteration.tool ?? "tool")}`}
+                        </text>
+                        <Chip
+                          label={iteration.status.toLowerCase()}
+                          tone={iteration.status === "FAILED" ? "danger" : "neutral"}
+                        />
+                      </box>
+                      <text fg={colors.faint} wrapMode="word">
+                        {iteration.error_message
+                          ? `${iteration.error_code ?? "TOOL_FAILED"}: ${truncate(iteration.error_message, 180)}`
+                          : truncate(String(iteration.action_summary.summary ?? "completed"), 180)}
+                      </text>
+                    </box>
+                  ))}
+                </Card>
+              </Section>
+            ) : null}
 
             {snapshot.execution || snapshot.review ? (
               <Section title="Agent handoff">

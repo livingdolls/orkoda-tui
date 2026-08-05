@@ -179,3 +179,18 @@ describe("unified board status mapping", () => {
     expect(failure.attentionReason).toContain("source repository has uncommitted changes")
   })
 })
+
+test("continues a paused Executor instead of blind retry", () => {
+  const pausedWorkflow = workflow("FAILED", {
+    status: "FAILED",
+    retry_status: "EXECUTING",
+    failure_code: "EXECUTOR_BUDGET_EXHAUSTED",
+  })
+  const item = createBoardItem(project, plan("READY"), pausedWorkflow)
+  expect(boardActions(item).map((action) => action.id)).toEqual([
+    "open-details",
+    "continue-8",
+    "continue-16",
+  ])
+  expect(item.displayStatus).toContain("Executor paused")
+})

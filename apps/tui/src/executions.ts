@@ -26,6 +26,22 @@ export type Execution = {
   }
 }
 
+export type ExecutorIteration = {
+  id: string
+  execution_id: string
+  sequence: number
+  provider: string
+  model: string
+  status: Execution["status"]
+  action_type: "tool" | "finish"
+  tool?: string
+  action_summary: Record<string, unknown>
+  result_summary: Record<string, unknown>
+  error_code?: string
+  error_message?: string
+  created_at: string
+}
+
 export type ToolRun = {
   id: string
   execution_id: string
@@ -129,4 +145,11 @@ export function getExecutionDiff(
   if (options.limit !== undefined) query.set("limit", String(options.limit))
   const suffix = query.size > 0 ? `?${query.toString()}` : ""
   return request<DiffPage>(`/api/v1/executions/${executionID}/diff${suffix}`, fetcher)
+}
+
+export function listExecutorIterations(
+  executionID: string,
+  fetcher: ExecutionFetch = fetch,
+): Promise<ExecutorIteration[]> {
+  return request<ExecutorIteration[]>(`/api/v1/executions/${executionID}/iterations`, fetcher)
 }

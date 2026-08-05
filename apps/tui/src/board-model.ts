@@ -41,6 +41,8 @@ export type BoardActionID =
   | "start-work"
   | "open-details"
   | "retry"
+  | "continue-8"
+  | "continue-16"
   | "cancel"
 
 export type BoardAction = {
@@ -161,6 +163,9 @@ export function resolveDisplayStatus(
         return assertNever(plan.status)
     }
   }
+  if (workflow.status === "FAILED" && isExecutorPaused(workflow)) {
+    return `Executor paused · ${workflow.failure_code?.toLowerCase().replaceAll("_", " ")}`
+  }
   if (workflow.status === "WAITING_FOR_APPROVAL" && hasBlockingReview(reviewCard)) {
     return `${reviewCard?.review?.blocking_issues ?? 0} blocking review issue(s)`
   }
@@ -190,7 +195,9 @@ export function resolveAttentionReason(
     case "REVISION_REQUIRED":
       return "Revision feedback is ready for the next execution"
     case "FAILED":
-      return workflowFailureSummary(workflow)
+      return isExecutorPaused(workflow)
+        ? "Executor paused safely. Continue with more turns or inspect the iteration timeline."
+        : workflowFailureSummary(workflow)
     default:
       return undefined
   }
@@ -274,12 +281,29 @@ export function boardActions(item: BoardItem): BoardAction[] {
   ]
 
   if (item.workflow.status === "FAILED") {
-    actions.push({
-      id: "retry",
-      label: "Retry workflow",
-      description: "Retry the failed stage using the workflow's current version.",
-      tone: "warning",
-    })
+    if (isExecutorPaused(item.workflow)) {
+      actions.push(
+        {
+          id: "continue-8",
+          label: "Continue Executor · +8 turns",
+          description: "Resume from the current workspace with eight additional turns.",
+          tone: "warning",
+        },
+        {
+          id: "continue-16",
+          label: "Continue Executor · +16 turns",
+          description: "Resume a larger unfinished task with sixteen additional turns.",
+          tone: "accent",
+        },
+      )
+    } else {
+      actions.push({
+        id: "retry",
+        label: "Retry workflow",
+        description: "Retry the failed stage using the workflow's current version.",
+        tone: "warning",
+      })
+    }
   }
 
   if (isActiveWorkflow(item.workflow.status)) {
@@ -392,4 +416,14 @@ function resolveFailedColumn(
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled board status: ${String(value)}`)
+}
+
+export function isExecutorPaused(workflow: WorkflowJob): boolean {
+  return new Set([
+    "EXECUTOR_BUDGET_EXHAUSTED",
+    "EXECUTOR_NO_PROGRESS",
+    "EXECUTOR_REPEATED_TOOL_FAILURE",
+    "EXECUTOR_REPEATED_ACTION",
+    "EXECUTOR_TOOL_CALL_LIMIT",
+  ]).has(workflow.failure_code ?? "")
 }

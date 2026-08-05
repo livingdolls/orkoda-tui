@@ -27,10 +27,13 @@ var (
 )
 
 type Limits struct {
-	MaxRevisions     int `json:"max_revisions"`
-	MaxStageAttempts int `json:"max_stage_attempts"`
-	MaxToolCalls     int `json:"max_tool_calls"`
-	WallClockSeconds int `json:"wall_clock_seconds"`
+	MaxRevisions             int `json:"max_revisions"`
+	MaxStageAttempts         int `json:"max_stage_attempts"`
+	MaxExecutorTurns         int `json:"max_executor_turns"`
+	MaxToolCalls             int `json:"max_tool_calls"`
+	MaxConsecutiveToolErrors int `json:"max_consecutive_tool_errors"`
+	MaxNoProgressTurns       int `json:"max_no_progress_turns"`
+	WallClockSeconds         int `json:"wall_clock_seconds"`
 }
 
 type AgentSelection struct {
@@ -88,11 +91,12 @@ type CreateInput struct {
 }
 
 type TransitionInput struct {
-	ExpectedVersion int            `json:"expected_version"`
-	Action          Action         `json:"action"`
-	FailureCode     string         `json:"failure_code"`
-	FailureMessage  string         `json:"failure_message"`
-	Details         map[string]any `json:"details"`
+	ExpectedVersion         int            `json:"expected_version"`
+	Action                  Action         `json:"action"`
+	FailureCode             string         `json:"failure_code"`
+	FailureMessage          string         `json:"failure_message"`
+	Details                 map[string]any `json:"details"`
+	AdditionalExecutorTurns int            `json:"additional_executor_turns"`
 }
 
 type DurableQueue interface {
@@ -214,14 +218,17 @@ func (r *Repository) Create(ctx context.Context, input CreateInput) (Job, error)
 			base_branch, base_commit_sha, agent_settings_version,
 			executor_provider, executor_model, reviewer_provider, reviewer_model,
 			status, version,
-			max_revisions, max_stage_attempts, max_tool_calls, wall_clock_seconds,
+			max_revisions, max_stage_attempts, max_executor_turns, max_tool_calls,
+			max_consecutive_tool_errors, max_no_progress_turns, wall_clock_seconds,
 			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, job.ID, job.ProjectID, job.PlanID, job.PlanVersionID, job.RepositoryID,
 		job.BaseBranch, job.BaseCommitSHA, job.AgentSettingsVersion,
 		job.Executor.Provider, job.Executor.Model, job.Reviewer.Provider, job.Reviewer.Model,
-		job.Status, job.Limits.MaxRevisions,
-		job.Limits.MaxStageAttempts, job.Limits.MaxToolCalls, job.Limits.WallClockSeconds,
+		job.Status, job.Limits.MaxRevisions, job.Limits.MaxStageAttempts,
+		job.Limits.MaxExecutorTurns, job.Limits.MaxToolCalls,
+		job.Limits.MaxConsecutiveToolErrors, job.Limits.MaxNoProgressTurns,
+		job.Limits.WallClockSeconds,
 		now.UnixMilli(), now.UnixMilli()); err != nil {
 		return Job{}, fmt.Errorf("insert workflow job: %w", err)
 	}
@@ -293,6 +300,15 @@ func (r *Repository) Transition(ctx context.Context, jobID string, input Transit
 		return Job{}, fmt.Errorf("%w: expected %d, current %d", ErrVersionConflict, input.ExpectedVersion, job.Version)
 	}
 
+	if input.Action == ActionContinueExecution {
+		if !isExecutorPauseCode(job.FailureCode) || (job.RetryStatus != StatusExecuting && job.RetryStatus != StatusQueued) {
+			return Job{}, invalidTransition(job.Status, input.Action)
+		}
+		if input.AdditionalExecutorTurns < 1 || input.AdditionalExecutorTurns > 64 || job.Limits.MaxExecutorTurns+input.AdditionalExecutorTurns > 128 {
+			return Job{}, fmt.Errorf("%w: additional_executor_turns must keep max_executor_turns between 1 and 128", ErrInvalidJob)
+		}
+	}
+
 	next, err := nextStatus(job.Status, input.Action, job.RetryStatus)
 	if err != nil {
 		return Job{}, err
@@ -340,6 +356,7 @@ func (r *Repository) Transition(ctx context.Context, jobID string, input Transit
 	cancellationRequested := job.CancellationRequested
 	revisionCount := job.RevisionCount
 	executionVersion := job.ExecutionVersion
+	maxExecutorTurns := job.Limits.MaxExecutorTurns
 	var completedAt *time.Time
 	if input.Action == ActionFail {
 		retryStatus = job.Status
@@ -350,6 +367,12 @@ func (r *Repository) Transition(ctx context.Context, jobID string, input Transit
 		failureMessage = input.FailureMessage
 	}
 	if input.Action == ActionRetry {
+		retryStatus = ""
+		failureCode = ""
+		failureMessage = ""
+	}
+	if input.Action == ActionContinueExecution {
+		maxExecutorTurns += input.AdditionalExecutorTurns
 		retryStatus = ""
 		failureCode = ""
 		failureMessage = ""
@@ -371,11 +394,11 @@ func (r *Repository) Transition(ctx context.Context, jobID string, input Transit
 	result, err := tx.ExecContext(ctx, `
 		UPDATE workflow_jobs
 		SET status = ?, version = ?, current_dispatch_id = ?, retry_status = ?,
-			execution_version = ?, revision_count = ?, cancellation_requested = ?,
+			execution_version = ?, revision_count = ?, max_executor_turns = ?, cancellation_requested = ?,
 			failure_code = ?, failure_message = ?, updated_at = ?, completed_at = ?
 		WHERE id = ? AND version = ?
 	`, next, nextVersion, nullableString(dispatchID), nullableStatus(retryStatus),
-		executionVersion, revisionCount, boolInteger(cancellationRequested),
+		executionVersion, revisionCount, maxExecutorTurns, boolInteger(cancellationRequested),
 		nullableString(failureCode), nullableString(failureMessage), now.UnixMilli(),
 		nullableTime(completedAt), job.ID, job.Version)
 	if err != nil {
@@ -449,7 +472,8 @@ const jobColumns = `
 	status, version,
 	COALESCE(current_dispatch_id, ''), COALESCE(retry_status, ''),
 	execution_version, revision_count, max_revisions, max_stage_attempts,
-	max_tool_calls, wall_clock_seconds, cancellation_requested,
+	max_executor_turns, max_tool_calls, max_consecutive_tool_errors,
+	max_no_progress_turns, wall_clock_seconds, cancellation_requested,
 	COALESCE(failure_code, ''), COALESCE(failure_message, ''),
 	created_at, updated_at, completed_at`
 
@@ -477,7 +501,9 @@ func scanJob(scanner interface{ Scan(...any) error }) (Job, error) {
 		&job.Executor.Provider, &job.Executor.Model,
 		&job.Reviewer.Provider, &job.Reviewer.Model, &job.Status, &job.Version,
 		&job.CurrentDispatchID, &job.RetryStatus, &job.ExecutionVersion, &job.RevisionCount,
-		&job.Limits.MaxRevisions, &job.Limits.MaxStageAttempts, &job.Limits.MaxToolCalls,
+		&job.Limits.MaxRevisions, &job.Limits.MaxStageAttempts,
+		&job.Limits.MaxExecutorTurns, &job.Limits.MaxToolCalls,
+		&job.Limits.MaxConsecutiveToolErrors, &job.Limits.MaxNoProgressTurns,
 		&job.Limits.WallClockSeconds, &cancellationRequested, &job.FailureCode,
 		&job.FailureMessage, &createdAt, &updatedAt, &completedAt,
 	)
@@ -528,8 +554,17 @@ func normalizeLimits(limits Limits) Limits {
 	if limits.MaxStageAttempts == 0 {
 		limits.MaxStageAttempts = 3
 	}
+	if limits.MaxExecutorTurns == 0 {
+		limits.MaxExecutorTurns = 32
+	}
 	if limits.MaxToolCalls == 0 {
-		limits.MaxToolCalls = 120
+		limits.MaxToolCalls = 24
+	}
+	if limits.MaxConsecutiveToolErrors == 0 {
+		limits.MaxConsecutiveToolErrors = 3
+	}
+	if limits.MaxNoProgressTurns == 0 {
+		limits.MaxNoProgressTurns = 4
 	}
 	if limits.WallClockSeconds == 0 {
 		limits.WallClockSeconds = 3600
@@ -569,8 +604,17 @@ func validateLimits(limits Limits) error {
 	if limits.MaxStageAttempts < 1 || limits.MaxStageAttempts > 10 {
 		return fmt.Errorf("%w: max_stage_attempts must be between 1 and 10", ErrInvalidJob)
 	}
+	if limits.MaxExecutorTurns < 2 || limits.MaxExecutorTurns > 128 {
+		return fmt.Errorf("%w: max_executor_turns must be between 2 and 128", ErrInvalidJob)
+	}
 	if limits.MaxToolCalls < 1 || limits.MaxToolCalls > 1000 {
 		return fmt.Errorf("%w: max_tool_calls must be between 1 and 1000", ErrInvalidJob)
+	}
+	if limits.MaxConsecutiveToolErrors < 1 || limits.MaxConsecutiveToolErrors > 10 {
+		return fmt.Errorf("%w: max_consecutive_tool_errors must be between 1 and 10", ErrInvalidJob)
+	}
+	if limits.MaxNoProgressTurns < 1 || limits.MaxNoProgressTurns > 20 {
+		return fmt.Errorf("%w: max_no_progress_turns must be between 1 and 20", ErrInvalidJob)
 	}
 	if limits.WallClockSeconds < 60 || limits.WallClockSeconds > 86400 {
 		return fmt.Errorf("%w: wall_clock_seconds must be between 60 and 86400", ErrInvalidJob)

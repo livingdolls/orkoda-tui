@@ -106,7 +106,9 @@ func TestCreateAndStartWorkflowAtomicallyEnqueuesDispatch(t *testing.T) {
 		t.Fatalf("created = %#v", created)
 	}
 	if created.Limits.MaxRevisions != 3 || created.Limits.MaxStageAttempts != 3 ||
-		created.Limits.MaxToolCalls != 120 || created.Limits.WallClockSeconds != 3600 {
+		created.Limits.MaxExecutorTurns != 32 || created.Limits.MaxToolCalls != 24 ||
+		created.Limits.MaxConsecutiveToolErrors != 3 || created.Limits.MaxNoProgressTurns != 4 ||
+		created.Limits.WallClockSeconds != 3600 {
 		t.Fatalf("default limits = %#v", created.Limits)
 	}
 
