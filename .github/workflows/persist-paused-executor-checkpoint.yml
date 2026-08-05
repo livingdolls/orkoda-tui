@@ -1,0 +1,49 @@
+name: Persist paused executor checkpoint
+
+on:
+  push:
+    branches:
+      - feat/executor-budget-controls
+    paths:
+      - scripts/persist_paused_executor_checkpoint.py
+      - .github/workflows/persist-paused-executor-checkpoint.yml
+
+permissions:
+  contents: write
+
+jobs:
+  persist:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/executor-budget-controls
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.x
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install
+      - name: Apply checkpoint persistence
+        run: python3 scripts/persist_paused_executor_checkpoint.py
+      - name: Format
+        run: |
+          gofmt -w cmd internal
+          bunx biome check --write apps/tui/src
+      - name: Validate
+        run: |
+          go test ./...
+          bun run lint:ts
+          bun run typecheck
+          bun run test:ts
+      - name: Commit checkpoint persistence
+        run: |
+          rm -f scripts/persist_paused_executor_checkpoint.py
+          rm -f .github/workflows/persist-paused-executor-checkpoint.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: persist partial evidence when Executor pauses" || exit 0
+          git push origin HEAD:feat/executor-budget-controls
