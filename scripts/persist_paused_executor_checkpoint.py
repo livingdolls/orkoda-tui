@@ -101,18 +101,16 @@ append_once(
 }''',
 )
 
-# Use the final decision type from the durable action summary in the timeline.
 replace_once(
     "apps/tui/src/board-detail.tsx",
     "{`${iteration.sequence}. ${iteration.action_type === \"finish\" ? \"finish\" : (iteration.tool ?? \"tool\")}`}",
     "{`${iteration.sequence}. ${String(iteration.action_summary.type ?? (iteration.action_type === \"finish\" ? \"finish\" : (iteration.tool ?? \"tool\")))}`}",
 )
 
-# Paused failures are a warning with Continue guidance rather than a generic retry failure.
 replace_once(
     "apps/tui/src/board-detail.tsx",
-    'import { workflowStatusLabel } from "./board-model"',
-    'import { isExecutorPaused, workflowStatusLabel } from "./board-model"',
+    'import { workflowStatusLabel, workflowTone } from "./board-model"',
+    'import { isExecutorPaused, workflowStatusLabel, workflowTone } from "./board-model"',
 )
 replace_once(
     "apps/tui/src/board-detail.tsx",
@@ -222,7 +220,6 @@ append_once(
 }''',
 )
 
-# The checkpoint test needs the workflow aggregate type.
 replace_once(
     "internal/execution/llm_runner_test.go",
     '"github.com/livingdolls/orkoda-tui/internal/workspace"',
