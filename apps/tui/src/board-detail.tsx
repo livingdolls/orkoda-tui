@@ -4,10 +4,12 @@ import type { TextareaRenderable } from "@opentui/core"
 import { useKeyboard } from "@opentui/react"
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react"
 
+import { formatAgentLiveEvent, isAgentLiveEvent } from "./agent-live"
 import { type ApprovalKind, submitApprovalDecision } from "./approvals"
 import type { BoardItem } from "./board-model"
 import { isExecutorPaused, workflowStatusLabel, workflowTone } from "./board-model"
 import { type CheckRun, type CheckStep, listCheckSteps, listChecks } from "./checks"
+import { type ActivityEvent, subscribeToEvents } from "./events"
 import {
   type Execution,
   type ExecutorIteration,
@@ -39,6 +41,7 @@ import {
 } from "./ui"
 import { collectWorkflowFailureEvidence, workflowFailureSummary } from "./workflow-failure"
 import {
+  getWorkflowJob,
   getWorkflowWorkspace,
   releaseWorkspace,
   takeOverWorkspace,
@@ -89,57 +92,101 @@ export function BoardDetail({
   const [submitting, setSubmitting] = useState(false)
   const [manualLease, setManualLease] = useState<ManualLease | null>(null)
   const [leaseBusy, setLeaseBusy] = useState(false)
+  const [liveEvents, setLiveEvents] = useState<ActivityEvent[]>([])
+  const [streamState, setStreamState] = useState<"connected" | "reconnecting" | "closed">("closed")
+  const [clock, setClock] = useState(() => Date.now())
   const noteRef = useRef<TextareaRenderable>(null)
+  const refreshInFlight = useRef(false)
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const workflowID = workflow?.id
 
-  const load = useCallback(async () => {
-    if (!workflow) return
-    setState("loading")
-    try {
-      const [executions, checks, reviews] = await Promise.all([
-        listExecutions(workflow.id),
-        listChecks(workflow.id),
-        listReviews(workflow.id),
-      ])
-      const execution = executions[0]
-      const check = checks[0]
-      const review = reviews[0]
-      const previousReview = reviews[1]
-      const [checkSteps, reviewIssues, previousReviewIssues, checkpoints, workspace, iterations] =
-        await Promise.all([
-          check ? listCheckSteps(check.id) : Promise.resolve([]),
-          review ? listReviewIssues(review.id) : Promise.resolve([]),
-          previousReview ? listReviewIssues(previousReview.id) : Promise.resolve([]),
-          execution ? listCheckpoints(execution.id) : Promise.resolve([]),
-          getWorkflowWorkspace(workflow.id).catch(() => undefined),
-          execution ? listExecutorIterations(execution.id) : Promise.resolve([]),
+  const load = useCallback(
+    async (background = false) => {
+      if (!workflowID) return
+      if (background && refreshInFlight.current) return
+      refreshInFlight.current = true
+      if (!background) setState("loading")
+      try {
+        const currentWorkflow = await getWorkflowJob(workflowID)
+        const [executions, checks, reviews] = await Promise.all([
+          listExecutions(currentWorkflow.id),
+          listChecks(currentWorkflow.id),
+          listReviews(currentWorkflow.id),
         ])
-      const checkpoint = checkpoints.at(-1)
-      const diff = execution
-        ? await getExecutionDiff(execution.id, { limit: 800 }).catch(() => undefined)
-        : undefined
-      setSnapshot({
-        execution,
-        checkpoint,
-        check,
-        checkSteps,
-        review,
-        reviewIssues,
-        previousReview,
-        previousReviewIssues,
-        workspace,
-        diffLines: diff?.lines ?? [],
-        iterations,
-      })
-      setState("ready")
-    } catch (error) {
-      setState("error")
-      setMessage(error instanceof Error ? error.message : "Failed to load workflow details")
-    }
-  }, [workflow])
+        const execution = executions[0]
+        const check = checks[0]
+        const review = reviews[0]
+        const previousReview = reviews[1]
+        const [checkSteps, reviewIssues, previousReviewIssues, checkpoints, workspace, iterations] =
+          await Promise.all([
+            check ? listCheckSteps(check.id) : Promise.resolve([]),
+            review ? listReviewIssues(review.id) : Promise.resolve([]),
+            previousReview ? listReviewIssues(previousReview.id) : Promise.resolve([]),
+            execution ? listCheckpoints(execution.id) : Promise.resolve([]),
+            getWorkflowWorkspace(currentWorkflow.id).catch(() => undefined),
+            execution ? listExecutorIterations(execution.id) : Promise.resolve([]),
+          ])
+        const checkpoint = checkpoints.at(-1)
+        const diff = execution
+          ? await getExecutionDiff(execution.id, { limit: 800 }).catch(() => undefined)
+          : undefined
+        setWorkflow(currentWorkflow)
+        setSnapshot({
+          execution,
+          checkpoint,
+          check,
+          checkSteps,
+          review,
+          reviewIssues,
+          previousReview,
+          previousReviewIssues,
+          workspace,
+          diffLines: diff?.lines ?? [],
+          iterations,
+        })
+        setState("ready")
+      } catch (error) {
+        if (!background) setState("error")
+        setMessage(error instanceof Error ? error.message : "Failed to load workflow details")
+      } finally {
+        refreshInFlight.current = false
+      }
+    },
+    [workflowID],
+  )
 
   useEffect(() => {
-    void load()
+    void load(false)
   }, [load])
+
+  useEffect(() => {
+    if (!workflowID) return
+    const scheduleRefresh = () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current)
+      refreshTimer.current = setTimeout(() => void load(true), 120)
+    }
+    const unsubscribe = subscribeToEvents({
+      jobID: workflowID,
+      onState: setStreamState,
+      onEvent: (event) => {
+        if (isAgentLiveEvent(event)) {
+          setLiveEvents((current) => {
+            if (current.some((item) => item.sequence === event.sequence)) return current
+            return [...current, event].slice(-40)
+          })
+        }
+        scheduleRefresh()
+      },
+    })
+    const poll = setInterval(() => void load(true), 5000)
+    const timer = setInterval(() => setClock(Date.now()), 1000)
+    return () => {
+      unsubscribe()
+      clearInterval(poll)
+      clearInterval(timer)
+      if (refreshTimer.current) clearTimeout(refreshTimer.current)
+    }
+  }, [workflowID, load])
 
   useEffect(() => {
     if (composer) noteRef.current?.focus()
@@ -156,6 +203,15 @@ export function BoardDetail({
     : []
 
   const reviewComparison = compareReviewIssues(snapshot.previousReviewIssues, snapshot.reviewIssues)
+  const currentLiveEvents = liveEvents.filter((event) => {
+    const version = event.payload.execution_version
+    return typeof version !== "number" || version === workflow?.execution_version
+  })
+  const lastLiveAt =
+    currentLiveEvents.at(-1)?.created_at ?? snapshot.execution?.updated_at ?? workflow?.updated_at
+  const idleSeconds = lastLiveAt
+    ? Math.max(0, Math.floor((clock - new Date(lastLiveAt).getTime()) / 1000))
+    : 0
 
   const canDecide =
     workflow?.status === "WAITING_FOR_APPROVAL" &&
@@ -436,6 +492,62 @@ export function BoardDetail({
                 />
               </Card>
             </Section>
+
+            {workflow.status === "EXECUTING" || currentLiveEvents.length > 0 ? (
+              <Section
+                title="Live Executor output"
+                action={`${streamState} · refreshes automatically`}
+              >
+                <Card>
+                  <box flexDirection="row" justifyContent="space-between" gap={1}>
+                    <text
+                      fg={streamState === "connected" ? colors.success : colors.warning}
+                      attributes={BOLD}
+                    >
+                      {streamState === "connected" ? "LIVE" : "RECONNECTING"}
+                    </text>
+                    <text fg={idleSeconds >= 90 ? colors.warning : colors.faint}>
+                      {`last progress ${idleSeconds}s ago`}
+                    </text>
+                  </box>
+                  {workflow.status === "EXECUTING" && idleSeconds >= 90 ? (
+                    <text fg={colors.warning} wrapMode="word">
+                      {`No durable progress has been recorded recently. The Executor watchdog will stop the stage after 180 seconds without progress and expose Restart from beginning.`}
+                    </text>
+                  ) : null}
+                  {currentLiveEvents.length === 0 ? (
+                    <text fg={colors.muted}>Waiting for the first Executor progress event...</text>
+                  ) : (
+                    currentLiveEvents.slice(-20).map((event) => {
+                      const line = formatAgentLiveEvent(event)
+                      const lineColor =
+                        line.tone === "danger"
+                          ? colors.danger
+                          : line.tone === "warning"
+                            ? colors.warning
+                            : line.tone === "success"
+                              ? colors.success
+                              : colors.text
+                      return (
+                        <box key={event.sequence} flexDirection="column" gap={0}>
+                          <box flexDirection="row" justifyContent="space-between" gap={1}>
+                            <text fg={lineColor}>{line.title}</text>
+                            <text fg={colors.faint}>
+                              {new Date(event.created_at).toLocaleTimeString()}
+                            </text>
+                          </box>
+                          {line.detail ? (
+                            <text fg={colors.muted} wrapMode="word">
+                              {truncate(line.detail, 240)}
+                            </text>
+                          ) : null}
+                        </box>
+                      )
+                    })
+                  )}
+                </Card>
+              </Section>
+            ) : null}
 
             {snapshot.iterations.length > 0 ? (
               <Section title="Executor iteration timeline" action="latest 12 durable turns">

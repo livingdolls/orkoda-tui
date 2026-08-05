@@ -120,6 +120,9 @@ type executorFinalAction struct {
 }
 
 func (r *LLMRunner) Run(ctx context.Context, run RunContext) error {
+	reportExecutorProgress(run, "executor.context.selecting", map[string]any{
+		"status": "reading repository and plan context",
+	})
 	if err := r.repository.RecoverRunningIterations(ctx, run.Execution.ID); err != nil {
 		return fmt.Errorf("recover executor iterations: %w", err)
 	}
@@ -135,6 +138,9 @@ func (r *LLMRunner) Run(ctx context.Context, run RunContext) error {
 	if err != nil {
 		return fmt.Errorf("marshal executor context: %w", err)
 	}
+	reportExecutorProgress(run, "executor.context.ready", map[string]any{
+		"context_bytes": len(contextJSON),
+	})
 
 	budget := normalizeExecutorBudget(run.Budget)
 	baseMessages := []llm.Message{
@@ -157,6 +163,11 @@ func (r *LLMRunner) Run(ctx context.Context, run RunContext) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		reportExecutorProgress(run, "executor.turn.started", map[string]any{
+			"turn":      index + 1,
+			"max_turns": budget.MaxTurns,
+			"status":    "waiting for model response",
+		})
 		response, err := r.gateway.Complete(ctx, run.Execution.Provider, llm.Request{
 			Model:           run.Execution.Model,
 			Messages:        compactExecutorMessages(baseMessages, history, ledger),
@@ -175,6 +186,17 @@ func (r *LLMRunner) Run(ctx context.Context, run RunContext) error {
 		if err != nil {
 			return err
 		}
+		actionSummary := safeActionSummary(action)
+		reportExecutorProgress(run, "executor.turn.received", map[string]any{
+			"turn":         index + 1,
+			"action_type":  action.Type,
+			"tool":         action.Tool,
+			"summary":      actionSummary["summary"],
+			"path":         actionSummary["path"],
+			"provider":     firstNonEmpty(response.Usage.FinalProvider, run.Execution.Provider),
+			"model":        firstNonEmpty(response.Usage.FinalModel, run.Execution.Model),
+			"total_tokens": response.Usage.TotalTokens,
+		})
 
 		fingerprint := actionFingerprint(action)
 		if fingerprint == lastActionFingerprint {
@@ -215,10 +237,22 @@ func (r *LLMRunner) Run(ctx context.Context, run RunContext) error {
 			return nil
 		}
 
+		reportExecutorProgress(run, "executor.tool.started", map[string]any{
+			"turn":  index + 1,
+			"tool":  action.Tool,
+			"path":  actionSummary["path"],
+			"query": actionSummary["query"],
+		})
 		result, summary, toolErr := executeAgentTool(ctx, run.Tools, action)
 		if toolErr != nil {
 			code := toolErrorCode(toolErr)
 			_ = r.repository.FailIteration(context.WithoutCancel(ctx), iteration.ID, code, toolErr.Error())
+			reportExecutorProgress(run, "executor.tool.failed", map[string]any{
+				"turn":       index + 1,
+				"tool":       action.Tool,
+				"error_code": code,
+				"error":      boundText(toolErr.Error(), 512),
+			})
 			ledger = append(ledger, fmt.Sprintf("%d. %s failed: %s", index+1, actionLabel(action), boundText(toolErr.Error(), 320)))
 			history = append(history,
 				llm.Message{Role: llm.RoleAssistant, Content: response.Content},
@@ -238,6 +272,11 @@ func (r *LLMRunner) Run(ctx context.Context, run RunContext) error {
 		if err := r.repository.CompleteIteration(ctx, iteration.ID, summary); err != nil {
 			return err
 		}
+		reportExecutorProgress(run, "executor.tool.completed", map[string]any{
+			"turn":   index + 1,
+			"tool":   action.Tool,
+			"result": summary,
+		})
 		consecutiveToolErrors = 0
 		ledger = append(ledger, fmt.Sprintf("%d. %s succeeded", index+1, actionLabel(action)))
 		history = append(history,
@@ -273,6 +312,10 @@ func (r *LLMRunner) finalize(
 	ledger []string,
 	turn int,
 ) error {
+	reportExecutorProgress(run, "executor.finalization.started", map[string]any{
+		"turn":   turn,
+		"status": "waiting for final completion decision",
+	})
 	messages := compactExecutorMessages(baseMessages, history, ledger)
 	messages = append(messages, llm.Message{Role: llm.RoleUser, Content: "The tool budget is exhausted. Do not call another tool. Return finish when the implementation is complete, otherwise return needs_more_work and explain what remains."})
 	response, err := r.gateway.Complete(ctx, run.Execution.Provider, llm.Request{
@@ -296,6 +339,11 @@ func (r *LLMRunner) finalize(
 	if action.Summary == "" || (action.Type != "finish" && action.Type != "needs_more_work") {
 		return fmt.Errorf("executor finalization must be finish or needs_more_work with a summary")
 	}
+	reportExecutorProgress(run, "executor.finalization.received", map[string]any{
+		"turn":     turn,
+		"decision": action.Type,
+		"summary":  boundText(action.Summary, 512),
+	})
 	iteration, err := r.repository.BeginIteration(ctx, run.Execution.ID, IterationInput{
 		Provider:      firstNonEmpty(response.Usage.FinalProvider, run.Execution.Provider),
 		Model:         firstNonEmpty(response.Usage.FinalModel, run.Execution.Model),
@@ -541,3 +589,19 @@ const executorFinalActionSchema = `{
     "summary": {"type": "string", "minLength": 1, "maxLength": 1000}
   }
 }`
+
+func reportExecutorProgress(run RunContext, event string, payload map[string]any) {
+	if run.Progress == nil {
+		return
+	}
+	details := map[string]any{
+		"execution_id":      run.Execution.ID,
+		"execution_version": run.Execution.ExecutionVersion,
+	}
+	for key, value := range payload {
+		if value != nil && value != "" {
+			details[key] = value
+		}
+	}
+	run.Progress(event, details)
+}

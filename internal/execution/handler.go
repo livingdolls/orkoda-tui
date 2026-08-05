@@ -47,6 +47,7 @@ type RunContext struct {
 	Workspace workspace.Workspace
 	Tools     *RecordedTools
 	Budget    ExecutorBudget
+	Progress  func(string, map[string]any)
 }
 
 type Handler struct {
@@ -61,6 +62,7 @@ type Handler struct {
 	defaultProvider string
 	defaultModel    string
 	artifactStore   artifact.Store
+	stallTimeout    time.Duration
 }
 
 func NewHandler(
@@ -92,6 +94,7 @@ func NewHandler(
 		workerID: workerID, leaseTTL: leaseTTL,
 		defaultProvider: defaultProvider, defaultModel: defaultModel,
 		artifactStore: artifactStore,
+		stallTimeout:  defaultExecutorStallTimeout,
 	}, nil
 }
 
@@ -151,11 +154,43 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) (res
 		return fmt.Errorf("workflow execution version is not initialized")
 	}
 
-	item, err := h.workspaces.GetByWorkflow(ctx, job.ID)
+	runCtx, cancel := workflowjob.WithWallClock(ctx, job)
+	watchdog := newExecutorProgressWatchdog()
+	watchdogDone := watchdog.Start(runCtx, cancel, h.stallTimeout)
+	defer func() {
+		cancel()
+		<-watchdogDone
+		if failure := watchdog.Failure(); failure != nil && resultErr != nil && ctx.Err() == nil {
+			if errors.Is(resultErr, context.Canceled) || errors.Is(resultErr, context.DeadlineExceeded) {
+				resultErr = failure
+			}
+		}
+	}()
+	reportProgress := func(event string, payload map[string]any) {
+		watchdog.Mark(event)
+		details := map[string]any{
+			"execution_version": job.ExecutionVersion,
+			"dispatch_job_id":   queueJob.ID,
+		}
+		for key, value := range payload {
+			details[key] = value
+		}
+		h.record(runCtx, job.ID, event, details, time.Now().UTC())
+	}
+	reportProgress("executor.dispatch.started", map[string]any{
+		"attempt":      queueJob.Attempts,
+		"max_attempts": queueJob.MaxAttempts,
+	})
+
+	item, err := h.workspaces.GetByWorkflow(runCtx, job.ID)
 	if err != nil {
 		return err
 	}
-	settings, err := h.settings.Get(ctx, job.ProjectID)
+	reportProgress("executor.workspace.ready", map[string]any{
+		"workspace_id":     item.ID,
+		"workspace_status": item.Status,
+	})
+	settings, err := h.settings.Get(runCtx, job.ProjectID)
 	if err != nil {
 		return err
 	}
@@ -163,6 +198,9 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) (res
 	if err != nil {
 		return err
 	}
+	reportProgress("executor.settings.ready", map[string]any{
+		"agent_settings_version": settings.Version,
+	})
 	provider := strings.TrimSpace(job.Executor.Provider)
 	model := strings.TrimSpace(job.Executor.Model)
 	if provider == "" {
@@ -182,7 +220,7 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) (res
 		settingsVersion = settings.Version
 	}
 
-	executionItem, _, err := h.executions.CreateOrGet(ctx, CreateInput{
+	executionItem, _, err := h.executions.CreateOrGet(runCtx, CreateInput{
 		WorkflowJobID: job.ID, WorkflowVersion: job.Version,
 		ExecutionVersion: job.ExecutionVersion, PlanVersionID: job.PlanVersionID,
 		WorkspaceID: item.ID, BaseCommitSHA: job.BaseCommitSHA,
@@ -197,11 +235,19 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) (res
 	if executionItem.Status == StatusFailed {
 		return h.failWorkflow(ctx, job, queueJob, executionFailure(executionItem))
 	}
+	reportProgress("executor.execution.ready", map[string]any{
+		"execution_id": executionItem.ID,
+		"provider":     executionItem.Provider,
+		"model":        executionItem.Model,
+	})
 
-	lease, err := h.workspaces.AcquireWrite(ctx, item.ID, h.workerID, h.leaseTTL)
+	lease, err := h.workspaces.AcquireWrite(runCtx, item.ID, h.workerID, h.leaseTTL)
 	if err != nil {
 		return err
 	}
+	reportProgress("executor.lease.acquired", map[string]any{
+		"workspace_id": item.ID,
+	})
 	released := false
 	defer func() {
 		if !released {
@@ -214,8 +260,6 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) (res
 		}
 	}()
 
-	runCtx, cancel := workflowjob.WithWallClock(ctx, job)
-	defer cancel()
 	leaseErr := make(chan error, 1)
 	go h.renewLease(runCtx, item.ID, lease.Token, cancel, leaseErr)
 	cancellationErr := make(chan error, 1)
@@ -227,7 +271,7 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) (res
 		<-cancellationDone
 	}()
 
-	executionItem, err = h.executions.Start(ctx, executionItem.ID)
+	executionItem, err = h.executions.Start(runCtx, executionItem.ID)
 	if err != nil {
 		return err
 	}
@@ -237,11 +281,10 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) (res
 		toolset:    Toolset{Root: item.Path, Policy: policy},
 		maxCalls:   job.Limits.MaxToolCalls,
 	}
-	h.record(ctx, job.ID, "execution.started", map[string]any{
+	reportProgress("execution.started", map[string]any{
 		"execution_id":           executionItem.ID,
-		"execution_version":      executionItem.ExecutionVersion,
 		"agent_settings_version": executionItem.AgentSettingsVersion,
-	}, time.Now().UTC())
+	})
 
 	runErr := h.runner.Run(runCtx, RunContext{
 		Execution: executionItem, Workspace: item, Tools: tools,
@@ -250,7 +293,11 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) (res
 			MaxConsecutiveToolErrors: job.Limits.MaxConsecutiveToolErrors,
 			MaxNoProgressTurns:       job.Limits.MaxNoProgressTurns,
 		},
+		Progress: reportProgress,
 	})
+	if stalled := watchdog.Failure(); stalled != nil {
+		runErr = stalled
+	}
 	durableCancelled := false
 	select {
 	case renewalErr := <-leaseErr:
@@ -447,7 +494,8 @@ func (h *Handler) settleFinalDispatchFailure(
 	queueJob jobqueue.Job,
 	cause error,
 ) (bool, error) {
-	if queueJob.Attempts < queueJob.MaxAttempts {
+	code, _, _ := classifyExecutorError(cause)
+	if queueJob.Attempts < queueJob.MaxAttempts && code != ExecutorStalledCode {
 		return false, nil
 	}
 	return h.markWorkflowFailed(ctx, workflowID, queueJob, cause)

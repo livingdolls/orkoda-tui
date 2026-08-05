@@ -378,3 +378,105 @@ func TestSavePausedCheckpointPersistsPartialDiff(t *testing.T) {
 		t.Fatalf("stored checkpoints = %#v", items)
 	}
 }
+
+func TestLLMRunnerReportsLiveProgress(t *testing.T) {
+	runner, repository, run := newLLMRunnerFixture(t, []string{
+		`{"type":"finish","summary":"done"}`,
+	})
+	events := make([]string, 0)
+	run.Progress = func(event string, _ map[string]any) {
+		events = append(events, event)
+	}
+	if err := runner.Run(context.Background(), run); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	_ = repository
+	want := []string{
+		"executor.context.selecting",
+		"executor.context.ready",
+		"executor.turn.started",
+		"executor.turn.received",
+	}
+	for _, expected := range want {
+		found := false
+		for _, event := range events {
+			if event == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("events %v do not contain %q", events, expected)
+		}
+	}
+}
+
+func newLLMRunnerFixture(
+	t *testing.T,
+	responses []string,
+) (*LLMRunner, *Repository, RunContext) {
+	t.Helper()
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "live-progress.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@example.com")
+	runGit(t, root, "config", "user.name", "Test")
+	writeTestFile(t, root, "README.md", "# Fixture\n")
+	runGit(t, root, "add", "README.md")
+	runGit(t, root, "commit", "-m", "initial")
+	head := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+	seedExecutorLoop(t, db, root, head)
+
+	repository, err := NewRepository(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionItem, _, err := repository.CreateOrGet(ctx, CreateInput{
+		WorkflowJobID: "workflow-1", WorkflowVersion: 3, ExecutionVersion: 1,
+		PlanVersionID: "plan-version-1", WorkspaceID: "workspace-1",
+		BaseCommitSHA: head, AgentSettingsVersion: 1,
+		Provider: "fake", Model: "fake-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector, err := NewContextSelector(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gatewayResponses := make([]llm.Response, 0, len(responses))
+	for _, response := range responses {
+		gatewayResponses = append(gatewayResponses, fakeExecutorResponse(response))
+	}
+	runner, err := NewLLMRunner(&sequenceGateway{responses: gatewayResponses}, selector, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := agentconfig.ToolPolicy{
+		Role:             agentconfig.RoleExecutor,
+		AllowedTools:     []string{agentconfig.ToolGitStatus, agentconfig.ToolGitDiff},
+		FilesystemAccess: agentconfig.FilesystemWorkspaceWrite,
+		MaxFileBytes:     1024 * 1024,
+		MaxPatchBytes:    1024 * 1024,
+	}
+	tools := &RecordedTools{
+		repository: repository,
+		execution:  executionItem,
+		toolset:    Toolset{Root: root, Policy: policy},
+		maxCalls:   10,
+	}
+	return runner, repository, RunContext{
+		Execution: executionItem,
+		Workspace: workspace.Workspace{ID: "workspace-1", Path: root},
+		Tools:     tools,
+	}
+}
