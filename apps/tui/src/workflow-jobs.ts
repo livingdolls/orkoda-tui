@@ -31,6 +31,11 @@ export type WorkflowLimits = {
   wall_clock_seconds: number
 }
 
+export type WorkflowAgentSelection = {
+  provider: string
+  model: string
+}
+
 export type WorkflowJob = {
   id: string
   project_id: string
@@ -39,6 +44,9 @@ export type WorkflowJob = {
   repository_id: string
   base_branch: string
   base_commit_sha: string
+  agent_settings_version?: number
+  executor?: WorkflowAgentSelection
+  reviewer?: WorkflowAgentSelection
   status: WorkflowStatus
   version: number
   current_dispatch_id?: string
@@ -222,6 +230,9 @@ export function createWorkflowJob(
     plan_id: string
     repository_id: string
     base_branch?: string
+    agent_settings_version?: number
+    executor?: WorkflowAgentSelection
+    reviewer?: WorkflowAgentSelection
     limits?: Partial<WorkflowLimits>
   },
   fetcher: WorkflowFetch = fetch,

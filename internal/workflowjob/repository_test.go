@@ -342,3 +342,35 @@ func TestTransitionDetailsHaveBoundedJSONSize(t *testing.T) {
 		t.Fatalf("oversized details error = %v", err)
 	}
 }
+
+func TestCreatePersistsWorkflowAgentSelection(t *testing.T) {
+	repository, _, db, _, input := openWorkflowRepository(t, "READY")
+	defer db.Close()
+	input.AgentSettingsVersion = 7
+	input.Executor = AgentSelection{Provider: "deepseek", Model: "deepseek-coder"}
+	input.Reviewer = AgentSelection{Provider: "openai", Model: "gpt-reviewer"}
+
+	created, err := repository.Create(context.Background(), input)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	loaded, err := repository.Get(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if loaded.AgentSettingsVersion != 7 || loaded.Executor != input.Executor || loaded.Reviewer != input.Reviewer {
+		t.Fatalf("agent selection = version %d executor %#v reviewer %#v", loaded.AgentSettingsVersion, loaded.Executor, loaded.Reviewer)
+	}
+}
+
+func TestCreateRejectsIdenticalWorkflowAgents(t *testing.T) {
+	repository, _, db, _, input := openWorkflowRepository(t, "READY")
+	defer db.Close()
+	input.Executor = AgentSelection{Provider: "openai", Model: "same-model"}
+	input.Reviewer = input.Executor
+
+	_, err := repository.Create(context.Background(), input)
+	if !errors.Is(err, ErrInvalidJob) || !strings.Contains(err.Error(), "different provider/model") {
+		t.Fatalf("Create() error = %v", err)
+	}
+}

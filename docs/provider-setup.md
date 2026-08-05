@@ -30,3 +30,9 @@ PROVIDER_API_KEY=...
 ```
 
 A TUI-managed record with the same provider name overrides the environment provider at runtime. Removing that TUI record restores the environment-backed provider.
+
+## Per-workflow agent selection
+
+The Agents screen defines project defaults. Press `W` from Projects to create a workflow, then choose the Executor and Reviewer for that specific run. The selector starts from the project defaults, allows cycling through registered provider/model choices, and rejects an identical Executor/Reviewer pair.
+
+The selected provider/model pairs and the source agent-settings version are persisted on the workflow job. Execution, revision, review, and re-review keep using that immutable assignment even when project defaults change later. Older workflow jobs without a stored assignment continue using the legacy project-default behavior.

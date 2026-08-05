@@ -18,10 +18,13 @@ type WorkflowJobRegistry interface {
 }
 
 type createWorkflowJobRequest struct {
-	PlanID       string             `json:"plan_id"`
-	RepositoryID string             `json:"repository_id"`
-	BaseBranch   string             `json:"base_branch"`
-	Limits       workflowjob.Limits `json:"limits"`
+	PlanID               string                     `json:"plan_id"`
+	RepositoryID         string                     `json:"repository_id"`
+	BaseBranch           string                     `json:"base_branch"`
+	AgentSettingsVersion int                        `json:"agent_settings_version"`
+	Executor             workflowjob.AgentSelection `json:"executor"`
+	Reviewer             workflowjob.AgentSelection `json:"reviewer"`
+	Limits               workflowjob.Limits         `json:"limits"`
 }
 
 type workflowActionRequest struct {
@@ -40,11 +43,14 @@ func registerWorkflowJobRoutes(api *gin.RouterGroup, registry WorkflowJobRegistr
 			return
 		}
 		job, err := registry.Create(c.Request.Context(), workflowjob.CreateInput{
-			ProjectID:    c.Param("projectID"),
-			PlanID:       request.PlanID,
-			RepositoryID: request.RepositoryID,
-			BaseBranch:   request.BaseBranch,
-			Limits:       request.Limits,
+			ProjectID:            c.Param("projectID"),
+			PlanID:               request.PlanID,
+			RepositoryID:         request.RepositoryID,
+			BaseBranch:           request.BaseBranch,
+			AgentSettingsVersion: request.AgentSettingsVersion,
+			Executor:             request.Executor,
+			Reviewer:             request.Reviewer,
+			Limits:               request.Limits,
 		})
 		if err != nil {
 			writeWorkflowJobError(c, err)
