@@ -29,6 +29,7 @@ jobs:
           python3 scripts/fix_review_patcher.py
           python3 scripts/apply_review_backend.py
           python3 scripts/apply_review_ui.py
+          python3 scripts/fix_generated_go.py
       - name: Format source
         run: |
           gofmt -w cmd/api/main.go internal/config/llm.go internal/config/llm_multi_provider_test.go internal/agentconfig/repository.go internal/agentconfig/separation_test.go
@@ -44,7 +45,7 @@ jobs:
           bun run test:ts
       - name: Commit final implementation
         run: |
-          rm .github/workflows/apply-review-kanban.yml scripts/apply_review_backend.py scripts/apply_review_ui.py scripts/fix_review_patcher.py
+          rm .github/workflows/apply-review-kanban.yml scripts/apply_review_backend.py scripts/apply_review_ui.py scripts/fix_review_patcher.py scripts/fix_generated_go.py
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add --all
