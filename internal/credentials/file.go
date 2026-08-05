@@ -172,13 +172,13 @@ func (s *AutoStore) Get(ctx context.Context, account string) (string, error) {
 	if fallbackErr == nil {
 		return value, nil
 	}
-	if errors.Is(keychainErr, ErrNotFound) && errors.Is(fallbackErr, ErrNotFound) {
-		return "", ErrNotFound
-	}
 	if !errors.Is(fallbackErr, ErrNotFound) {
 		return "", fallbackErr
 	}
-	return "", keychainErr
+	if errors.Is(keychainErr, ErrNotFound) {
+		return "", ErrNotFound
+	}
+	return "", ErrUnavailable
 }
 
 func (s *AutoStore) Set(ctx context.Context, account, value string) error {
@@ -199,15 +199,8 @@ func (s *AutoStore) Delete(ctx context.Context, account string) error {
 	if s == nil || s.keychain == nil || s.fallback == nil {
 		return ErrUnavailable
 	}
-	keychainErr := s.keychain.Delete(ctx, account)
-	fileErr := s.fallback.Delete(ctx, account)
-	if fileErr != nil && !errors.Is(fileErr, ErrNotFound) {
-		return fileErr
-	}
-	if keychainErr != nil && !errors.Is(keychainErr, ErrUnavailable) && !errors.Is(keychainErr, ErrNotFound) && fileErr != nil {
-		return keychainErr
-	}
-	return nil
+	_ = s.keychain.Delete(ctx, account)
+	return s.fallback.Delete(ctx, account)
 }
 
 var _ CredentialStore = (*Store)(nil)
