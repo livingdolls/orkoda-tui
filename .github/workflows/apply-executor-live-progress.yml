@@ -1,0 +1,49 @@
+name: Apply executor live progress
+
+on:
+  push:
+    branches:
+      - fix/executor-live-progress-watchdog
+    paths:
+      - scripts/implement_executor_live_progress.py
+      - .github/workflows/apply-executor-live-progress.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/executor-live-progress-watchdog
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.x
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install
+      - name: Apply implementation
+        run: python3 scripts/implement_executor_live_progress.py
+      - name: Format
+        run: |
+          gofmt -w cmd internal
+          bunx biome check --write apps/tui/src
+      - name: Validate
+        run: |
+          go test ./...
+          bun run lint:ts
+          bun run typecheck
+          bun run test:ts
+      - name: Commit implementation
+        run: |
+          rm -f scripts/implement_executor_live_progress.py
+          rm -f .github/workflows/apply-executor-live-progress.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: add Executor live progress and stall watchdog" || exit 0
+          git push origin HEAD:fix/executor-live-progress-watchdog
