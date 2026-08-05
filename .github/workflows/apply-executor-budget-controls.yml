@@ -27,7 +27,19 @@ jobs:
           bun-version: 1.3.14
       - run: bun install
       - name: Apply implementation
-        run: python3 scripts/apply_executor_budget_controls.py
+        run: |
+          python3 scripts/apply_executor_budget_controls.py
+          python3 - <<'PY'
+          from pathlib import Path
+          for file_name, marker in [
+              ("internal/execution/llm_runner_test.go", "func TestNormalizeExecutorBudget"),
+              ("internal/workflowjob/validation_test.go", "func TestExecutorContinuationCodes"),
+          ]:
+              path = Path(file_name)
+              text = path.read_text()
+              before, after = text.split(marker, 1)
+              path.write_text(before + marker + after.replace(r"\t", "\t"))
+          PY
       - name: Format
         run: |
           gofmt -w cmd internal
