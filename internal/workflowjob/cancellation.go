@@ -57,13 +57,18 @@ func StartCancellationWatcher(
 	return done
 }
 
-// WithWallClock applies the aggregate's wall-clock budget to an active stage.
-// Test doubles and legacy rows without a creation timestamp retain the parent
-// context rather than receiving a year-1 deadline.
+// WithWallClock applies the workflow wall-clock budget to the current
+// active stage. UpdatedAt is written by every durable transition, so Retry,
+// Continue, Revision, and Restart receive a fresh stage deadline without
+// rewriting the workflow's original creation timestamp.
 func WithWallClock(ctx context.Context, job Job) (context.Context, context.CancelFunc) {
-	if job.CreatedAt.IsZero() || job.Limits.WallClockSeconds <= 0 {
+	startedAt := job.UpdatedAt
+	if startedAt.IsZero() {
+		startedAt = job.CreatedAt
+	}
+	if startedAt.IsZero() || job.Limits.WallClockSeconds <= 0 {
 		return context.WithCancel(ctx)
 	}
-	deadline := job.CreatedAt.Add(time.Duration(job.Limits.WallClockSeconds) * time.Second)
+	deadline := startedAt.Add(time.Duration(job.Limits.WallClockSeconds) * time.Second)
 	return context.WithDeadline(ctx, deadline)
 }

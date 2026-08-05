@@ -271,6 +271,13 @@ func run() error {
 	}
 
 	queue := jobqueue.New(db)
+	recoveredInterruptedJobs, err := queue.RecoverInterrupted(runtimeCtx, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if len(recoveredInterruptedJobs) > 0 {
+		logger.Warn("recovered interrupted queue jobs", "count", len(recoveredInterruptedJobs))
+	}
 	workflowJobRepository, err := workflowjob.NewRepository(db, queue, activityRecorder)
 	if err != nil {
 		return err
@@ -282,6 +289,13 @@ func run() error {
 	workspaceRepository, err := workspace.NewRepository(db, workspaceRoot)
 	if err != nil {
 		return err
+	}
+	recoveredDaemonLeases, err := workspaceRepository.RecoverDaemonLeases(runtimeCtx, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if len(recoveredDaemonLeases) > 0 {
+		logger.Warn("recovered interrupted daemon workspace leases", "count", len(recoveredDaemonLeases))
 	}
 	if report, err := workspaceRepository.ReconcileOrphans(runtimeCtx); err != nil {
 		return err

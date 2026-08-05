@@ -112,6 +112,7 @@ func (r *Repository) ReconcileFailedWorkflows(
 type deadExecutionDispatch struct {
 	workflowID string
 	dispatchID string
+	status     string
 	message    string
 }
 
@@ -129,20 +130,25 @@ func (r *Repository) ReconcileDeadExecutionDispatches(
 	candidates := make(map[string]deadExecutionDispatch)
 
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT w.id, j.id,
-			COALESCE(NULLIF(TRIM(j.last_error), ''), 'Executor dispatch exhausted all retries.')
+		SELECT w.id, j.id, j.status,
+			COALESCE(
+				NULLIF(TRIM(j.last_error), ''),
+				CASE WHEN j.status = 'COMPLETED'
+					THEN 'Executor dispatch completed without closing the workflow.'
+					ELSE 'Executor dispatch exhausted all retries.' END
+			)
 		FROM workflow_jobs w
 		JOIN jobs j ON j.id = w.current_dispatch_id
 		WHERE w.status IN ('QUEUED', 'EXECUTING')
 			AND j.type = 'workflow.execute'
-			AND j.status = 'DEAD'
+			AND j.status IN ('DEAD', 'COMPLETED')
 	`)
 	if err != nil {
 		return 0, fmt.Errorf("list dead current Executor dispatches: %w", err)
 	}
 	for rows.Next() {
 		var candidate deadExecutionDispatch
-		if err := rows.Scan(&candidate.workflowID, &candidate.dispatchID, &candidate.message); err != nil {
+		if err := rows.Scan(&candidate.workflowID, &candidate.dispatchID, &candidate.status, &candidate.message); err != nil {
 			rows.Close()
 			return 0, fmt.Errorf("scan dead current Executor dispatch: %w", err)
 		}
@@ -203,7 +209,12 @@ func (r *Repository) ReconcileDeadExecutionDispatches(
 		var jobType, status, message string
 		err := r.db.QueryRowContext(ctx, `
 			SELECT type, status,
-				COALESCE(NULLIF(TRIM(last_error), ''), 'Executor dispatch exhausted all retries.')
+				COALESCE(
+					NULLIF(TRIM(last_error), ''),
+					CASE WHEN status = 'COMPLETED'
+						THEN 'Executor dispatch completed without closing the workflow.'
+						ELSE 'Executor dispatch exhausted all retries.' END
+				)
 			FROM jobs WHERE id = ?
 		`, legacy.dispatchID).Scan(&jobType, &status, &message)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -212,7 +223,8 @@ func (r *Repository) ReconcileDeadExecutionDispatches(
 		if err != nil {
 			return 0, fmt.Errorf("load legacy Executor dispatch %s: %w", legacy.dispatchID, err)
 		}
-		if jobType == "workflow.execute" && status == "DEAD" {
+		if jobType == "workflow.execute" && (status == "DEAD" || status == "COMPLETED") {
+			legacy.status = status
 			legacy.message = message
 			candidates[legacy.workflowID] = legacy
 		}
@@ -235,7 +247,7 @@ func (r *Repository) ReconcileDeadExecutionDispatches(
 			Details: map[string]any{
 				"recovered":       true,
 				"dispatch_job_id": candidate.dispatchID,
-				"dispatch_dead":   true,
+				"dispatch_status": candidate.status,
 			},
 		})
 		if err != nil {

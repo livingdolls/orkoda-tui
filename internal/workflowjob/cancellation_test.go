@@ -34,7 +34,25 @@ func TestCancellationWatcherCancelsActiveStage(t *testing.T) {
 	}
 }
 
-func TestWithWallClockUsesAggregateCreationDeadline(t *testing.T) {
+func TestWithWallClockUsesLatestStageTransition(t *testing.T) {
+	created := time.Now().Add(-2 * time.Hour)
+	updated := time.Now()
+	ctx, cancel := WithWallClock(context.Background(), Job{
+		CreatedAt: created,
+		UpdatedAt: updated,
+		Limits:    Limits{WallClockSeconds: 60},
+	})
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("context error = %v, want active restarted stage", err)
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok || deadline.Before(updated.Add(59*time.Second)) {
+		t.Fatalf("deadline = %v, want based on UpdatedAt %v", deadline, updated)
+	}
+}
+
+func TestWithWallClockFallsBackToCreationTime(t *testing.T) {
 	created := time.Now().Add(-2 * time.Second)
 	ctx, cancel := WithWallClock(context.Background(), Job{
 		CreatedAt: created,
