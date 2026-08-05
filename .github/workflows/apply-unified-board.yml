@@ -26,6 +26,22 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install
+      - name: Normalize patch script
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/apply_unified_board.py")
+          source = path.read_text()
+          start_marker = '''replace(
+              "apps/tui/src/board-screen.tsx",
+              ''' + "'''candidate.id === detailItem.id"
+          end_marker = '''replace(
+              "apps/tui/src/board-screen.tsx",
+              'tone={column === "NEEDS_USER"'''
+          start = source.index(start_marker)
+          end = source.index(end_marker, start)
+          path.write_text(source[:start] + source[end:])
+          PY
       - name: Apply unified Board changes
         run: python3 scripts/apply_unified_board.py
       - name: Format TUI
