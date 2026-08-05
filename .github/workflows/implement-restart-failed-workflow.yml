@@ -27,7 +27,30 @@ jobs:
           bun-version: 1.3.14
       - run: bun install
       - name: Apply implementation
-        run: python3 scripts/implement_restart_failed_workflow.py
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/implement_restart_failed_workflow.py")
+          text = path.read_text()
+          text = text.replace(
+              "def replace_once(path: str, old: str, new: str) -> None:\n    content = read(path)",
+              "def source(value: str) -> str:\n    return value.replace(r\\\"\\t\\\", \\\"\\t\\\")\n\n\ndef replace_once(path: str, old: str, new: str) -> None:\n    old = source(old)\n    new = source(new)\n    content = read(path)",
+              1,
+          )
+          text = text.replace(
+              "def append_once(path: str, marker: str, content: str) -> None:\n    current = read(path)",
+              "def append_once(path: str, marker: str, content: str) -> None:\n    content = source(content)\n    current = read(path)",
+              1,
+          )
+          text = text.replace(
+              "def create_once(path: str, content: str) -> None:\n    target = Path(path)",
+              "def create_once(path: str, content: str) -> None:\n    content = source(content)\n    target = Path(path)",
+              1,
+          )
+          path.write_text(text)
+          PY
+          python3 scripts/implement_restart_failed_workflow.py
       - name: Format
         run: |
           gofmt -w cmd internal
