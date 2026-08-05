@@ -37,6 +37,7 @@ type fakeWorkspaceStore struct {
 	acquireErr   error
 	ensureCalls  int
 	acquireCalls int
+	restartCalls int
 	readyCalls   int
 	failedCalls  int
 	releaseCalls int
@@ -53,6 +54,14 @@ func (f *fakeWorkspaceStore) GetByWorkflow(context.Context, string) (Workspace, 
 
 func (f *fakeWorkspaceStore) Acquire(context.Context, string, string, time.Duration) (Lease, error) {
 	f.acquireCalls++
+	if f.acquireErr != nil {
+		return Lease{}, f.acquireErr
+	}
+	return f.lease, nil
+}
+
+func (f *fakeWorkspaceStore) AcquireRestart(context.Context, string, string, time.Duration) (Lease, error) {
+	f.restartCalls++
 	if f.acquireErr != nil {
 		return Lease{}, f.acquireErr
 	}
@@ -80,6 +89,7 @@ func (f *fakeWorkspaceStore) MarkFailed(context.Context, string, string, string)
 type fakeWorktree struct {
 	prepareCalls int
 	inspectCalls int
+	removeCalls  int
 	snapshot     WorktreeSnapshot
 	err          error
 }
@@ -92,6 +102,11 @@ func (f *fakeWorktree) Prepare(context.Context, string, string, string) (Worktre
 func (f *fakeWorktree) Inspect(context.Context, string, string) (WorktreeSnapshot, error) {
 	f.inspectCalls++
 	return f.snapshot, f.err
+}
+
+func (f *fakeWorktree) Remove(context.Context, string, string) error {
+	f.removeCalls++
+	return f.err
 }
 
 type recordedActivity struct {
@@ -218,5 +233,70 @@ func prepareQueueJob() jobqueue.Job {
 	return jobqueue.Job{
 		ID: "queue-1", Type: "workflow.prepare_workspace", Attempts: 1,
 		PayloadJSON: `{"workflow_job_id":"workflow-1","workflow_version":2,"action":"START","target_status":"WORKSPACE_PREPARING"}`,
+	}
+}
+
+func TestPrepareHandlerRestartsWorkspaceFromPinnedBase(t *testing.T) {
+	workflow := workflowjob.Job{
+		ID: "workflow-1", RepositoryID: "repository-1", BaseCommitSHA: "abc123",
+		Status: workflowjob.StatusWorkspacePreparing, Version: 8,
+	}
+	workflows := &fakeWorkflowStore{job: workflow}
+	workspaces := &fakeWorkspaceStore{
+		item: Workspace{
+			ID: "workspace-1", WorkflowJobID: workflow.ID,
+			Path: "/tmp/workspace", Status: StatusReady, Dirty: true,
+		},
+		source: SourceRepository{ID: "repository-1", LocalPath: "/tmp/source"},
+		lease: Lease{
+			Workspace: Workspace{ID: "workspace-1", Status: StatusPreparing},
+			Token:     "restart-token",
+		},
+	}
+	worktrees := &fakeWorktree{snapshot: WorktreeSnapshot{
+		Path: "/tmp/workspace", HeadSHA: "abc123", Dirty: false,
+	}}
+	activities := &fakeWorkspaceActivities{}
+	handler, err := NewPrepareHandler(
+		workflows,
+		workspaces,
+		worktrees,
+		activities,
+		"worker-1",
+		time.Minute,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := handler.Handle(context.Background(), restartQueueJob()); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if workspaces.restartCalls != 1 || worktrees.removeCalls != 1 ||
+		worktrees.prepareCalls != 1 || workspaces.readyCalls != 1 {
+		t.Fatalf(
+			"calls restart=%d remove=%d prepare=%d ready=%d",
+			workspaces.restartCalls,
+			worktrees.removeCalls,
+			worktrees.prepareCalls,
+			workspaces.readyCalls,
+		)
+	}
+	if len(workflows.transitionCalls) != 1 ||
+		workflows.transitionCalls[0].Action != workflowjob.ActionWorkspaceReady {
+		t.Fatalf("transition calls = %#v", workflows.transitionCalls)
+	}
+	if len(activities.items) != 3 ||
+		activities.items[0].eventType != "workspace.restarting" ||
+		activities.items[1].eventType != "workspace.restarted" ||
+		activities.items[2].eventType != "workspace.ready" {
+		t.Fatalf("activities = %#v", activities.items)
+	}
+}
+
+func restartQueueJob() jobqueue.Job {
+	return jobqueue.Job{
+		ID: "queue-restart", Type: "workflow.prepare_workspace", Attempts: 1,
+		PayloadJSON: `{"workflow_job_id":"workflow-1","workflow_version":8,"action":"RESTART","target_status":"WORKSPACE_PREPARING"}`,
 	}
 }

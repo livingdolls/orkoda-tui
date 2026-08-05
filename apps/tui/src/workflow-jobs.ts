@@ -249,7 +249,15 @@ export function createWorkflowJob(
 
 export function performWorkflowAction(
   jobID: string,
-  action: "start" | "cancel" | "retry" | "approve" | "request-revision" | "reject" | "publish",
+  action:
+    | "start"
+    | "cancel"
+    | "retry"
+    | "restart"
+    | "approve"
+    | "request-revision"
+    | "reject"
+    | "publish",
   expectedVersion: number,
   details: Record<string, unknown> = {},
   fetcher: WorkflowFetch = fetch,

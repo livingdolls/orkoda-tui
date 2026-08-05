@@ -169,3 +169,55 @@ func workspaceGit(t *testing.T, root string, args ...string) {
 		t.Fatalf("git %v: %v: %s", args, err, output)
 	}
 }
+
+func TestRestartLeaseDoesNotStealActiveWriter(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "orkoda.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	seedWorkspaceWorkflow(t, db)
+
+	repository, err := NewRepository(db, filepath.Join(t.TempDir(), "workspaces"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := time.Date(2026, 8, 5, 8, 0, 0, 0, time.UTC)
+	repository.now = func() time.Time { return current }
+	item, _, err := repository.EnsureForWorkflow(ctx, "workflow-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepare, err := repository.Acquire(ctx, item.ID, "prepare", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.MarkReady(ctx, item.ID, prepare.Token, "abc123", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.Release(ctx, item.ID, prepare.Token); err != nil {
+		t.Fatal(err)
+	}
+
+	writer, err := repository.AcquireWrite(ctx, item.ID, "daemon", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.AcquireRestart(ctx, item.ID, "daemon", time.Minute); !errors.Is(err, ErrLeaseUnavailable) {
+		t.Fatalf("active writer restart error = %v", err)
+	}
+
+	current = current.Add(2 * time.Minute)
+	restart, err := repository.AcquireRestart(ctx, item.ID, "daemon", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restart.Token == writer.Token || restart.Workspace.Status != StatusPreparing ||
+		restart.Workspace.HeadSHA != "" || restart.Workspace.Dirty {
+		t.Fatalf("restart lease = %#v", restart)
+	}
+}

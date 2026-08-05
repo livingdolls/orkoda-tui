@@ -24,6 +24,7 @@ type WorkspaceStore interface {
 	EnsureForWorkflow(context.Context, string) (Workspace, SourceRepository, error)
 	GetByWorkflow(context.Context, string) (Workspace, error)
 	Acquire(context.Context, string, string, time.Duration) (Lease, error)
+	AcquireRestart(context.Context, string, string, time.Duration) (Lease, error)
 	Release(context.Context, string, string) error
 	MarkReady(context.Context, string, string, string, bool) (Workspace, error)
 	MarkFailed(context.Context, string, string, string) error
@@ -32,6 +33,7 @@ type WorkspaceStore interface {
 type Worktree interface {
 	Prepare(context.Context, string, string, string) (WorktreeSnapshot, error)
 	Inspect(context.Context, string, string) (WorktreeSnapshot, error)
+	Remove(context.Context, string, string) error
 }
 
 type ActivityRecorder interface {
@@ -109,6 +111,9 @@ func (h *PrepareHandler) Handle(ctx context.Context, queueJob jobqueue.Job) erro
 	if err != nil {
 		return fmt.Errorf("ensure workflow workspace: %w", err)
 	}
+	if payload.Action == workflowjob.ActionRestart {
+		return h.restartWorkspace(ctx, workflow, item, source, queueJob)
+	}
 	if item.Status == StatusReady {
 		snapshot, err := h.worktrees.Inspect(ctx, item.Path, workflow.BaseCommitSHA)
 		if err != nil {
@@ -150,6 +155,70 @@ func (h *PrepareHandler) Handle(ctx context.Context, queueJob jobqueue.Job) erro
 	ready, err := h.workspaces.MarkReady(ctx, item.ID, lease.Token, snapshot.HeadSHA, snapshot.Dirty)
 	if err != nil {
 		return fmt.Errorf("persist ready workspace: %w", err)
+	}
+	return h.advanceWorkflow(ctx, workflow, ready, snapshot)
+}
+
+func (h *PrepareHandler) restartWorkspace(
+	ctx context.Context,
+	workflow workflowjob.Job,
+	item Workspace,
+	source SourceRepository,
+	queueJob jobqueue.Job,
+) error {
+	lease, err := h.workspaces.AcquireRestart(ctx, item.ID, h.owner, h.leaseTTL)
+	if err != nil {
+		return fmt.Errorf("acquire workspace restart lease: %w", err)
+	}
+	defer h.releaseLease(ctx, item.ID, lease.Token)
+
+	now := h.now().UTC()
+	if err := h.record(ctx, workflow.ID, "workspace.restarting", map[string]any{
+		"workspace_id":     item.ID,
+		"repository_id":    workflow.RepositoryID,
+		"base_commit_sha":  workflow.BaseCommitSHA,
+		"workflow_version": workflow.Version,
+		"queue_attempt":    queueJob.Attempts,
+	}, now); err != nil {
+		return err
+	}
+
+	if err := h.worktrees.Remove(ctx, source.LocalPath, item.Path); err != nil {
+		h.persistFailure(ctx, workflow.ID, item.ID, lease.Token, err)
+		return fmt.Errorf("remove previous Git worktree: %w", err)
+	}
+	snapshot, err := h.worktrees.Prepare(
+		ctx,
+		source.LocalPath,
+		item.Path,
+		workflow.BaseCommitSHA,
+	)
+	if err != nil {
+		h.persistFailure(ctx, workflow.ID, item.ID, lease.Token, err)
+		return fmt.Errorf("recreate isolated Git worktree: %w", err)
+	}
+	if snapshot.Dirty {
+		err := fmt.Errorf("restarted workspace is unexpectedly dirty")
+		h.persistFailure(ctx, workflow.ID, item.ID, lease.Token, err)
+		return err
+	}
+
+	ready, err := h.workspaces.MarkReady(
+		ctx,
+		item.ID,
+		lease.Token,
+		snapshot.HeadSHA,
+		snapshot.Dirty,
+	)
+	if err != nil {
+		return fmt.Errorf("persist restarted workspace: %w", err)
+	}
+	if err := h.record(ctx, workflow.ID, "workspace.restarted", map[string]any{
+		"workspace_id":     item.ID,
+		"head_sha":         snapshot.HeadSHA,
+		"workflow_version": workflow.Version,
+	}, h.now().UTC()); err != nil {
+		return err
 	}
 	return h.advanceWorkflow(ctx, workflow, ready, snapshot)
 }
@@ -233,7 +302,9 @@ func decodePreparePayload(raw string) (preparePayload, error) {
 	payload.WorkflowJobID = strings.TrimSpace(payload.WorkflowJobID)
 	if payload.WorkflowJobID == "" || payload.WorkflowVersion < 1 ||
 		payload.TargetStatus != workflowjob.StatusWorkspacePreparing ||
-		(payload.Action != workflowjob.ActionStart && payload.Action != workflowjob.ActionRetry) {
+		(payload.Action != workflowjob.ActionStart &&
+			payload.Action != workflowjob.ActionRetry &&
+			payload.Action != workflowjob.ActionRestart) {
 		return preparePayload{}, fmt.Errorf("invalid workspace preparation payload")
 	}
 	return payload, nil

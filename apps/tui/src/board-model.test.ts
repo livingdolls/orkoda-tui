@@ -164,7 +164,7 @@ describe("unified board status mapping", () => {
       boardActions(createBoardItem(project, plan("READY"), workflow("FAILED"))).map(
         (item) => item.id,
       ),
-    ).toEqual(["open-details", "retry"])
+    ).toEqual(["open-details", "retry", "restart"])
     const failure = createBoardItem(
       project,
       plan("READY"),
@@ -191,6 +191,21 @@ test("continues a paused Executor instead of blind retry", () => {
     "open-details",
     "continue-8",
     "continue-16",
+    "restart",
   ])
   expect(item.displayStatus).toContain("Executor paused")
+})
+
+test("offers restart from beginning for every failed workflow", () => {
+  const failed = createBoardItem(
+    project,
+    plan("READY"),
+    workflow("FAILED", {
+      retry_status: "CHECKING",
+      failure_code: "CHECKS_FAILED",
+    }),
+  )
+  const restart = boardActions(failed).find((action) => action.id === "restart")
+  expect(restart?.label).toBe("Restart from beginning")
+  expect(restart?.description).toContain("pinned base commit")
 })
