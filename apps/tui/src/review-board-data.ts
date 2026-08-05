@@ -104,7 +104,7 @@ async function requestProjectReviewBoard(projectID: string): Promise<BackendRevi
   }
 }
 
-async function loadProjectCards(project: Project): Promise<ReviewBoardCard[]> {
+export async function loadProjectReviewCards(project: Project): Promise<ReviewBoardCard[]> {
   try {
     const cards = await requestProjectReviewBoard(project.id)
     return cards.map((card) => ({
@@ -189,7 +189,7 @@ export async function loadReviewBoard(): Promise<{
   cards: ReviewBoardCard[]
 }> {
   const projects = await listProjects()
-  const cards = (await Promise.all(projects.map(loadProjectCards))).flat()
+  const cards = (await Promise.all(projects.map(loadProjectReviewCards))).flat()
   cards.sort(
     (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
   )

@@ -21,7 +21,6 @@ import {
   screenFromShortcut,
   screenLabel,
 } from "./navigation"
-import { ReviewBoardScreen } from "./review-board-screen"
 import { SettingsScreen } from "./settings-screen"
 import {
   BOLD,
@@ -56,7 +55,6 @@ export function App() {
   const [connection, setConnection] = useState<DaemonConnection>(initialDaemonConnection)
   const [terminalWidth, setTerminalWidth] = useState(0)
   const [boardInteractionActive, setBoardInteractionActive] = useState(false)
-  const [reviewInteractionActive, setReviewInteractionActive] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [showPalette, setShowPalette] = useState(false)
   const [lastEvent, setLastEvent] = useState<ActivityEvent | null>(null)
@@ -71,7 +69,7 @@ export function App() {
 
   useKeyboard((key) => {
     if (showPalette) return
-    if (boardInteractionActive || reviewInteractionActive) return
+    if (boardInteractionActive) return
     if (showHelp) {
       if (key.name === "escape" || key.name === "?") setShowHelp(false)
       return
@@ -91,7 +89,7 @@ export function App() {
       return
     }
 
-    if (activeScreen === "board" || activeScreen === "review") return
+    if (activeScreen === "board") return
 
     if (key.name === "right" || key.name === "down" || key.name === "j" || key.name === "l") {
       setActiveScreen((current) => moveScreen(current, 1))
@@ -187,15 +185,15 @@ export function App() {
   ]
 
   const footerShortcuts: Shortcut[] =
-    activeScreen === "board" || activeScreen === "review"
+    activeScreen === "board"
       ? [
-          { key: "1–5", label: "switch area" },
+          { key: "1–4", label: "switch area" },
           { key: "/", label: "search actions" },
           { key: "?", label: "help" },
         ]
       : [
           { key: "←→", label: "switch area" },
-          { key: "1–5", label: "jump" },
+          { key: "1–4", label: "jump" },
           { key: "/", label: "search actions" },
           { key: "?", label: "help" },
         ]
@@ -295,12 +293,6 @@ export function App() {
               connection={connection}
               lastEvent={lastEvent}
               onInteractionChange={setBoardInteractionActive}
-            />
-          ) : activeScreen === "review" ? (
-            <ReviewBoardScreen
-              connection={connection}
-              lastEvent={lastEvent}
-              onInteractionChange={setReviewInteractionActive}
             />
           ) : activeScreen === "agents" ? (
             <AgentSettingsScreen connection={connection} />
@@ -428,17 +420,10 @@ function HelpScreen({ screen }: { screen: Screen }) {
     { key: "Tab", label: "cycle the project filter" },
     { key: "F", label: "toggle active-only / all work" },
     { key: "A / V / X", label: "approve, revise, or reject inside workflow detail" },
-  ]
-  const reviewShortcuts: Shortcut[] = [
-    { key: "←→", label: "move between review stages" },
-    { key: "↑↓", label: "select a review card" },
-    { key: "Enter", label: "open evidence and human decision" },
-    { key: "T", label: "retry a failed review stage" },
-    { key: "Tab", label: "cycle project filter" },
-    { key: "F", label: "toggle active-only / history" },
+    { key: "R", label: "refresh all execution and review stages" },
   ]
   const general: Shortcut[] = [
-    { key: "1–5", label: "jump to Board, Review, Agents, Settings, or System" },
+    { key: "1–4", label: "jump to Board, Agents, Settings, or System" },
     { key: "/", label: "search actions" },
     { key: "? / Esc", label: "open or close this guide" },
   ]
@@ -448,18 +433,10 @@ function HelpScreen({ screen }: { screen: Screen }) {
         title={`${screenLabel(screen)} keyboard guide`}
         description="The Board is designed around arrows, Enter, Escape, and a visible action menu. Letter shortcuts are optional."
       />
-      <Section
-        title={screen === "board" ? "Board" : screen === "review" ? "Review" : "Current area"}
-      >
+      <Section title={screen === "board" ? "Unified Board" : "Current area"}>
         <Card>
           <KeyHints
-            shortcuts={
-              screen === "board"
-                ? boardShortcuts
-                : screen === "review"
-                  ? reviewShortcuts
-                  : [{ key: "←→", label: "switch area" }]
-            }
+            shortcuts={screen === "board" ? boardShortcuts : [{ key: "←→", label: "switch area" }]}
           />
         </Card>
       </Section>

@@ -1,12 +1,26 @@
 import type { Plan } from "./plans"
 import type { Project, ProjectRepository } from "./projects"
+import type { ReviewBoardCard } from "./review-board-data"
 import type { StatusTone } from "./ui"
 import { workflowFailureSummary } from "./workflow-failure"
 import type { WorkflowJob, WorkflowStatus } from "./workflow-jobs"
 
-export const boardColumns = ["PLANNING", "READY", "WORKING", "NEEDS_USER", "DONE"] as const
+export const boardColumns = [
+  "PLANNING",
+  "READY",
+  "EXECUTING",
+  "CHECKING",
+  "AWAITING_REVIEW",
+  "AI_REVIEWING",
+  "ISSUES_FOUND",
+  "REVISION",
+  "RE_REVIEW",
+  "APPROVAL",
+  "DONE",
+] as const
 
 export type BoardColumn = (typeof boardColumns)[number]
+export type BoardReviewProjection = Pick<ReviewBoardCard, "review">
 
 export type BoardItem = {
   id: string
@@ -14,6 +28,7 @@ export type BoardItem = {
   repository?: ProjectRepository
   plan: Plan
   workflow?: WorkflowJob
+  reviewCard?: ReviewBoardCard
   column: BoardColumn
   displayStatus: string
   attentionReason?: string
@@ -38,56 +53,83 @@ export type BoardAction = {
 export const columnLabels: Record<BoardColumn, string> = {
   PLANNING: "Planning",
   READY: "Ready",
-  WORKING: "Working",
-  NEEDS_USER: "Needs You",
+  EXECUTING: "Executing",
+  CHECKING: "Checking",
+  AWAITING_REVIEW: "Awaiting Review",
+  AI_REVIEWING: "AI Reviewing",
+  ISSUES_FOUND: "Issues Found",
+  REVISION: "Revision",
+  RE_REVIEW: "Re-review",
+  APPROVAL: "Approval",
   DONE: "Done",
 }
 
 export const columnDescriptions: Record<BoardColumn, string> = {
-  PLANNING: "Work that is still being described or prepared.",
-  READY: "Prepared work that can start or is waiting for an agent.",
-  WORKING: "The agents, checks, reviewer, or publisher are active.",
-  NEEDS_USER: "A question, decision, failure, or revision needs your attention.",
-  DONE: "Completed, rejected, or cancelled work.",
+  PLANNING: "Work is being described, prepared, or waiting for planning answers.",
+  READY: "The plan is ready, the workspace is being prepared, or execution is queued.",
+  EXECUTING: "The configured Executor Agent is implementing the plan.",
+  CHECKING: "Automated checks are validating the latest execution.",
+  AWAITING_REVIEW: "Implementation evidence is ready for the Reviewer Agent.",
+  AI_REVIEWING: "The configured Reviewer Agent is inspecting immutable evidence.",
+  ISSUES_FOUND: "Blocking findings or a review-stage failure requires attention.",
+  REVISION: "The Executor is applying requested changes or waiting to resume revision.",
+  RE_REVIEW: "A revised execution is being compared with previous findings.",
+  APPROVAL: "Review evidence is ready for a human decision.",
+  DONE: "Approved, published, completed, rejected, cancelled, or archived work.",
 }
 
-export function createBoardItem(project: Project, plan: Plan, workflow?: WorkflowJob): BoardItem {
+export function createBoardItem(
+  project: Project,
+  plan: Plan,
+  workflow?: WorkflowJob,
+  reviewCard?: ReviewBoardCard,
+): BoardItem {
   return {
     id: `plan:${plan.id}`,
     project,
     repository: project.repositories[0],
     plan,
     workflow,
-    column: resolveBoardColumn(plan, workflow),
-    displayStatus: resolveDisplayStatus(plan, workflow),
-    attentionReason: resolveAttentionReason(plan, workflow),
-    updatedAt: workflow?.updated_at ?? plan.updated_at,
+    reviewCard,
+    column: resolveBoardColumn(plan, workflow, reviewCard),
+    displayStatus: resolveDisplayStatus(plan, workflow, reviewCard),
+    attentionReason: resolveAttentionReason(plan, workflow, reviewCard),
+    updatedAt: reviewCard?.updatedAt ?? workflow?.updated_at ?? plan.updated_at,
   }
 }
 
-export function resolveBoardColumn(plan: Plan, workflow?: WorkflowJob): BoardColumn {
+export function resolveBoardColumn(
+  plan: Plan,
+  workflow?: WorkflowJob,
+  reviewCard?: BoardReviewProjection,
+): BoardColumn {
   if (!workflow) {
-    if (plan.status === "NEEDS_INPUT") return "NEEDS_USER"
     if (plan.status === "READY" || plan.status === "APPROVED") return "READY"
     if (plan.status === "ARCHIVED") return "DONE"
     return "PLANNING"
   }
 
+  if (workflow.status === "FAILED") return resolveFailedColumn(workflow, reviewCard)
+
   switch (workflow.status) {
     case "READY":
     case "WORKSPACE_PREPARING":
-    case "QUEUED":
       return "READY"
+    case "QUEUED":
+      return isRevision(workflow) ? "REVISION" : "READY"
     case "EXECUTING":
+      return isRevision(workflow) ? "REVISION" : "EXECUTING"
     case "CHECKING":
+      return "CHECKING"
     case "REVIEWING":
+      if (reviewCard?.review?.status === "RUNNING") return "AI_REVIEWING"
+      return isRevision(workflow) ? "RE_REVIEW" : "AWAITING_REVIEW"
+    case "WAITING_FOR_APPROVAL":
+      return hasBlockingReview(reviewCard) ? "ISSUES_FOUND" : "APPROVAL"
+    case "REVISION_REQUIRED":
+      return "REVISION"
     case "APPROVED":
     case "PUBLISHING":
-      return "WORKING"
-    case "WAITING_FOR_APPROVAL":
-    case "REVISION_REQUIRED":
-    case "FAILED":
-      return "NEEDS_USER"
     case "COMPLETED":
     case "REJECTED":
     case "CANCELLED":
@@ -97,7 +139,11 @@ export function resolveBoardColumn(plan: Plan, workflow?: WorkflowJob): BoardCol
   }
 }
 
-export function resolveDisplayStatus(plan: Plan, workflow?: WorkflowJob): string {
+export function resolveDisplayStatus(
+  plan: Plan,
+  workflow?: WorkflowJob,
+  reviewCard?: BoardReviewProjection,
+): string {
   if (!workflow) {
     switch (plan.status) {
       case "DRAFT":
@@ -115,15 +161,31 @@ export function resolveDisplayStatus(plan: Plan, workflow?: WorkflowJob): string
         return assertNever(plan.status)
     }
   }
+  if (workflow.status === "WAITING_FOR_APPROVAL" && hasBlockingReview(reviewCard)) {
+    return `${reviewCard?.review?.blocking_issues ?? 0} blocking review issue(s)`
+  }
+  if (workflow.status === "REVIEWING" && reviewCard?.review?.status === "RUNNING") {
+    return "Reviewer Agent is checking the changes"
+  }
+  if (workflow.status === "REVIEWING" && isRevision(workflow)) {
+    return "Reviewer Agent is verifying the revision"
+  }
   return workflowStatusLabel(workflow.status)
 }
 
-export function resolveAttentionReason(plan: Plan, workflow?: WorkflowJob): string | undefined {
+export function resolveAttentionReason(
+  plan: Plan,
+  workflow?: WorkflowJob,
+  reviewCard?: BoardReviewProjection,
+): string | undefined {
   if (!workflow && plan.status === "NEEDS_INPUT") return "Answer the planning questions"
   if (!workflow) return undefined
 
   switch (workflow.status) {
     case "WAITING_FOR_APPROVAL":
+      if (hasBlockingReview(reviewCard)) {
+        return `${reviewCard?.review?.blocking_issues ?? 0} blocking finding(s) require revision`
+      }
       return "Review the changes and make a decision"
     case "REVISION_REQUIRED":
       return "Revision feedback is ready for the next execution"
@@ -192,7 +254,9 @@ export function boardActions(item: BoardItem): BoardAction[] {
       id: "open-details",
       label:
         item.workflow.status === "WAITING_FOR_APPROVAL"
-          ? "Review and decide"
+          ? hasBlockingReview(item.reviewCard)
+            ? "Review blocking findings"
+            : "Review and decide"
           : item.workflow.status === "FAILED"
             ? "See why it failed"
             : "Open workflow details",
@@ -239,7 +303,7 @@ export function workflowStatusLabel(status: WorkflowStatus): string {
     case "QUEUED":
       return "Waiting for an agent"
     case "EXECUTING":
-      return "Agent is implementing the plan"
+      return "Executor Agent is implementing the plan"
     case "CHECKING":
       return "Running automated checks"
     case "REVIEWING":
@@ -284,6 +348,46 @@ export function workflowTone(status: WorkflowStatus): StatusTone {
 
 export function isActiveWorkflow(status: WorkflowStatus): boolean {
   return !["COMPLETED", "FAILED", "REJECTED", "CANCELLED"].includes(status)
+}
+
+function isRevision(workflow: WorkflowJob): boolean {
+  return workflow.revision_count > 0 || workflow.execution_version > 1
+}
+
+function hasBlockingReview(reviewCard?: BoardReviewProjection): boolean {
+  return (
+    reviewCard?.review?.verdict === "REQUEST_REVISION" ||
+    (reviewCard?.review?.blocking_issues ?? 0) > 0
+  )
+}
+
+function resolveFailedColumn(
+  workflow: WorkflowJob,
+  reviewCard?: BoardReviewProjection,
+): BoardColumn {
+  switch (workflow.retry_status) {
+    case "WORKSPACE_PREPARING":
+    case "READY":
+      return "READY"
+    case "QUEUED":
+    case "EXECUTING":
+      return isRevision(workflow) ? "REVISION" : "EXECUTING"
+    case "CHECKING":
+      return "CHECKING"
+    case "REVIEWING":
+      return "ISSUES_FOUND"
+    case "PUBLISHING":
+      return "DONE"
+  }
+
+  const failureCode = workflow.failure_code ?? ""
+  if (failureCode.startsWith("WORKSPACE")) return "READY"
+  if (failureCode.startsWith("CHECK")) return "CHECKING"
+  if (failureCode.startsWith("REVIEW") || reviewCard?.review?.status === "FAILED") {
+    return "ISSUES_FOUND"
+  }
+  if (failureCode.startsWith("PUBLICATION") || failureCode.startsWith("PUBLISH")) return "DONE"
+  return isRevision(workflow) ? "REVISION" : workflow.execution_version > 0 ? "EXECUTING" : "READY"
 }
 
 function assertNever(value: never): never {

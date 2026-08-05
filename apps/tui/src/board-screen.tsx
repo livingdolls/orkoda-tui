@@ -50,8 +50,14 @@ type LoadState = "idle" | "loading" | "ready" | "error"
 const initialIndexes: Record<BoardColumn, number> = {
   PLANNING: 0,
   READY: 0,
-  WORKING: 0,
-  NEEDS_USER: 0,
+  EXECUTING: 0,
+  CHECKING: 0,
+  AWAITING_REVIEW: 0,
+  AI_REVIEWING: 0,
+  ISSUES_FOUND: 0,
+  REVISION: 0,
+  RE_REVIEW: 0,
+  APPROVAL: 0,
   DONE: 0,
 }
 
@@ -323,7 +329,7 @@ export function BoardScreen({
       setItems((current) =>
         current.map((candidate) =>
           candidate.id === item.id
-            ? createBoardItem(candidate.project, candidate.plan, started)
+            ? createBoardItem(candidate.project, candidate.plan, started, candidate.reviewCard)
             : candidate,
         ),
       )
@@ -350,7 +356,7 @@ export function BoardScreen({
       setItems((current) =>
         current.map((candidate) =>
           candidate.id === item.id
-            ? createBoardItem(candidate.project, candidate.plan, workflow)
+            ? createBoardItem(candidate.project, candidate.plan, workflow, candidate.reviewCard)
             : candidate,
         ),
       )
@@ -543,12 +549,14 @@ export function BoardScreen({
         }}
         onWorkflowUpdated={(workflow: WorkflowJob) => {
           setDetailItem((current) =>
-            current ? createBoardItem(current.project, current.plan, workflow) : current,
+            current
+              ? createBoardItem(current.project, current.plan, workflow, current.reviewCard)
+              : current,
           )
           setItems((current) =>
             current.map((candidate) =>
               candidate.id === detailItem.id
-                ? createBoardItem(candidate.project, candidate.plan, workflow)
+                ? createBoardItem(candidate.project, candidate.plan, workflow, candidate.reviewCard)
                 : candidate,
             ),
           )
@@ -614,7 +622,7 @@ export function BoardScreen({
       <PageHeader
         title="Board"
         description="One card follows each piece of work from planning to implementation, review, approval, and publication."
-        meta={`${activeFilter?.name ?? "All projects"} · ${activeOnly ? "active only" : "all work"}`}
+        meta={`${activeFilter?.name ?? "All projects"} · ${activeOnly ? "active only" : "all work"} · stage ${activeColumnIndex + 1}/${boardColumns.length}`}
       />
       <box flexDirection="row" gap={1} alignItems="center" flexWrap="wrap">
         <Chip
@@ -654,7 +662,7 @@ export function BoardScreen({
                 </text>
                 <Chip
                   label={String(cards.length)}
-                  tone={column === "NEEDS_USER" && cards.length > 0 ? "warning" : "neutral"}
+                  tone={column === "ISSUES_FOUND" && cards.length > 0 ? "warning" : "neutral"}
                   dot={false}
                 />
               </box>
@@ -767,13 +775,18 @@ export function BoardScreen({
 function BoardCard({ item, selected }: { item: BoardItem; selected: boolean }) {
   const tone = item.workflow
     ? workflowTone(item.workflow.status)
-    : item.column === "NEEDS_USER"
+    : item.column === "PLANNING" && item.plan.status === "NEEDS_INPUT"
       ? "warning"
       : item.column === "READY"
         ? "accent"
         : item.column === "DONE"
           ? "success"
           : "neutral"
+  const reviewCard = item.reviewCard
+  const showExecutor =
+    item.column === "EXECUTING" || item.column === "CHECKING" || item.column === "REVISION"
+  const agent = reviewCard ? (showExecutor ? reviewCard.executor : reviewCard.reviewer) : undefined
+  const agentLabel = showExecutor ? "Executor" : "Reviewer"
   return (
     <box
       flexDirection="column"
@@ -791,6 +804,21 @@ function BoardCard({ item, selected }: { item: BoardItem; selected: boolean }) {
       </box>
       <text fg={colors.faint}>{truncate(item.project.name, 34)}</text>
       <Chip label={truncate(item.displayStatus, 38)} tone={tone} />
+      {agent ? (
+        <text fg={colors.muted} wrapMode="word">
+          {`${agentLabel}: ${truncate(agent.provider, 14)} / ${truncate(agent.model, 22)}`}
+        </text>
+      ) : null}
+      {reviewCard?.check ? (
+        <text fg={reviewCard.check.failed_steps > 0 ? colors.warning : colors.faint}>
+          {`Checks: ${reviewCard.check.passed_steps}/${reviewCard.check.total_steps} passed`}
+        </text>
+      ) : null}
+      {reviewCard && reviewCard.issues.length > 0 ? (
+        <text fg={reviewCard.review?.blocking_issues ? colors.warning : colors.faint}>
+          {`${reviewCard.issues.length} finding(s) · ${reviewCard.review?.blocking_issues ?? 0} blocking`}
+        </text>
+      ) : null}
       {item.attentionReason ? (
         <text fg={colors.warning} wrapMode="word">
           {truncate(item.attentionReason, 64)}
@@ -799,7 +827,7 @@ function BoardCard({ item, selected }: { item: BoardItem; selected: boolean }) {
       <box flexDirection="row" justifyContent="space-between">
         <text fg={colors.faint}>{item.repository?.current_branch || "no branch"}</text>
         {item.workflow ? (
-          <text fg={colors.faint}>{`v${item.workflow.execution_version}`}</text>
+          <text fg={colors.faint}>{`execution v${item.workflow.execution_version}`}</text>
         ) : (
           <Key>{item.plan.status === "NEEDS_INPUT" ? "Enter" : "Space"}</Key>
         )}

@@ -1,17 +1,23 @@
-# Review Kanban
+# Unified Workflow Board
 
-The Review screen is a read-only projection of the durable workflow, execution, check, review, and approval records. It does not introduce a second state machine.
+Review is part of the main Board. Orkoda does not expose a separate Review screen or a second state machine.
 
-Columns:
+A card follows one durable workflow through these presentation columns:
 
-1. Awaiting Review
-2. AI Reviewing
-3. Issues Found
-4. Revision
-5. Re-review
-6. Approval
-7. Approved
+1. Planning
+2. Ready
+3. Executing
+4. Checking
+5. Awaiting Review
+6. AI Reviewing
+7. Issues Found
+8. Revision
+9. Re-review
+10. Approval
+11. Done
 
-Each card shows the immutable Executor and Reviewer provider/model snapshots, execution version, review cycle, blocking issue count, and check summary. Enter opens the existing evidence and approval detail. A failed review stage can be retried with `T`; the workflow retry target determines whether workspace preparation, execution, checks, review, or publication resumes.
+The columns are read-only projections of plan, workflow, execution, check, review, approval, and publication records. Cards cannot be dragged manually.
 
-For revision cycles, findings are compared by their stable issue key and shown as new, still present, partially resolved, or resolved. Reviewer access remains read-only. Human approval remains bound to the latest execution version, base commit, checkpoint, and patch checksum.
+Failures remain in the stage that failed. For example, a failed automated check remains in Checking, while a failed Reviewer run appears in Issues Found. Enter opens the shared workflow detail and Space opens every valid action. Retry uses the durable workflow retry target.
+
+Review cards retain immutable Executor and Reviewer provider/model snapshots, execution version, review cycle, check totals, blocking findings, and previous-review comparison. Reviewer access remains read-only, and human approval remains bound to the latest execution version, base commit, checkpoint, and patch checksum.

@@ -8,6 +8,7 @@ import {
 } from "./board-model"
 import type { Plan } from "./plans"
 import type { Project } from "./projects"
+import type { ReviewRun } from "./reviews"
 import type { WorkflowJob, WorkflowStatus } from "./workflow-jobs"
 
 const project: Project = {
@@ -31,7 +32,7 @@ function plan(status: Plan["status"]): Plan {
   }
 }
 
-function workflow(status: WorkflowStatus): WorkflowJob {
+function workflow(status: WorkflowStatus, overrides: Partial<WorkflowJob> = {}): WorkflowJob {
   return {
     id: "job-1",
     project_id: project.id,
@@ -53,13 +54,39 @@ function workflow(status: WorkflowStatus): WorkflowJob {
     cancellation_requested: false,
     created_at: "2026-08-04T00:00:00Z",
     updated_at: "2026-08-04T00:00:00Z",
+    ...overrides,
   }
 }
 
-describe("board status mapping", () => {
-  test("maps plan-only lifecycle", () => {
+function review(
+  status: ReviewRun["status"],
+  verdict?: ReviewRun["verdict"],
+  blockingIssues = 0,
+): ReviewRun {
+  return {
+    id: "review-1",
+    workflow_job_id: "job-1",
+    execution_id: "execution-1",
+    execution_version: 1,
+    check_run_id: "check-1",
+    checkpoint_id: "checkpoint-1",
+    agent_settings_version: 1,
+    provider: "openai",
+    model: "reviewer-model",
+    status,
+    verdict,
+    summary: "Review summary",
+    total_issues: blockingIssues,
+    blocking_issues: blockingIssues,
+    created_at: "2026-08-04T00:00:00Z",
+    updated_at: "2026-08-04T00:00:00Z",
+  }
+}
+
+describe("unified board status mapping", () => {
+  test("keeps planning questions on the planning stage", () => {
     expect(resolveBoardColumn(plan("DRAFT"))).toBe("PLANNING")
-    expect(resolveBoardColumn(plan("NEEDS_INPUT"))).toBe("NEEDS_USER")
+    expect(resolveBoardColumn(plan("NEEDS_INPUT"))).toBe("PLANNING")
     expect(resolveBoardColumn(plan("READY"))).toBe("READY")
     expect(resolveBoardColumn(plan("ARCHIVED"))).toBe("DONE")
   })
@@ -68,12 +95,11 @@ describe("board status mapping", () => {
     ["READY", "READY"],
     ["WORKSPACE_PREPARING", "READY"],
     ["QUEUED", "READY"],
-    ["EXECUTING", "WORKING"],
-    ["CHECKING", "WORKING"],
-    ["REVIEWING", "WORKING"],
-    ["WAITING_FOR_APPROVAL", "NEEDS_USER"],
-    ["REVISION_REQUIRED", "NEEDS_USER"],
-    ["FAILED", "NEEDS_USER"],
+    ["EXECUTING", "EXECUTING"],
+    ["CHECKING", "CHECKING"],
+    ["REVIEWING", "AWAITING_REVIEW"],
+    ["WAITING_FOR_APPROVAL", "APPROVAL"],
+    ["REVISION_REQUIRED", "REVISION"],
     ["COMPLETED", "DONE"],
     ["REJECTED", "DONE"],
     ["CANCELLED", "DONE"],
@@ -82,12 +108,52 @@ describe("board status mapping", () => {
     expect(workflowStatusLabel(status).length).toBeGreaterThan(0)
   })
 
+  test("projects active review and revision stages into the same board", () => {
+    expect(
+      resolveBoardColumn(plan("READY"), workflow("REVIEWING"), {
+        review: review("RUNNING"),
+      }),
+    ).toBe("AI_REVIEWING")
+    expect(
+      resolveBoardColumn(plan("READY"), workflow("WAITING_FOR_APPROVAL"), {
+        review: review("COMPLETED", "REQUEST_REVISION", 2),
+      }),
+    ).toBe("ISSUES_FOUND")
+    expect(
+      resolveBoardColumn(
+        plan("READY"),
+        workflow("REVIEWING", { execution_version: 2, revision_count: 1 }),
+      ),
+    ).toBe("RE_REVIEW")
+    expect(
+      resolveBoardColumn(
+        plan("READY"),
+        workflow("EXECUTING", { execution_version: 2, revision_count: 1 }),
+      ),
+    ).toBe("REVISION")
+  })
+
+  test("keeps failures on their failed stage", () => {
+    expect(
+      resolveBoardColumn(
+        plan("READY"),
+        workflow("FAILED", { retry_status: "CHECKING", failure_code: "CHECKS_FAILED" }),
+      ),
+    ).toBe("CHECKING")
+    expect(
+      resolveBoardColumn(
+        plan("READY"),
+        workflow("FAILED", { retry_status: "REVIEWING", failure_code: "REVIEW_FAILED" }),
+      ),
+    ).toBe("ISSUES_FOUND")
+  })
+
   test("keeps one stable card id when a plan becomes a workflow", () => {
     expect(createBoardItem(project, plan("READY")).id).toBe("plan:plan-1")
     expect(createBoardItem(project, plan("READY"), workflow("EXECUTING")).id).toBe("plan:plan-1")
   })
 
-  test("offers only valid contextual actions", () => {
+  test("offers contextual failure actions", () => {
     expect(boardActions(createBoardItem(project, plan("DRAFT"))).map((item) => item.id)).toEqual([
       "prepare-plan",
     ])
@@ -99,20 +165,17 @@ describe("board status mapping", () => {
         (item) => item.id,
       ),
     ).toEqual(["open-details", "retry"])
-    const failureActions = boardActions(
-      createBoardItem(project, plan("READY"), {
-        ...workflow("FAILED"),
+    const failure = createBoardItem(
+      project,
+      plan("READY"),
+      workflow("FAILED", {
+        retry_status: "WORKSPACE_PREPARING",
         failure_code: "WORKSPACE_PREPARATION_FAILED",
         failure_message: "source repository has uncommitted changes",
       }),
     )
-    expect(failureActions[0]?.label).toBe("See why it failed")
-    expect(
-      createBoardItem(project, plan("READY"), {
-        ...workflow("FAILED"),
-        failure_code: "WORKSPACE_PREPARATION_FAILED",
-        failure_message: "source repository has uncommitted changes",
-      }).attentionReason,
-    ).toContain("source repository has uncommitted changes")
+    expect(failure.column).toBe("READY")
+    expect(boardActions(failure)[0]?.label).toBe("See why it failed")
+    expect(failure.attentionReason).toContain("source repository has uncommitted changes")
   })
 })
