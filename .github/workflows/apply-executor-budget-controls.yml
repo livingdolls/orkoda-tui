@@ -6,6 +6,7 @@ on:
       - feat/executor-budget-controls
     paths:
       - scripts/apply_executor_budget_controls.py
+      - scripts/fix_executor_budget_generated.py
       - .github/workflows/apply-executor-budget-controls.yml
 
 permissions:
@@ -29,29 +30,7 @@ jobs:
       - name: Apply implementation
         run: |
           python3 scripts/apply_executor_budget_controls.py
-          python3 - <<'PY'
-          from pathlib import Path
-          for file_name, marker in [
-              ("internal/execution/llm_runner_test.go", "func TestNormalizeExecutorBudget"),
-              ("internal/workflowjob/validation_test.go", "func TestExecutorContinuationCodes"),
-          ]:
-              path = Path(file_name)
-              text = path.read_text()
-              before, after = text.split(marker, 1)
-              path.write_text(before + marker + after.replace(r"\t", "\t"))
-
-          path = Path("internal/workflowjob/repository_test.go")
-          text = path.read_text()
-          old = '''\tif created.Limits.MaxRevisions != 3 || created.Limits.MaxStageAttempts != 3 ||
-\t\tcreated.Limits.MaxToolCalls != 120 || created.Limits.WallClockSeconds != 3600 {'''
-          new = '''\tif created.Limits.MaxRevisions != 3 || created.Limits.MaxStageAttempts != 3 ||
-\t\tcreated.Limits.MaxExecutorTurns != 32 || created.Limits.MaxToolCalls != 24 ||
-\t\tcreated.Limits.MaxConsecutiveToolErrors != 3 || created.Limits.MaxNoProgressTurns != 4 ||
-\t\tcreated.Limits.WallClockSeconds != 3600 {'''
-          if old not in text:
-              raise SystemExit("default limit assertion not found")
-          path.write_text(text.replace(old, new, 1))
-          PY
+          python3 scripts/fix_executor_budget_generated.py
       - name: Format
         run: |
           gofmt -w cmd internal
@@ -64,9 +43,11 @@ jobs:
           bun run test:ts
       - name: Commit implementation
         run: |
-          rm -f scripts/apply_executor_budget_controls.py .github/workflows/apply-executor-budget-controls.yml
+          rm -f scripts/apply_executor_budget_controls.py
+          rm -f scripts/fix_executor_budget_generated.py
+          rm -f .github/workflows/apply-executor-budget-controls.yml
           git config user.name "github-actions[bot]"
-          git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "feat: add resilient executor budget controls" || exit 0
           git push origin HEAD:feat/executor-budget-controls
