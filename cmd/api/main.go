@@ -149,26 +149,24 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defaultProvider := planningagent.LocalFakeProviderName
-	defaultModel := planningagent.LocalFakeModelName
-	if cfg.LLM.Provider != planningagent.LocalFakeProviderName {
+	for _, configured := range cfg.LLM.Providers {
 		provider, err := openaicompat.New(openaicompat.Config{
-			Name:         cfg.LLM.Provider,
-			BaseURL:      cfg.LLM.BaseURL,
-			APIKey:       cfg.LLM.APIKey,
-			DefaultModel: cfg.LLM.Model,
-			Headers:      cfg.LLM.Headers,
-			Timeout:      cfg.LLM.Timeout,
-			JSONMode:     openaicompat.JSONMode(cfg.LLM.JSONMode),
+			Name: configured.Name, BaseURL: configured.BaseURL, APIKey: configured.APIKey,
+			DefaultModel: configured.Model, Headers: configured.Headers,
+			Timeout: configured.Timeout, JSONMode: openaicompat.JSONMode(configured.JSONMode),
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("configure LLM provider %s: %w", configured.Name, err)
 		}
 		if err := providerRegistry.Register(provider); err != nil {
 			return err
 		}
-		defaultProvider = provider.Name()
-		defaultModel = cfg.LLM.Model
+	}
+	defaultProvider := cfg.LLM.Provider
+	defaultModel := cfg.LLM.Model
+	if defaultProvider == "" || defaultProvider == planningagent.LocalFakeProviderName {
+		defaultProvider = planningagent.LocalFakeProviderName
+		defaultModel = planningagent.LocalFakeModelName
 	}
 	providerCatalog := llm.NewCatalog(providerRegistry, defaultProvider)
 

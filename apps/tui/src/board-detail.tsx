@@ -15,6 +15,7 @@ import {
   listExecutions,
   type PatchCheckpoint,
 } from "./executions"
+import { compareReviewIssues } from "./review-board-model"
 import {
   listReviewIssues,
   listReviews,
@@ -50,6 +51,8 @@ type DetailSnapshot = {
   checkSteps: CheckStep[]
   review?: ReviewRun
   reviewIssues: ReviewIssue[]
+  previousReview?: ReviewRun
+  previousReviewIssues: ReviewIssue[]
   workspace?: Workspace
   diffLines: string[]
 }
@@ -71,6 +74,7 @@ export function BoardDetail({
   const [snapshot, setSnapshot] = useState<DetailSnapshot>({
     checkSteps: [],
     reviewIssues: [],
+    previousReviewIssues: [],
     diffLines: [],
   })
   const [state, setState] = useState<"loading" | "ready" | "error">("loading")
@@ -95,12 +99,15 @@ export function BoardDetail({
       const execution = executions[0]
       const check = checks[0]
       const review = reviews[0]
-      const [checkSteps, reviewIssues, checkpoints, workspace] = await Promise.all([
-        check ? listCheckSteps(check.id) : Promise.resolve([]),
-        review ? listReviewIssues(review.id) : Promise.resolve([]),
-        execution ? listCheckpoints(execution.id) : Promise.resolve([]),
-        getWorkflowWorkspace(workflow.id).catch(() => undefined),
-      ])
+      const previousReview = reviews[1]
+      const [checkSteps, reviewIssues, previousReviewIssues, checkpoints, workspace] =
+        await Promise.all([
+          check ? listCheckSteps(check.id) : Promise.resolve([]),
+          review ? listReviewIssues(review.id) : Promise.resolve([]),
+          previousReview ? listReviewIssues(previousReview.id) : Promise.resolve([]),
+          execution ? listCheckpoints(execution.id) : Promise.resolve([]),
+          getWorkflowWorkspace(workflow.id).catch(() => undefined),
+        ])
       const checkpoint = checkpoints.at(-1)
       const diff = execution
         ? await getExecutionDiff(execution.id, { limit: 800 }).catch(() => undefined)
@@ -112,6 +119,8 @@ export function BoardDetail({
         checkSteps,
         review,
         reviewIssues,
+        previousReview,
+        previousReviewIssues,
         workspace,
         diffLines: diff?.lines ?? [],
       })
@@ -139,6 +148,8 @@ export function BoardDetail({
         review: snapshot.review,
       })
     : []
+
+  const reviewComparison = compareReviewIssues(snapshot.previousReviewIssues, snapshot.reviewIssues)
 
   const canDecide =
     workflow?.status === "WAITING_FOR_APPROVAL" &&
@@ -416,12 +427,58 @@ export function BoardDetail({
               </Card>
             </Section>
 
+            {snapshot.execution || snapshot.review ? (
+              <Section title="Agent handoff">
+                <Card>
+                  <text
+                    fg={colors.accent}
+                  >{`Executor · ${snapshot.execution?.provider || "pending"}/${snapshot.execution?.model || "pending"}`}</text>
+                  <text fg={colors.faint}>↓ immutable patch and automated check evidence</text>
+                  <text
+                    fg={colors.accent}
+                  >{`Reviewer · ${snapshot.review?.provider || "pending"}/${snapshot.review?.model || "pending"}`}</text>
+                  <text fg={colors.faint}>↓ human approval remains required</text>
+                  <text fg={colors.text}>Developer decision</text>
+                </Card>
+              </Section>
+            ) : null}
+
             {snapshot.review?.summary ? (
               <Section title="Review summary">
                 <Card tone={snapshot.review.blocking_issues > 0 ? "warning" : "success"}>
                   <text fg={colors.text} wrapMode="word">
                     {snapshot.review.summary}
                   </text>
+                </Card>
+              </Section>
+            ) : null}
+
+            {snapshot.previousReview && reviewComparison.length > 0 ? (
+              <Section
+                title="Previous review comparison"
+                action={`execution v${snapshot.previousReview.execution_version} → v${snapshot.review?.execution_version ?? workflow.execution_version}`}
+              >
+                <Card>
+                  {reviewComparison.map((item) => (
+                    <box key={item.key} flexDirection="row" justifyContent="space-between" gap={1}>
+                      <text
+                        fg={
+                          item.status === "RESOLVED"
+                            ? colors.success
+                            : item.status === "NEW"
+                              ? colors.danger
+                              : item.status === "PARTIALLY_RESOLVED"
+                                ? colors.warning
+                                : colors.muted
+                        }
+                      >
+                        {item.status.toLowerCase().replaceAll("_", " ")}
+                      </text>
+                      <text fg={colors.text} wrapMode="word">
+                        {item.current?.title ?? item.previous?.title ?? item.key}
+                      </text>
+                    </box>
+                  ))}
                 </Card>
               </Section>
             ) : null}
