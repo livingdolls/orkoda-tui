@@ -1,0 +1,51 @@
+name: Apply review kanban implementation
+
+on:
+  push:
+    branches: [feat/review-kanban-multi-agent]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    name: Apply multi-provider review kanban
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/review-kanban-multi-agent
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install
+      - name: Apply backend and TUI changes
+        run: |
+          python3 scripts/apply_review_backend.py
+          python3 scripts/apply_review_ui.py
+      - name: Format source
+        run: |
+          gofmt -w cmd/api/main.go internal/config/llm.go internal/config/llm_multi_provider_test.go internal/agentconfig/repository.go internal/agentconfig/separation_test.go
+          bunx biome check --write apps/tui/src/agent-profile-editor.tsx apps/tui/src/agent-separation.test.ts apps/tui/src/agent-settings-screen.tsx apps/tui/src/agent-settings.ts apps/tui/src/app.tsx apps/tui/src/board-detail.tsx apps/tui/src/navigation.test.ts apps/tui/src/navigation.ts apps/tui/src/review-board-data.ts apps/tui/src/review-board-model.test.ts apps/tui/src/review-board-model.ts apps/tui/src/review-board-screen.tsx apps/tui/src/reviews.ts
+      - name: Validate backend
+        run: |
+          go test ./internal/config ./internal/agentconfig
+          go test ./...
+      - name: Validate TUI
+        run: |
+          bun run lint:ts
+          bun run typecheck
+          bun run test:ts
+      - name: Commit final implementation
+        run: |
+          rm .github/workflows/apply-review-kanban.yml scripts/apply_review_backend.py scripts/apply_review_ui.py
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add --all
+          git commit -m "feat: add multi-provider review kanban"
+          git push origin HEAD:feat/review-kanban-multi-agent
