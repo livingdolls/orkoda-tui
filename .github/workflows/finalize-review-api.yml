@@ -1,0 +1,47 @@
+name: Finalize review API integration
+
+on:
+  push:
+    branches: [feat/review-kanban-multi-agent]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    name: Wire and validate review API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/review-kanban-multi-agent
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install
+      - name: Wire endpoint and rolling-upgrade client
+        run: python3 scripts/finalize_review_api.py
+      - name: Format
+        run: |
+          gofmt -w internal/httpapi/review_board.go internal/httpapi/review_board_test.go internal/httpapi/router.go internal/config/llm.go
+          bunx biome check --write apps/tui/src/review-board-data.ts
+      - name: Validate Go
+        run: go test ./...
+      - name: Validate TUI
+        run: |
+          bun run lint:ts
+          bun run typecheck
+          bun run test:ts
+      - name: Commit final API integration
+        run: |
+          rm .github/workflows/finalize-review-api.yml scripts/finalize_review_api.py
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add --all
+          git commit -m "feat: aggregate review board evidence"
+          git push origin HEAD:feat/review-kanban-multi-agent
