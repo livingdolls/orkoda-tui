@@ -174,7 +174,7 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 		return h.finishWorkflow(ctx, job, executionItem, queueJob.ID)
 	}
 	if executionItem.Status == StatusFailed {
-		return fmt.Errorf("execution %s is failed and requires workflow retry", executionItem.ID)
+		return h.failWorkflow(ctx, job, queueJob, executionFailure(executionItem))
 	}
 
 	lease, err := h.workspaces.AcquireWrite(ctx, item.ID, h.workerID, h.leaseTTL)
@@ -270,7 +270,7 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 		if durableCancelled {
 			return runErr
 		}
-		return h.failWorkflowOnLastAttempt(context.WithoutCancel(ctx), job, queueJob, runErr)
+		return h.failWorkflow(context.WithoutCancel(ctx), job, queueJob, runErr)
 	}
 
 	snapshot, err := gitstate.Capture(ctx, item.Path, policy.MaxPatchBytes)
@@ -291,7 +291,7 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 				return cancellation
 			}
 			_ = h.executions.Fail(context.WithoutCancel(ctx), executionItem.ID, "EXECUTOR_FAILED", cancellation.Error())
-			return h.failWorkflowOnLastAttempt(context.WithoutCancel(ctx), job, queueJob, cancellation)
+			return h.failWorkflow(context.WithoutCancel(ctx), job, queueJob, cancellation)
 		}
 	default:
 	}
@@ -300,7 +300,7 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 			return err
 		}
 		_ = h.executions.Fail(context.WithoutCancel(ctx), executionItem.ID, "EXECUTOR_FAILED", err.Error())
-		return h.failWorkflowOnLastAttempt(context.WithoutCancel(ctx), job, queueJob, err)
+		return h.failWorkflow(context.WithoutCancel(ctx), job, queueJob, err)
 	}
 	artifactKey := ""
 	if h.artifactStore != nil {
@@ -410,33 +410,46 @@ func (h *Handler) finishWorkflow(
 	return err
 }
 
-func (h *Handler) failWorkflowOnLastAttempt(
+func (h *Handler) failWorkflow(
 	ctx context.Context,
 	job workflowjob.Job,
 	queueJob jobqueue.Job,
 	cause error,
 ) error {
-	if queueJob.Attempts < queueJob.MaxAttempts {
-		return cause
-	}
 	current, err := h.workflows.Get(ctx, job.ID)
 	if err != nil {
-		return cause
+		return fmt.Errorf("load workflow after Executor failure: %w", err)
 	}
-	if current.Status == workflowjob.StatusExecuting {
-		code, message, _ := classifyExecutorError(cause)
-		_, _ = h.workflows.Transition(ctx, current.ID, workflowjob.TransitionInput{
-			ExpectedVersion: current.Version,
-			Action:          workflowjob.ActionFail,
-			FailureCode:     code,
-			FailureMessage:  message,
-			Details: map[string]any{
-				"attempt":      queueJob.Attempts,
-				"max_attempts": queueJob.MaxAttempts,
-			},
-		})
+	if current.Status != workflowjob.StatusExecuting {
+		return nil
 	}
-	return cause
+	code, message, _ := classifyExecutorError(cause)
+	updated, err := h.workflows.Transition(ctx, current.ID, workflowjob.TransitionInput{
+		ExpectedVersion: current.Version,
+		Action:          workflowjob.ActionFail,
+		FailureCode:     code,
+		FailureMessage:  message,
+		Details: map[string]any{
+			"attempt":      queueJob.Attempts,
+			"max_attempts": queueJob.MaxAttempts,
+			"terminal":     true,
+		},
+	})
+	if err != nil {
+		if errors.Is(err, workflowjob.ErrVersionConflict) {
+			latest, getErr := h.workflows.Get(ctx, current.ID)
+			if getErr == nil && latest.Status != workflowjob.StatusExecuting {
+				return nil
+			}
+		}
+		return fmt.Errorf("mark workflow failed after Executor failure: %w", err)
+	}
+	h.record(ctx, updated.ID, "execution.failed", map[string]any{
+		"failure_code":    code,
+		"failure_message": message,
+		"attempt":         queueJob.Attempts,
+	}, time.Now().UTC())
+	return nil
 }
 
 func (h *Handler) renewLease(

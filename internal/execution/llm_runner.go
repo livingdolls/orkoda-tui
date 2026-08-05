@@ -45,6 +45,30 @@ func (e *ExecutorPauseError) Error() string {
 	return e.Message
 }
 
+type persistedExecutorFailure struct {
+	code    string
+	message string
+}
+
+func (e *persistedExecutorFailure) Error() string {
+	if e == nil || strings.TrimSpace(e.message) == "" {
+		return "Executor execution failed."
+	}
+	return e.message
+}
+
+func executionFailure(item Execution) error {
+	code := strings.TrimSpace(item.FailureCode)
+	if code == "" {
+		code = "EXECUTOR_FAILED"
+	}
+	message := strings.TrimSpace(item.FailureMessage)
+	if message == "" {
+		message = "Executor execution failed."
+	}
+	return &persistedExecutorFailure{code: code, message: message}
+}
+
 func pauseExecutor(code, message string) error {
 	return &ExecutorPauseError{Code: code, Message: strings.TrimSpace(message)}
 }
@@ -53,6 +77,10 @@ func classifyExecutorError(err error) (code, message string, pause bool) {
 	var pauseError *ExecutorPauseError
 	if errors.As(err, &pauseError) {
 		return pauseError.Code, pauseError.Message, true
+	}
+	var persistedFailure *persistedExecutorFailure
+	if errors.As(err, &persistedFailure) {
+		return persistedFailure.code, persistedFailure.Error(), false
 	}
 	return "EXECUTOR_FAILED", err.Error(), false
 }
