@@ -114,6 +114,9 @@ func (s *Service) Load(ctx context.Context) error {
 		managed[name] = item
 		apiKey, err := s.credentials.Get(ctx, credentialAccount(name))
 		if errors.Is(err, credentials.ErrNotFound) || errors.Is(err, credentials.ErrUnavailable) {
+			// A persisted TUI override must never silently fall through to an
+			// environment provider with the same name when its credential is gone.
+			s.registry.Remove(name)
 			credentialState[name] = false
 			continue
 		}
@@ -380,6 +383,9 @@ func normalizeRecord(name string, input SaveInput, existing Record, hasExisting 
 	for key, value := range headers {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
+		if sensitiveHeader(key) {
+			return Record{}, fmt.Errorf("%w: sensitive credentials must use the API key field, not header %s", ErrInvalid, key)
+		}
 		if key != "" && value != "" {
 			cleanHeaders[key] = value
 		}
@@ -425,6 +431,14 @@ func buildProvider(item Record, apiKey string) (llm.Provider, error) {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	return provider, nil
+}
+
+func sensitiveHeader(name string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(name), "_", "-"), " ", "-"))
+	if normalized == "authorization" || normalized == "proxy-authorization" || normalized == "x-api-key" {
+		return true
+	}
+	return strings.Contains(normalized, "token") || strings.Contains(normalized, "secret") || strings.Contains(normalized, "api-key")
 }
 
 func normalizeName(name string) string {

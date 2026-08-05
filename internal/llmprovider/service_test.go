@@ -111,6 +111,12 @@ func TestServiceSavesTestsAndDeletesRuntimeProvider(t *testing.T) {
 	if result.Provider != "custom" || result.Model != "model-a" || result.ResponsePreview != "OK" {
 		t.Fatalf("unexpected test result %#v", result)
 	}
+	if _, err := service.Save(ctx, "unsafe", SaveInput{
+		BaseURL: server.URL, DefaultModel: "model-a", APIKey: "provider-value",
+		Headers: map[string]string{"Authorization": "Bearer should-not-enter-sqlite"},
+	}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected sensitive header rejection, got %v", err)
+	}
 	if err := service.Delete(ctx, "custom"); err != nil {
 		t.Fatal(err)
 	}
