@@ -27,7 +27,19 @@ jobs:
           bun-version: 1.3.14
       - run: bun install
       - name: Apply workflow agent selection
-        run: python3 scripts/apply_workflow_agent_selection.py
+        run: |
+          python3 scripts/apply_workflow_agent_selection.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("apps/tui/src/workflow-agent-picker.tsx")
+          text = path.read_text()
+          text = text.replace('AgentChoiceCard role="Executor"', 'AgentChoiceCard label="Executor"')
+          text = text.replace('AgentChoiceCard role="Reviewer"', 'AgentChoiceCard label="Reviewer"')
+          text = text.replace('  role,\n  active,', '  label,\n  active,')
+          text = text.replace('  role: "Executor" | "Reviewer"', '  label: "Executor" | "Reviewer"')
+          text = text.replace('        {role}\n', '        {label}\n')
+          path.write_text(text)
+          PY
       - name: Format
         run: |
           gofmt -w cmd internal
