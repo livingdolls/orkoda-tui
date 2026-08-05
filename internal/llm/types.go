@@ -73,6 +73,13 @@ type ProviderInfo struct {
 	Configured       bool   `json:"configured"`
 	StructuredOutput bool   `json:"structured_output"`
 	Default          bool   `json:"default"`
+	BaseURL          string `json:"base_url,omitempty"`
+	JSONMode         string `json:"json_mode,omitempty"`
+	TimeoutMS        int64  `json:"timeout_ms,omitempty"`
+	CredentialStored bool   `json:"credential_stored"`
+	Source           string `json:"source,omitempty"`
+	Editable         bool   `json:"editable"`
+	Deletable        bool   `json:"deletable"`
 }
 
 type Provider interface {

@@ -67,19 +67,17 @@ GET /api/v1/llm/policy
 
 Orkoda uses `local-fake` by default, so the complete planning and open-question flow works without credentials or network access.
 
-To use an OpenAI-compatible endpoint, configure the daemon environment before startup:
+Add external providers from the TUI instead of editing JSON:
 
-```text
-ORKODA_LLM_PROVIDER=openrouter
-ORKODA_LLM_BASE_URL=https://provider.example/v1
-ORKODA_LLM_API_KEY=your-secret
-ORKODA_LLM_MODEL=provider/model-name
-ORKODA_LLM_JSON_MODE=json_schema
-ORKODA_LLM_TIMEOUT=60s
-ORKODA_LLM_HEADERS_JSON={"X-Title":"Orkoda"}
-```
+1. Open **Settings**.
+2. Press `N` and choose the DeepSeek, OpenAI, or Custom preset with `Ctrl+P`.
+3. Enter the base URL, model, and API key, then save with `Ctrl+S`.
+4. Press `T` on the saved provider to test the connection.
+5. Open **Agents** and assign a provider/model independently to Planner, Executor, and Reviewer.
 
-`ORKODA_LLM_JSON_MODE` accepts `json_schema`, `json_object`, or `prompt_only`. HTTPS is required except for loopback development endpoints such as `http://127.0.0.1:11434/v1`. Credentials remain in process memory and are never returned by the provider status API or stored in SQLite.
+Provider metadata is stored in SQLite. API keys are stored separately in the operating-system keychain; when no supported keychain command is available, Orkoda uses a local credential file under `.orkoda/` protected with owner-only permissions. API keys are never returned by the provider API or included in diagnostics.
+
+Environment provider variables remain available for automated deployments and CI bootstrap. `ORKODA_LLM_JSON_MODE` accepts `json_schema`, `json_object`, or `prompt_only`. HTTPS is required except for loopback development endpoints such as `http://127.0.0.1:11434/v1`.
 
 ### Resilience and budget policy
 
@@ -124,7 +122,7 @@ Redaction modes:
 
 A failed structured response can trigger a bounded repair request. The repair prompt contains the original redacted request and safe validation issue paths, but never includes the malformed provider response. Repair calls share the parent wall-clock limit and are checked against the remaining token budget.
 
-The Settings screen lists registered providers, execution policy, prompt-redaction mode, repair limit, and maximum structured-response size. Planning-run usage persists total tokens, provider attempts, fallback state, validation attempts, repair state, and redaction count.
+The Settings screen creates, edits, tests, and removes runtime providers, and also lists execution policy, prompt-redaction mode, repair limit, and maximum structured-response size. Planning-run usage persists total tokens, provider attempts, fallback state, validation attempts, repair state, and redaction count.
 
 ## Local data
 
@@ -138,6 +136,7 @@ Runtime data is stored under `.orkoda/` by default:
 ├── artifacts/
 ├── workspaces/
 ├── api.token
+├── credentials.json  # only when the OS keychain is unavailable
 ├── orkoda.db.bak
 └── logs/
 ```

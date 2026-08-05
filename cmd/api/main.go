@@ -30,6 +30,7 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/jobqueue"
 	"github.com/livingdolls/orkoda-tui/internal/llm"
 	"github.com/livingdolls/orkoda-tui/internal/llm/openaicompat"
+	"github.com/livingdolls/orkoda-tui/internal/llmprovider"
 	"github.com/livingdolls/orkoda-tui/internal/observability"
 	"github.com/livingdolls/orkoda-tui/internal/planningagent"
 	"github.com/livingdolls/orkoda-tui/internal/planningcontext"
@@ -144,11 +145,16 @@ func run() error {
 		return err
 	}
 
+	credentialStore, err := credentials.NewAutoStore("orkoda", filepath.Join(cfg.DataDir, "credentials.json"))
+	if err != nil {
+		return err
+	}
 	localPlanningProvider := planningagent.NewLocalFakeProvider()
 	providerRegistry, err := llm.NewRegistry(localPlanningProvider)
 	if err != nil {
 		return err
 	}
+	bootstrapProviders := make([]llmprovider.Bootstrap, 0, len(cfg.LLM.Providers))
 	for _, configured := range cfg.LLM.Providers {
 		provider, err := openaicompat.New(openaicompat.Config{
 			Name: configured.Name, BaseURL: configured.BaseURL, APIKey: configured.APIKey,
@@ -158,9 +164,10 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("configure LLM provider %s: %w", configured.Name, err)
 		}
-		if err := providerRegistry.Register(provider); err != nil {
-			return err
-		}
+		bootstrapProviders = append(bootstrapProviders, llmprovider.Bootstrap{
+			Provider: provider, BaseURL: configured.BaseURL, DefaultModel: configured.Model,
+			JSONMode: configured.JSONMode, Timeout: configured.Timeout,
+		})
 	}
 	defaultProvider := cfg.LLM.Provider
 	defaultModel := cfg.LLM.Model
@@ -168,7 +175,24 @@ func run() error {
 		defaultProvider = planningagent.LocalFakeProviderName
 		defaultModel = planningagent.LocalFakeModelName
 	}
-	providerCatalog := llm.NewCatalog(providerRegistry, defaultProvider)
+	providerConfigRepository, err := llmprovider.NewRepository(db)
+	if err != nil {
+		return err
+	}
+	providerService, err := llmprovider.NewService(
+		providerConfigRepository,
+		providerRegistry,
+		credentialStore,
+		defaultProvider,
+		bootstrapProviders,
+	)
+	if err != nil {
+		return err
+	}
+	if err := providerService.Load(runtimeCtx); err != nil {
+		return err
+	}
+	providerCatalog := providerService
 
 	fallbacks := make([]llm.FallbackTarget, 0, len(cfg.LLM.Fallbacks))
 	for _, fallback := range cfg.LLM.Fallbacks {
@@ -371,10 +395,6 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	credentialStore, err := credentials.NewOSStore("orkoda")
-	if err != nil {
-		return err
-	}
 	githubPublisher, err := publication.NewGitHubPublisher(credentialStore)
 	if err != nil {
 		return err
@@ -441,6 +461,7 @@ func run() error {
 				Reviews:             reviewRepository,
 				Approvals:           approvalService,
 				LLMProviders:        providerCatalog,
+				LLMProviderAdmin:    providerService,
 				LLMPolicy:           llmGateway,
 				DefaultLLMProvider:  defaultProvider,
 				DefaultLLMModel:     defaultModel,

@@ -43,6 +43,38 @@ func (r *Registry) Register(provider Provider) error {
 	return nil
 }
 
+func (r *Registry) Upsert(provider Provider) error {
+	if r == nil {
+		return fmt.Errorf("LLM registry is required")
+	}
+	if provider == nil {
+		return fmt.Errorf("LLM provider is required")
+	}
+	name := normalizeProviderName(provider.Name())
+	if name == "" {
+		return fmt.Errorf("LLM provider name is required")
+	}
+	r.mu.Lock()
+	r.providers[name] = provider
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *Registry) Remove(name string) bool {
+	if r == nil {
+		return false
+	}
+	name = normalizeProviderName(name)
+	if name == "" {
+		return false
+	}
+	r.mu.Lock()
+	_, exists := r.providers[name]
+	delete(r.providers, name)
+	r.mu.Unlock()
+	return exists
+}
+
 func (r *Registry) Provider(name string) (Provider, error) {
 	if r == nil {
 		return nil, fmt.Errorf("LLM registry is required")
