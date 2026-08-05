@@ -1,0 +1,47 @@
+name: Apply unified workflow board
+
+on:
+  push:
+    branches:
+      - feat/unified-workflow-board
+    paths:
+      - scripts/apply_unified_board.py
+      - .github/workflows/apply-unified-board.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/unified-workflow-board
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.x
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install
+      - name: Apply unified Board changes
+        run: python3 scripts/apply_unified_board.py
+      - name: Format TUI
+        run: bunx biome check --write apps/tui/src docs/review-kanban.md
+      - name: Validate TUI
+        run: |
+          bun run lint:ts
+          bun run typecheck
+          bun run test:ts
+      - name: Validate Go regression suite
+        run: go test ./...
+      - name: Commit final implementation
+        run: |
+          rm -f scripts/apply_unified_board.py .github/workflows/apply-unified-board.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: unify execution and review kanban" || exit 0
+          git push origin HEAD:feat/unified-workflow-board
