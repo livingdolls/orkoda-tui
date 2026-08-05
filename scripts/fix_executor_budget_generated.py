@@ -24,3 +24,9 @@ new = (
 if old not in text:
     raise SystemExit("default workflow limit assertion not found")
 path.write_text(text.replace(old, new, 1))
+
+path = Path("apps/tui/src/board-model.test.ts")
+text = path.read_text()
+text = text.replace("workflowFixture({", "workflow(\"FAILED\", {")
+text = text.replace("createBoardItem(projectFixture(), planFixture(), workflow)", "createBoardItem(project, plan(\"READY\"), workflow)")
+path.write_text(text)
