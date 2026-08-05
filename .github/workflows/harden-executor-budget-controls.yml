@@ -6,6 +6,7 @@ on:
       - feat/executor-budget-controls
     paths:
       - scripts/harden_executor_budget_controls.py
+      - scripts/fix_hardened_executor_tests.py
       - .github/workflows/harden-executor-budget-controls.yml
 
 permissions:
@@ -27,7 +28,9 @@ jobs:
           bun-version: 1.3.14
       - run: bun install
       - name: Apply hardening
-        run: python3 scripts/harden_executor_budget_controls.py
+        run: |
+          python3 scripts/harden_executor_budget_controls.py
+          python3 scripts/fix_hardened_executor_tests.py
       - name: Format
         run: |
           gofmt -w cmd internal
@@ -41,6 +44,7 @@ jobs:
       - name: Commit hardening
         run: |
           rm -f scripts/harden_executor_budget_controls.py
+          rm -f scripts/fix_hardened_executor_tests.py
           rm -f .github/workflows/harden-executor-budget-controls.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
