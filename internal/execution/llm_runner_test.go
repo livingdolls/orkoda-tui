@@ -274,3 +274,35 @@ func TestLLMRunnerUsesReservedFinalizationTurn(t *testing.T) {
 		t.Fatalf("iterations = %#v", iterations)
 	}
 }
+
+func TestWorkspaceProgressFingerprintTracksPatchContent(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@example.com")
+	runGit(t, root, "config", "user.name", "Test")
+	writeTestFile(t, root, "main.go", "package main\n")
+	runGit(t, root, "add", "main.go")
+	runGit(t, root, "commit", "-m", "initial")
+	run := RunContext{
+		Workspace: workspace.Workspace{Path: root},
+		Tools:     &RecordedTools{toolset: Toolset{Root: root, Policy: agentconfig.ToolPolicy{MaxPatchBytes: 1024 * 1024}}},
+	}
+	initial, err := workspaceProgressFingerprint(ctx, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, root, "main.go", "package main\n\nfunc one() {}\n")
+	first, err := workspaceProgressFingerprint(ctx, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, root, "main.go", "package main\n\nfunc one() {}\nfunc two() {}\n")
+	second, err := workspaceProgressFingerprint(ctx, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initial == first || first == second || initial == second {
+		t.Fatalf("fingerprints did not track patch changes: %q %q %q", initial, first, second)
+	}
+}

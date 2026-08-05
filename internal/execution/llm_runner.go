@@ -119,7 +119,10 @@ func (r *LLMRunner) Run(ctx context.Context, run RunContext) error {
 	repeatedActionCount := 0
 	consecutiveToolErrors := 0
 	noProgressTurns := 0
-	workspaceFingerprint := textFingerprint(gitStatus)
+	workspaceFingerprint, err := workspaceProgressFingerprint(ctx, run)
+	if err != nil {
+		return err
+	}
 	toolTurns := budget.MaxTurns - 1 // Always reserve the final turn for a no-tool completion decision.
 
 	for index := 0; index < toolTurns; index++ {
@@ -152,13 +155,9 @@ func (r *LLMRunner) Run(ctx context.Context, run RunContext) error {
 			lastActionFingerprint = fingerprint
 			repeatedActionCount = 1
 		}
-		if repeatedActionCount >= 3 {
-			return pauseExecutor(ExecutorRepeatedActionCode,
-				fmt.Sprintf("Executor repeated the same %s action three times without changing strategy.", actionLabel(action)))
-		}
-
 		iteration, err := r.repository.BeginIteration(ctx, run.Execution.ID, IterationInput{
-			Provider: response.Usage.FinalProvider, Model: response.Usage.FinalModel,
+			Provider:   firstNonEmpty(response.Usage.FinalProvider, run.Execution.Provider),
+			Model:      firstNonEmpty(response.Usage.FinalModel, run.Execution.Model),
 			ActionType: action.Type, Tool: action.Tool,
 			ActionSummary: safeActionSummary(action), Usage: response.Usage,
 		})
@@ -170,6 +169,11 @@ func (r *LLMRunner) Run(ctx context.Context, run RunContext) error {
 		}
 		if iteration.Model == "" {
 			iteration.Model = run.Execution.Model
+		}
+		if repeatedActionCount >= 3 {
+			message := fmt.Sprintf("Executor repeated the same %s action three times without changing strategy.", actionLabel(action))
+			_ = r.repository.FailIteration(context.WithoutCancel(ctx), iteration.ID, ExecutorRepeatedActionCode, message)
+			return pauseExecutor(ExecutorRepeatedActionCode, message)
 		}
 
 		if action.Type == "finish" {
@@ -214,11 +218,10 @@ func (r *LLMRunner) Run(ctx context.Context, run RunContext) error {
 		)
 
 		if isWriteTool(action.Tool) {
-			status, statusErr := run.Tools.toolset.GitStatus(ctx)
-			if statusErr != nil {
-				return fmt.Errorf("measure executor progress: %w", statusErr)
+			nextFingerprint, progressErr := workspaceProgressFingerprint(ctx, run)
+			if progressErr != nil {
+				return progressErr
 			}
-			nextFingerprint := textFingerprint(status)
 			if nextFingerprint == workspaceFingerprint {
 				noProgressTurns++
 			} else {
@@ -265,16 +268,20 @@ func (r *LLMRunner) finalize(
 	if action.Summary == "" || (action.Type != "finish" && action.Type != "needs_more_work") {
 		return fmt.Errorf("executor finalization must be finish or needs_more_work with a summary")
 	}
-	if action.Type == "needs_more_work" {
-		return pauseExecutor(ExecutorBudgetExhaustedCode,
-			fmt.Sprintf("Executor used all %d turns and reported remaining work: %s", turn, boundText(action.Summary, 768)))
-	}
 	iteration, err := r.repository.BeginIteration(ctx, run.Execution.ID, IterationInput{
-		Provider: response.Usage.FinalProvider, Model: response.Usage.FinalModel,
-		ActionType: "finish", ActionSummary: map[string]any{"type": "finish", "summary": boundText(action.Summary, 512)}, Usage: response.Usage,
+		Provider:      firstNonEmpty(response.Usage.FinalProvider, run.Execution.Provider),
+		Model:         firstNonEmpty(response.Usage.FinalModel, run.Execution.Model),
+		ActionType:    "finish",
+		ActionSummary: map[string]any{"type": action.Type, "summary": boundText(action.Summary, 512), "finalization_only": true},
+		Usage:         response.Usage,
 	})
 	if err != nil {
 		return err
+	}
+	if action.Type == "needs_more_work" {
+		message := fmt.Sprintf("Executor used all %d turns and reported remaining work: %s", turn, boundText(action.Summary, 768))
+		_ = r.repository.FailIteration(context.WithoutCancel(ctx), iteration.ID, ExecutorBudgetExhaustedCode, message)
+		return pauseExecutor(ExecutorBudgetExhaustedCode, message)
 	}
 	if err := validateExecutorCompletion(ctx, run); err != nil {
 		_ = r.repository.FailIteration(context.WithoutCancel(ctx), iteration.ID, "COMPLETION_GATE_FAILED", err.Error())
@@ -321,6 +328,23 @@ func decodeExecutorAction(content string) (executorAction, error) {
 		return action, err
 	}
 	return action, nil
+}
+
+func workspaceProgressFingerprint(ctx context.Context, run RunContext) (string, error) {
+	snapshot, err := gitstate.Capture(ctx, run.Workspace.Path, run.Tools.toolset.Policy.MaxPatchBytes)
+	if err != nil {
+		return "", fmt.Errorf("measure executor progress: %w", err)
+	}
+	return snapshot.Checksum, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func validateExecutorCompletion(ctx context.Context, run RunContext) error {

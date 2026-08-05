@@ -265,7 +265,9 @@ export function boardActions(item: BoardItem): BoardAction[] {
             ? "Review blocking findings"
             : "Review and decide"
           : item.workflow.status === "FAILED"
-            ? "See why it failed"
+            ? isExecutorPaused(item.workflow)
+              ? "Inspect Executor pause"
+              : "See why it failed"
             : "Open workflow details",
       description:
         item.workflow.status === "FAILED"
@@ -275,7 +277,9 @@ export function boardActions(item: BoardItem): BoardAction[] {
         item.workflow.status === "WAITING_FOR_APPROVAL"
           ? "warning"
           : item.workflow.status === "FAILED"
-            ? "danger"
+            ? isExecutorPaused(item.workflow)
+              ? "warning"
+              : "danger"
             : "neutral",
     },
   ]
