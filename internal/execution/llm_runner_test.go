@@ -14,6 +14,7 @@ import (
 	"github.com/livingdolls/orkoda-tui/internal/agentconfig"
 	"github.com/livingdolls/orkoda-tui/internal/database"
 	"github.com/livingdolls/orkoda-tui/internal/llm"
+	"github.com/livingdolls/orkoda-tui/internal/workflowjob"
 	"github.com/livingdolls/orkoda-tui/internal/workspace"
 )
 
@@ -304,5 +305,76 @@ func TestWorkspaceProgressFingerprintTracksPatchContent(t *testing.T) {
 	}
 	if initial == first || first == second || initial == second {
 		t.Fatalf("fingerprints did not track patch changes: %q %q %q", initial, first, second)
+	}
+}
+
+func TestSavePausedCheckpointPersistsPartialDiff(t *testing.T) {
+	ctx := context.Background()
+	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "orkoda.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := database.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@example.com")
+	runGit(t, root, "config", "user.name", "Test")
+	writeTestFile(t, root, "README.md", "# Fixture\n")
+	runGit(t, root, "add", "README.md")
+	runGit(t, root, "commit", "-m", "initial")
+	head := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
+	seedExecutorLoop(t, db, root, head)
+
+	repository, err := NewRepository(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionItem, _, err := repository.CreateOrGet(ctx, CreateInput{
+		WorkflowJobID:        "workflow-1",
+		WorkflowVersion:      3,
+		ExecutionVersion:     1,
+		PlanVersionID:        "plan-version-1",
+		WorkspaceID:          "workspace-1",
+		BaseCommitSHA:        head,
+		AgentSettingsVersion: 1,
+		Provider:             "fake",
+		Model:                "fake-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, root, "README.md", "# Fixture\n\npartial implementation\n")
+
+	handler := &Handler{executions: repository}
+	checkpoint, err := handler.savePausedCheckpoint(
+		ctx,
+		workflowjob.Job{ID: "workflow-1", BaseCommitSHA: head},
+		executionItem,
+		workspace.Workspace{ID: "workspace-1", Path: root},
+		agentconfig.ToolPolicy{MaxPatchBytes: 1024 * 1024},
+	)
+	if err != nil {
+		t.Fatalf("savePausedCheckpoint() error = %v", err)
+	}
+	if checkpoint.PatchBytes == 0 || checkpoint.PatchChecksum == "" {
+		t.Fatalf("checkpoint = %#v", checkpoint)
+	}
+	var changedFiles []string
+	if err := json.Unmarshal(checkpoint.ChangedFilesJSON, &changedFiles); err != nil {
+		t.Fatal(err)
+	}
+	if len(changedFiles) != 1 || changedFiles[0] != "README.md" {
+		t.Fatalf("changed files = %#v", changedFiles)
+	}
+	items, err := repository.ListCheckpoints(ctx, executionItem.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].PatchChecksum != checkpoint.PatchChecksum {
+		t.Fatalf("stored checkpoints = %#v", items)
 	}
 }

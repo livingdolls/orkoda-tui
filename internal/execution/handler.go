@@ -258,6 +258,12 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 			code, message, paused := classifyExecutorError(runErr)
 			_ = h.executions.Fail(persistCtx, executionItem.ID, code, message)
 			if paused {
+				if _, checkpointErr := h.savePausedCheckpoint(persistCtx, job, executionItem, item, policy); checkpointErr != nil {
+					h.record(persistCtx, job.ID, "execution.partial_checkpoint_failed", map[string]any{
+						"execution_id": executionItem.ID,
+						"error":        checkpointErr.Error(),
+					}, time.Now().UTC())
+				}
 				return h.pauseWorkflow(persistCtx, job, queueJob, code, message)
 			}
 		}
@@ -625,4 +631,70 @@ func (h *Handler) pauseWorkflow(
 		"max_executor_turns": updated.Limits.MaxExecutorTurns,
 	}, time.Now().UTC())
 	return nil
+}
+
+func (h *Handler) savePausedCheckpoint(
+	ctx context.Context,
+	job workflowjob.Job,
+	executionItem Execution,
+	item workspace.Workspace,
+	policy agentconfig.ToolPolicy,
+) (Checkpoint, error) {
+	snapshot, err := gitstate.Capture(ctx, item.Path, policy.MaxPatchBytes)
+	if err != nil {
+		return Checkpoint{}, fmt.Errorf("capture paused Executor workspace: %w", err)
+	}
+	if job.BaseCommitSHA != "" && snapshot.Head != job.BaseCommitSHA {
+		return Checkpoint{}, fmt.Errorf(
+			"paused workspace HEAD %s does not match workflow base commit %s",
+			snapshot.Head,
+			job.BaseCommitSHA,
+		)
+	}
+
+	artifactKey := ""
+	if h.artifactStore != nil {
+		artifactKey = fmt.Sprintf(
+			"workflows/%s/executions/%d/partial-patch.diff",
+			job.ID,
+			executionItem.ExecutionVersion,
+		)
+		if err := h.artifactStore.Save(ctx, artifactKey, strings.NewReader(snapshot.Patch)); err != nil {
+			return Checkpoint{}, fmt.Errorf("save paused execution patch artifact: %w", err)
+		}
+	}
+
+	var checkpoint Checkpoint
+	if artifactKey == "" {
+		checkpoint, err = h.executions.SaveCheckpoint(
+			ctx,
+			executionItem.ID,
+			job.BaseCommitSHA,
+			snapshot.Head,
+			snapshot.Patch,
+			snapshot.ChangedFiles,
+		)
+	} else {
+		checkpoint, err = h.executions.SaveCheckpointArtifact(
+			ctx,
+			executionItem.ID,
+			job.BaseCommitSHA,
+			snapshot.Head,
+			snapshot.Patch,
+			snapshot.ChangedFiles,
+			artifactKey,
+		)
+	}
+	if err != nil {
+		return Checkpoint{}, fmt.Errorf("persist paused execution checkpoint: %w", err)
+	}
+
+	h.record(ctx, job.ID, "execution.partial_checkpoint_saved", map[string]any{
+		"execution_id":       executionItem.ID,
+		"checkpoint_id":      checkpoint.ID,
+		"patch_checksum":     checkpoint.PatchChecksum,
+		"patch_bytes":        checkpoint.PatchBytes,
+		"changed_file_count": len(snapshot.ChangedFiles),
+	}, time.Now().UTC())
+	return checkpoint, nil
 }

@@ -6,7 +6,7 @@ import { type RefObject, useCallback, useEffect, useRef, useState } from "react"
 
 import { type ApprovalKind, submitApprovalDecision } from "./approvals"
 import type { BoardItem } from "./board-model"
-import { workflowStatusLabel, workflowTone } from "./board-model"
+import { isExecutorPaused, workflowStatusLabel, workflowTone } from "./board-model"
 import { type CheckRun, type CheckStep, listCheckSteps, listChecks } from "./checks"
 import {
   type Execution,
@@ -334,14 +334,18 @@ export function BoardDetail({
       </box>
 
       {workflow.status === "FAILED" ? (
-        <Banner tone="danger">
-          <text fg={colors.danger} attributes={BOLD}>
-            Why the workflow stopped
+        <Banner tone={isExecutorPaused(workflow) ? "warning" : "danger"}>
+          <text fg={isExecutorPaused(workflow) ? colors.warning : colors.danger} attributes={BOLD}>
+            {isExecutorPaused(workflow) ? "Executor paused" : "Why the workflow stopped"}
           </text>
           <text fg={colors.text} wrapMode="word">
             {workflowFailureSummary(workflow)}
           </text>
-          <text fg={colors.muted}>Fix the cause, press Esc, then choose Retry workflow.</text>
+          <text fg={colors.muted}>
+            {isExecutorPaused(workflow)
+              ? "Inspect the partial diff and iteration timeline, press Esc, then choose Continue +8 or +16 turns."
+              : "Fix the cause, press Esc, then choose Retry workflow."}
+          </text>
         </Banner>
       ) : null}
 
@@ -440,7 +444,7 @@ export function BoardDetail({
                     <box key={iteration.id} flexDirection="column" gap={0}>
                       <box flexDirection="row" justifyContent="space-between" gap={1}>
                         <text fg={iteration.status === "FAILED" ? colors.danger : colors.text}>
-                          {`${iteration.sequence}. ${iteration.action_type === "finish" ? "finish" : (iteration.tool ?? "tool")}`}
+                          {`${iteration.sequence}. ${String(iteration.action_summary.type ?? (iteration.action_type === "finish" ? "finish" : (iteration.tool ?? "tool")))}`}
                         </text>
                         <Chip
                           label={iteration.status.toLowerCase()}
