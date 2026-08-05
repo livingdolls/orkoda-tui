@@ -180,13 +180,23 @@ func (h *Handler) handle(
 	if err != nil {
 		return "", err
 	}
+	if provider := strings.TrimSpace(job.Reviewer.Provider); provider != "" {
+		reviewerConfig.Provider = provider
+	}
+	if model := strings.TrimSpace(job.Reviewer.Model); model != "" {
+		reviewerConfig.Model = model
+	}
+	settingsVersion := job.AgentSettingsVersion
+	if settingsVersion < 1 {
+		settingsVersion = settings.Version
+	}
 	run, _, err := h.reviews.CreateOrGet(ctx, CreateInput{
 		WorkflowJobID:        job.ID,
 		ExecutionID:          executionItem.ID,
 		ExecutionVersion:     job.ExecutionVersion,
 		CheckRunID:           checkRun.ID,
 		CheckpointID:         checkpoint.ID,
-		AgentSettingsVersion: settings.Version,
+		AgentSettingsVersion: settingsVersion,
 		Provider:             reviewerConfig.Provider,
 		Model:                reviewerConfig.Model,
 	})

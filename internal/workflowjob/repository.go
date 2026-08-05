@@ -33,27 +33,35 @@ type Limits struct {
 	WallClockSeconds int `json:"wall_clock_seconds"`
 }
 
+type AgentSelection struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+}
+
 type Job struct {
-	ID                    string     `json:"id"`
-	ProjectID             string     `json:"project_id"`
-	PlanID                string     `json:"plan_id"`
-	PlanVersionID         string     `json:"plan_version_id"`
-	RepositoryID          string     `json:"repository_id"`
-	BaseBranch            string     `json:"base_branch"`
-	BaseCommitSHA         string     `json:"base_commit_sha"`
-	Status                Status     `json:"status"`
-	Version               int        `json:"version"`
-	CurrentDispatchID     string     `json:"current_dispatch_id,omitempty"`
-	RetryStatus           Status     `json:"retry_status,omitempty"`
-	ExecutionVersion      int        `json:"execution_version"`
-	RevisionCount         int        `json:"revision_count"`
-	Limits                Limits     `json:"limits"`
-	CancellationRequested bool       `json:"cancellation_requested"`
-	FailureCode           string     `json:"failure_code,omitempty"`
-	FailureMessage        string     `json:"failure_message,omitempty"`
-	CreatedAt             time.Time  `json:"created_at"`
-	UpdatedAt             time.Time  `json:"updated_at"`
-	CompletedAt           *time.Time `json:"completed_at,omitempty"`
+	ID                    string         `json:"id"`
+	ProjectID             string         `json:"project_id"`
+	PlanID                string         `json:"plan_id"`
+	PlanVersionID         string         `json:"plan_version_id"`
+	RepositoryID          string         `json:"repository_id"`
+	BaseBranch            string         `json:"base_branch"`
+	BaseCommitSHA         string         `json:"base_commit_sha"`
+	AgentSettingsVersion  int            `json:"agent_settings_version"`
+	Executor              AgentSelection `json:"executor"`
+	Reviewer              AgentSelection `json:"reviewer"`
+	Status                Status         `json:"status"`
+	Version               int            `json:"version"`
+	CurrentDispatchID     string         `json:"current_dispatch_id,omitempty"`
+	RetryStatus           Status         `json:"retry_status,omitempty"`
+	ExecutionVersion      int            `json:"execution_version"`
+	RevisionCount         int            `json:"revision_count"`
+	Limits                Limits         `json:"limits"`
+	CancellationRequested bool           `json:"cancellation_requested"`
+	FailureCode           string         `json:"failure_code,omitempty"`
+	FailureMessage        string         `json:"failure_message,omitempty"`
+	CreatedAt             time.Time      `json:"created_at"`
+	UpdatedAt             time.Time      `json:"updated_at"`
+	CompletedAt           *time.Time     `json:"completed_at,omitempty"`
 }
 
 type Transition struct {
@@ -69,11 +77,14 @@ type Transition struct {
 }
 
 type CreateInput struct {
-	ProjectID    string `json:"project_id"`
-	PlanID       string `json:"plan_id"`
-	RepositoryID string `json:"repository_id"`
-	BaseBranch   string `json:"base_branch"`
-	Limits       Limits `json:"limits"`
+	ProjectID            string         `json:"project_id"`
+	PlanID               string         `json:"plan_id"`
+	RepositoryID         string         `json:"repository_id"`
+	BaseBranch           string         `json:"base_branch"`
+	AgentSettingsVersion int            `json:"agent_settings_version"`
+	Executor             AgentSelection `json:"executor"`
+	Reviewer             AgentSelection `json:"reviewer"`
+	Limits               Limits         `json:"limits"`
 }
 
 type TransitionInput struct {
@@ -113,7 +124,12 @@ func (r *Repository) Create(ctx context.Context, input CreateInput) (Job, error)
 	input.PlanID = strings.TrimSpace(input.PlanID)
 	input.RepositoryID = strings.TrimSpace(input.RepositoryID)
 	input.BaseBranch = strings.TrimSpace(input.BaseBranch)
+	input.Executor = normalizeAgentSelection(input.Executor)
+	input.Reviewer = normalizeAgentSelection(input.Reviewer)
 	input.Limits = normalizeLimits(input.Limits)
+	if err := validateAgentSelections(input.AgentSettingsVersion, input.Executor, input.Reviewer); err != nil {
+		return Job{}, err
+	}
 	if input.ProjectID == "" || input.PlanID == "" || input.RepositoryID == "" {
 		return Job{}, fmt.Errorf("%w: project_id, plan_id, and repository_id are required", ErrInvalidJob)
 	}
@@ -176,28 +192,35 @@ func (r *Repository) Create(ctx context.Context, input CreateInput) (Job, error)
 
 	now := time.Now().UTC()
 	job := Job{
-		ID:            newID(),
-		ProjectID:     input.ProjectID,
-		PlanID:        input.PlanID,
-		PlanVersionID: planVersionID,
-		RepositoryID:  input.RepositoryID,
-		BaseBranch:    input.BaseBranch,
-		BaseCommitSHA: headSHA,
-		Status:        StatusReady,
-		Version:       1,
-		Limits:        input.Limits,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ID:                   newID(),
+		ProjectID:            input.ProjectID,
+		PlanID:               input.PlanID,
+		PlanVersionID:        planVersionID,
+		RepositoryID:         input.RepositoryID,
+		BaseBranch:           input.BaseBranch,
+		BaseCommitSHA:        headSHA,
+		AgentSettingsVersion: input.AgentSettingsVersion,
+		Executor:             input.Executor,
+		Reviewer:             input.Reviewer,
+		Status:               StatusReady,
+		Version:              1,
+		Limits:               input.Limits,
+		CreatedAt:            now,
+		UpdatedAt:            now,
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO workflow_jobs (
 			id, project_id, plan_id, plan_version_id, repository_id,
-			base_branch, base_commit_sha, status, version,
+			base_branch, base_commit_sha, agent_settings_version,
+			executor_provider, executor_model, reviewer_provider, reviewer_model,
+			status, version,
 			max_revisions, max_stage_attempts, max_tool_calls, wall_clock_seconds,
 			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
 	`, job.ID, job.ProjectID, job.PlanID, job.PlanVersionID, job.RepositoryID,
-		job.BaseBranch, job.BaseCommitSHA, job.Status, job.Limits.MaxRevisions,
+		job.BaseBranch, job.BaseCommitSHA, job.AgentSettingsVersion,
+		job.Executor.Provider, job.Executor.Model, job.Reviewer.Provider, job.Reviewer.Model,
+		job.Status, job.Limits.MaxRevisions,
 		job.Limits.MaxStageAttempts, job.Limits.MaxToolCalls, job.Limits.WallClockSeconds,
 		now.UnixMilli(), now.UnixMilli()); err != nil {
 		return Job{}, fmt.Errorf("insert workflow job: %w", err)
@@ -211,6 +234,8 @@ func (r *Repository) Create(ctx context.Context, input CreateInput) (Job, error)
 	r.record(ctx, job.ID, "workflow.created", map[string]any{
 		"project_id": job.ProjectID, "plan_id": job.PlanID,
 		"plan_version_id": job.PlanVersionID, "repository_id": job.RepositoryID,
+		"agent_settings_version": job.AgentSettingsVersion,
+		"executor":               job.Executor, "reviewer": job.Reviewer,
 		"status": job.Status, "version": job.Version,
 	}, now)
 	return job, nil
@@ -418,7 +443,10 @@ func (r *Repository) ListTransitions(ctx context.Context, jobID string) ([]Trans
 
 const jobColumns = `
 	id, project_id, plan_id, plan_version_id, repository_id,
-	base_branch, base_commit_sha, status, version,
+	base_branch, base_commit_sha, agent_settings_version,
+	COALESCE(executor_provider, ''), COALESCE(executor_model, ''),
+	COALESCE(reviewer_provider, ''), COALESCE(reviewer_model, ''),
+	status, version,
 	COALESCE(current_dispatch_id, ''), COALESCE(retry_status, ''),
 	execution_version, revision_count, max_revisions, max_stage_attempts,
 	max_tool_calls, wall_clock_seconds, cancellation_requested,
@@ -445,7 +473,9 @@ func scanJob(scanner interface{ Scan(...any) error }) (Job, error) {
 	var cancellationRequested int
 	err := scanner.Scan(
 		&job.ID, &job.ProjectID, &job.PlanID, &job.PlanVersionID, &job.RepositoryID,
-		&job.BaseBranch, &job.BaseCommitSHA, &job.Status, &job.Version,
+		&job.BaseBranch, &job.BaseCommitSHA, &job.AgentSettingsVersion,
+		&job.Executor.Provider, &job.Executor.Model,
+		&job.Reviewer.Provider, &job.Reviewer.Model, &job.Status, &job.Version,
 		&job.CurrentDispatchID, &job.RetryStatus, &job.ExecutionVersion, &job.RevisionCount,
 		&job.Limits.MaxRevisions, &job.Limits.MaxStageAttempts, &job.Limits.MaxToolCalls,
 		&job.Limits.WallClockSeconds, &cancellationRequested, &job.FailureCode,
@@ -505,6 +535,31 @@ func normalizeLimits(limits Limits) Limits {
 		limits.WallClockSeconds = 3600
 	}
 	return limits
+}
+
+func normalizeAgentSelection(selection AgentSelection) AgentSelection {
+	selection.Provider = strings.ToLower(strings.TrimSpace(selection.Provider))
+	selection.Model = strings.TrimSpace(selection.Model)
+	return selection
+}
+
+func validateAgentSelections(settingsVersion int, executor, reviewer AgentSelection) error {
+	if settingsVersion < 0 {
+		return fmt.Errorf("%w: agent_settings_version must not be negative", ErrInvalidJob)
+	}
+	executorComplete := executor.Provider != "" && executor.Model != ""
+	reviewerComplete := reviewer.Provider != "" && reviewer.Model != ""
+	if (executor.Provider == "") != (executor.Model == "") ||
+		(reviewer.Provider == "") != (reviewer.Model == "") {
+		return fmt.Errorf("%w: each agent selection requires both provider and model", ErrInvalidJob)
+	}
+	if executorComplete != reviewerComplete {
+		return fmt.Errorf("%w: executor and reviewer must both be selected or both omitted", ErrInvalidJob)
+	}
+	if executorComplete && executor.Provider == reviewer.Provider && executor.Model == reviewer.Model {
+		return fmt.Errorf("%w: executor and reviewer must use different provider/model pairs", ErrInvalidJob)
+	}
+	return nil
 }
 
 func validateLimits(limits Limits) error {

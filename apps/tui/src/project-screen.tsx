@@ -48,6 +48,7 @@ import {
   type StatusTone,
   truncate,
 } from "./ui"
+import { type WorkflowAgentAssignment, WorkflowAgentPicker } from "./workflow-agent-picker"
 import { createWorkflowJob, performWorkflowAction } from "./workflow-jobs"
 
 type ProjectMode =
@@ -59,6 +60,7 @@ type ProjectMode =
   | "ignore"
   | "plan"
   | "questions"
+  | "workflow"
 type ProjectLoadState = "idle" | "loading" | "ready" | "error"
 
 export function ProjectScreen({
@@ -340,7 +342,22 @@ export function ProjectScreen({
     }
   }
 
-  const createSelectedWorkflow = async () => {
+  const openWorkflowAgentPicker = () => {
+    if (!selectedProject || !selectedRepository || !latestPlan || busy) return
+    if (latestPlan.status !== "READY" && latestPlan.status !== "APPROVED") {
+      setMessage("The latest plan must be READY before creating a workflow.")
+      return
+    }
+    const baseBranch = selectedBranch?.name || selectedRepository.current_branch
+    if (!baseBranch || baseBranch === "HEAD") {
+      setMessage("Select a concrete base branch before creating a workflow.")
+      return
+    }
+    setMode("workflow")
+    setMessage("")
+  }
+
+  const createSelectedWorkflow = async (assignment: WorkflowAgentAssignment) => {
     if (!selectedProject || !selectedRepository || !latestPlan || busy) return
     if (latestPlan.status !== "READY" && latestPlan.status !== "APPROVED") {
       setMessage("The latest plan must be READY before creating a workflow.")
@@ -358,22 +375,27 @@ export function ProjectScreen({
         plan_id: latestPlan.id,
         repository_id: selectedRepository.id,
         base_branch: baseBranch,
+        agent_settings_version: assignment.agent_settings_version,
+        executor: assignment.executor,
+        reviewer: assignment.reviewer,
       })
       try {
         const started = await performWorkflowAction(created.id, "start", created.version, {
           requested_by: "tui",
           base_branch: baseBranch,
         })
+        setMode("list")
         setMessage(
-          `Workflow ${started.id.slice(0, 8)} started from ${baseBranch}. Open Jobs to follow it.`,
+          `Workflow ${started.id.slice(0, 8)} started · executor ${assignment.executor.provider}/${assignment.executor.model} · reviewer ${assignment.reviewer.provider}/${assignment.reviewer.model}.`,
         )
       } catch (error) {
+        setMode("list")
         setMessage(
           `Workflow ${created.id.slice(0, 8)} created READY; start failed: ${error instanceof Error ? error.message : "unknown error"}`,
         )
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to create workflow")
+      throw error instanceof Error ? error : new Error("Failed to create workflow")
     } finally {
       setBusy(false)
     }
@@ -456,7 +478,7 @@ export function ProjectScreen({
     if (helpOpen) {
       return
     }
-    if (mode === "plan" || mode === "questions") {
+    if (mode === "plan" || mode === "questions" || mode === "workflow") {
       return
     }
 
@@ -600,7 +622,7 @@ export function ProjectScreen({
       return
     }
     if (key.name === "w") {
-      void createSelectedWorkflow()
+      openWorkflowAgentPicker()
       return
     }
     if (key.name === "r") {
@@ -789,6 +811,23 @@ export function ProjectScreen({
         onCancel={() => {
           setMode("list")
           setMessage("Plan creation cancelled.")
+        }}
+      />
+    )
+  }
+
+  if (mode === "workflow" && selectedProject && selectedRepository && latestPlan) {
+    const baseBranch = selectedBranch?.name || selectedRepository.current_branch
+    return (
+      <WorkflowAgentPicker
+        projectID={selectedProject.id}
+        projectName={selectedProject.name}
+        planTitle={latestPlan.title}
+        baseBranch={baseBranch}
+        onConfirm={createSelectedWorkflow}
+        onCancel={() => {
+          setMode("list")
+          setMessage("Workflow creation cancelled.")
         }}
       />
     )

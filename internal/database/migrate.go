@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const latestSchemaVersion = 4
+const latestSchemaVersion = 5
 
 var foundationStatements = []string{
 	`CREATE TABLE IF NOT EXISTS projects (
@@ -314,6 +314,26 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, applied_at) VALUES (4, 'tui-managed-llm-providers', strftime('%s','now') * 1000)`); err != nil {
 			return fmt.Errorf("record LLM provider migration: %w", err)
+		}
+	}
+
+	if version < 5 {
+		for _, column := range []struct {
+			name       string
+			definition string
+		}{
+			{name: "agent_settings_version", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (agent_settings_version >= 0)"},
+			{name: "executor_provider", definition: "TEXT NOT NULL DEFAULT ''"},
+			{name: "executor_model", definition: "TEXT NOT NULL DEFAULT ''"},
+			{name: "reviewer_provider", definition: "TEXT NOT NULL DEFAULT ''"},
+			{name: "reviewer_model", definition: "TEXT NOT NULL DEFAULT ''"},
+		} {
+			if err := ensureColumn(ctx, tx, "workflow_jobs", column.name, column.definition); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, name, applied_at) VALUES (5, 'workflow-agent-selection', strftime('%s','now') * 1000)`); err != nil {
+			return fmt.Errorf("record workflow agent selection migration: %w", err)
 		}
 	}
 

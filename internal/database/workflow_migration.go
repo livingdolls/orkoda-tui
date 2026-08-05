@@ -10,6 +10,11 @@ func init() {
 			repository_id TEXT NOT NULL,
 			base_branch TEXT NOT NULL,
 			base_commit_sha TEXT NOT NULL,
+			agent_settings_version INTEGER NOT NULL DEFAULT 0 CHECK (agent_settings_version >= 0),
+			executor_provider TEXT NOT NULL DEFAULT '',
+			executor_model TEXT NOT NULL DEFAULT '',
+			reviewer_provider TEXT NOT NULL DEFAULT '',
+			reviewer_model TEXT NOT NULL DEFAULT '',
 			status TEXT NOT NULL CHECK (status IN (
 				'READY', 'WORKSPACE_PREPARING', 'QUEUED', 'EXECUTING',
 				'CHECKING', 'REVIEWING', 'WAITING_FOR_APPROVAL',

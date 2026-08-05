@@ -141,20 +141,30 @@ func (h *Handler) HandleDurable(ctx context.Context, queueJob jobqueue.Job) erro
 	if err != nil {
 		return err
 	}
-	provider := agent.Provider
+	provider := strings.TrimSpace(job.Executor.Provider)
+	model := strings.TrimSpace(job.Executor.Model)
+	if provider == "" {
+		provider = agent.Provider
+	}
 	if provider == "" {
 		provider = h.defaultProvider
 	}
-	model := agent.Model
+	if model == "" {
+		model = agent.Model
+	}
 	if model == "" {
 		model = h.defaultModel
+	}
+	settingsVersion := job.AgentSettingsVersion
+	if settingsVersion < 1 {
+		settingsVersion = settings.Version
 	}
 
 	executionItem, _, err := h.executions.CreateOrGet(ctx, CreateInput{
 		WorkflowJobID: job.ID, WorkflowVersion: job.Version,
 		ExecutionVersion: job.ExecutionVersion, PlanVersionID: job.PlanVersionID,
 		WorkspaceID: item.ID, BaseCommitSHA: job.BaseCommitSHA,
-		AgentSettingsVersion: settings.Version, Provider: provider, Model: model,
+		AgentSettingsVersion: settingsVersion, Provider: provider, Model: model,
 	})
 	if err != nil {
 		return err
