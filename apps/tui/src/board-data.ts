@@ -2,6 +2,7 @@ import { type BoardItem, createBoardItem } from "./board-model"
 import { daemonBaseURL, requestWithDaemonAuth } from "./daemon"
 import { listPlans } from "./plans"
 import { listProjects, type Project } from "./projects"
+import { loadProjectReviewCards, type ReviewBoardCard } from "./review-board-data"
 import { listWorkflowJobs, type WorkflowJob } from "./workflow-jobs"
 
 type ProjectBoardJobs = {
@@ -51,11 +52,12 @@ async function requestProjectBoardJobs(
 }
 
 async function loadProjectBoard(project: Project) {
-  const [plans, jobs] = await Promise.all([
+  const [plans, jobs, reviewCards] = await Promise.all([
     listPlans(project.id),
     requestProjectBoardJobs(project.id).catch(() => listWorkflowJobs(project.id)),
+    loadProjectReviewCards(project).catch(() => [] as ReviewBoardCard[]),
   ])
-  return { project, plans, jobs }
+  return { project, plans, jobs, reviewCards }
 }
 
 export async function loadBoardItems(): Promise<{
@@ -72,9 +74,18 @@ export async function loadBoardItems(): Promise<{
         latestJobByPlan.set(job.plan_id, job)
       }
     }
-    return summary.plans.map((plan) =>
-      createBoardItem(summary.project, plan, latestJobByPlan.get(plan.id)),
+    const reviewByWorkflow = new Map(
+      summary.reviewCards.map((reviewCard) => [reviewCard.workflow.id, reviewCard]),
     )
+    return summary.plans.map((plan) => {
+      const workflow = latestJobByPlan.get(plan.id)
+      return createBoardItem(
+        summary.project,
+        plan,
+        workflow,
+        workflow ? reviewByWorkflow.get(workflow.id) : undefined,
+      )
+    })
   })
   items.sort(
     (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),

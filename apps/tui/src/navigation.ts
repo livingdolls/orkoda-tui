@@ -1,6 +1,5 @@
 export const screenDefinitions = [
-  { id: "board", label: "Board", description: "Work from plan to approval" },
-  { id: "review", label: "Review", description: "Executor and Reviewer handoff" },
+  { id: "board", label: "Board", description: "Plan, execute, review & approve" },
   { id: "agents", label: "Agents", description: "AI roles & limits" },
   { id: "settings", label: "Settings", description: "Providers & budgets" },
   { id: "system", label: "System", description: "Daemon health" },

@@ -257,7 +257,7 @@ runTuiE2E(
           setup,
           (frame) =>
             frame.includes("Board") &&
-            frame.includes("Needs You") &&
+            frame.includes("Approval") &&
             frame.includes("Kanban approval flow") &&
             frame.includes("Ready for your review"),
         )
