@@ -148,7 +148,7 @@ replace_once(
 append_once(
     "internal/execution/llm_runner_test.go",
     "func TestSavePausedCheckpointPersistsPartialDiff",
-    '''func TestSavePausedCheckpointPersistsPartialDiff(t *testing.T) {
+    r'''func TestSavePausedCheckpointPersistsPartialDiff(t *testing.T) {
 	ctx := context.Background()
 	db, err := database.Open(ctx, filepath.Join(t.TempDir(), "orkoda.db"))
 	if err != nil {
