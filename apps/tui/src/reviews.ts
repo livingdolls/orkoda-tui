@@ -19,6 +19,15 @@ export type ReviewRun = {
   summary: string
   total_issues: number
   blocking_issues: number
+  usage?: {
+    input_tokens: number
+    output_tokens: number
+    total_tokens: number
+    estimated_cost_usd?: number
+    attempt_count?: number
+  }
+  started_at?: string
+  completed_at?: string
   failure_code?: string
   failure_message?: string
   created_at: string

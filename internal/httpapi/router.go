@@ -187,6 +187,10 @@ func NewRouterWithServices(
 	registerExecutionRoutes(api, services.Executions)
 	registerCheckRoutes(api, services.Checks)
 	registerReviewRoutes(api, services.Reviews)
+	registerReviewBoardRoutes(
+		api, services.Plans, services.WorkflowJobs, services.AgentSettings,
+		services.Executions, services.Checks, services.Reviews, services.Approvals,
+	)
 	registerApprovalRoutes(api, services.Approvals)
 	registerPublicationRoutes(api, services.Publications, services.WorkflowJobs, services.Repositories, services.Workspaces, services.RemotePublisher)
 	registerLLMRoutes(api, services.LLMProviders, services.LLMPolicy)

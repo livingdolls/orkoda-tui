@@ -431,6 +431,12 @@ func validateAggregate(configs []AgentConfig, policies []ToolPolicy) error {
 			return err
 		}
 	}
+	executor := configs[roleIndex(RoleExecutor)]
+	reviewer := configs[roleIndex(RoleReviewer)]
+	if executor.Enabled && reviewer.Enabled && executor.Provider != "" && reviewer.Provider != "" &&
+		executor.Provider == reviewer.Provider && executor.Model == reviewer.Model {
+		return fmt.Errorf("%w: executor and reviewer must not use the same explicit provider/model", ErrInvalidSettings)
+	}
 	return nil
 }
 

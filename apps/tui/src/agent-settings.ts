@@ -115,6 +115,17 @@ export function updateAgentSettings(
   )
 }
 
+export function validateDistinctAgentPair(settings: AgentSettings): string | undefined {
+  const executor = settings.agents.find((agent) => agent.role === "EXECUTOR")
+  const reviewer = settings.agents.find((agent) => agent.role === "REVIEWER")
+  if (!executor || !reviewer || !executor.enabled || !reviewer.enabled) return undefined
+  if (!executor.provider || !reviewer.provider) return undefined
+  if (executor.provider === reviewer.provider && executor.model === reviewer.model) {
+    return "Executor and Reviewer must not use the same explicit provider and model."
+  }
+  return undefined
+}
+
 export function cloneAgentSettings(settings: AgentSettings): AgentSettings {
   return {
     ...settings,
