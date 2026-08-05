@@ -279,10 +279,12 @@ func TestReconcileDeadExecutionDispatchesRepairsCurrentAndLegacyWorkflows(t *tes
 		) VALUES
 			('workflow-queued', 'QUEUED', 3, 'dispatch-queued', 1),
 			('workflow-legacy', 'EXECUTING', 7, NULL, 2),
+			('workflow-completed-dispatch', 'EXECUTING', 5, 'dispatch-completed', 1),
 			('workflow-live', 'EXECUTING', 4, 'dispatch-live', 1);
 		INSERT INTO jobs (id, type, status, last_error) VALUES
 			('dispatch-queued', 'workflow.execute', 'DEAD', 'settings unavailable'),
 			('dispatch-legacy', 'workflow.execute', 'DEAD', 'write lease failed'),
+			('dispatch-completed', 'workflow.execute', 'COMPLETED', NULL),
 			('dispatch-live', 'workflow.execute', 'RUNNING', NULL);
 		INSERT INTO workflow_job_transitions (
 			workflow_job_id, action, workflow_version, details_json
@@ -302,6 +304,10 @@ func TestReconcileDeadExecutionDispatchesRepairsCurrentAndLegacyWorkflows(t *tes
 			ID: "workflow-legacy", Status: workflowjob.StatusExecuting, Version: 7,
 			ExecutionVersion: 2,
 		},
+		"workflow-completed-dispatch": {
+			ID: "workflow-completed-dispatch", Status: workflowjob.StatusExecuting, Version: 5,
+			CurrentDispatchID: "dispatch-completed", ExecutionVersion: 1,
+		},
 		"workflow-live": {
 			ID: "workflow-live", Status: workflowjob.StatusExecuting, Version: 4,
 			CurrentDispatchID: "dispatch-live", ExecutionVersion: 1,
@@ -312,11 +318,12 @@ func TestReconcileDeadExecutionDispatchesRepairsCurrentAndLegacyWorkflows(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recovered != 2 || len(store.transitions) != 2 {
+	if recovered != 3 || len(store.transitions) != 3 {
 		t.Fatalf("recovered=%d transitions=%#v", recovered, store.transitions)
 	}
 	if store.jobs["workflow-queued"].Status != workflowjob.StatusFailed ||
 		store.jobs["workflow-legacy"].Status != workflowjob.StatusFailed ||
+		store.jobs["workflow-completed-dispatch"].Status != workflowjob.StatusFailed ||
 		store.jobs["workflow-live"].Status != workflowjob.StatusExecuting {
 		t.Fatalf("jobs = %#v", store.jobs)
 	}

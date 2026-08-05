@@ -1,6 +1,4 @@
-from pathlib import Path
-
-Path("internal/workspace/startup_recovery_test.go").write_text(r'''package workspace
+package workspace
 
 import (
 	"context"
@@ -65,6 +63,3 @@ func TestRecoverDaemonLeasesPreservesManualLease(t *testing.T) {
 		t.Fatalf("daemon=%s/%q manual=%s/%q", daemonStatus, daemonOwner, manualStatus, manualOwner)
 	}
 }
-''')
-
-print("startup recovery test schema isolated")
