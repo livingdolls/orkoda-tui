@@ -39,6 +39,14 @@ jobs:
           text = text.replace('  role: "Executor" | "Reviewer"', '  label: "Executor" | "Reviewer"')
           text = text.replace('        {role}\n', '        {label}\n')
           path.write_text(text)
+
+          path = Path("apps/tui/src/workflow-jobs.ts")
+          text = path.read_text()
+          text = text.replace(
+              "  agent_settings_version: number\n  executor: WorkflowAgentSelection\n  reviewer: WorkflowAgentSelection\n",
+              "  agent_settings_version?: number\n  executor?: WorkflowAgentSelection\n  reviewer?: WorkflowAgentSelection\n",
+          )
+          path.write_text(text)
           PY
       - name: Format
         run: |
