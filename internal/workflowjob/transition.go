@@ -39,6 +39,7 @@ const (
 	ActionPublicationCompleted Action = "PUBLICATION_COMPLETED"
 	ActionFail                 Action = "FAIL"
 	ActionRetry                Action = "RETRY"
+	ActionRestart              Action = "RESTART"
 	ActionCancel               Action = "CANCEL"
 	ActionContinueExecution    Action = "CONTINUE_EXECUTION"
 )
@@ -100,6 +101,12 @@ func nextStatus(current Status, action Action, retryStatus Status) (Status, erro
 		}
 		return StatusFailed, nil
 	}
+	if action == ActionRestart {
+		if current != StatusFailed {
+			return "", invalidTransition(current, action)
+		}
+		return StatusWorkspacePreparing, nil
+	}
 	if action == ActionContinueExecution {
 		if current != StatusFailed || (retryStatus != StatusExecuting && retryStatus != StatusQueued) {
 			return "", invalidTransition(current, action)
@@ -125,7 +132,7 @@ func nextStatus(current Status, action Action, retryStatus Status) (Status, erro
 
 func dispatchFor(action Action) (string, bool) {
 	switch action {
-	case ActionStart:
+	case ActionStart, ActionRestart:
 		return "workflow.prepare_workspace", true
 	case ActionWorkspaceReady, ActionQueueRevision, ActionContinueExecution:
 		return "workflow.execute", true

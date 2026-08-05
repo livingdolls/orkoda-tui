@@ -113,6 +113,7 @@ func registerWorkflowJobRoutes(api *gin.RouterGroup, registry WorkflowJobRegistr
 	registerWorkflowAction(api, registry, "/jobs/:jobID/start", workflowjob.ActionStart)
 	registerWorkflowAction(api, registry, "/jobs/:jobID/cancel", workflowjob.ActionCancel)
 	registerWorkflowAction(api, registry, "/jobs/:jobID/retry", workflowjob.ActionRetry)
+	registerWorkflowAction(api, registry, "/jobs/:jobID/restart", workflowjob.ActionRestart)
 	api.POST("/jobs/:jobID/continue", func(c *gin.Context) {
 		if !requireWorkflowJobRegistry(c, registry) {
 			return

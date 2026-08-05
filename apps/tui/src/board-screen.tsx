@@ -347,10 +347,16 @@ export function BoardScreen({
     }
   }
 
-  const transitionWorkflow = async (item: BoardItem, action: "retry" | "cancel") => {
+  const transitionWorkflow = async (item: BoardItem, action: "retry" | "restart" | "cancel") => {
     if (!item.workflow || busy) return
     setBusy(true)
-    setMessage(`${action === "retry" ? "Retrying" : "Cancelling"} workflow...`)
+    const actionLabel =
+      action === "retry"
+        ? "Retrying failed stage"
+        : action === "restart"
+          ? "Restarting workflow from its pinned base commit"
+          : "Cancelling workflow"
+    setMessage(`${actionLabel}...`)
     try {
       const workflow = await performWorkflowAction(
         item.workflow.id,
@@ -365,7 +371,11 @@ export function BoardScreen({
             : candidate,
         ),
       )
-      setMessage(`Workflow is now ${workflow.status.toLowerCase().replaceAll("_", " ")}.`)
+      setMessage(
+        action === "restart"
+          ? "Workspace reset started. The same workflow will run again from the beginning."
+          : `Workflow is now ${workflow.status.toLowerCase().replaceAll("_", " ")}.`,
+      )
       await reload()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : `Failed to ${action} the workflow`)
@@ -422,6 +432,9 @@ export function BoardScreen({
         break
       case "retry":
         await transitionWorkflow(item, "retry")
+        break
+      case "restart":
+        await transitionWorkflow(item, "restart")
         break
       case "continue-8":
         await continueExecutor(item, 8)

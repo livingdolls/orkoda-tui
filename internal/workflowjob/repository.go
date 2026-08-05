@@ -366,10 +366,14 @@ func (r *Repository) Transition(ctx context.Context, jobID string, input Transit
 		}
 		failureMessage = input.FailureMessage
 	}
-	if input.Action == ActionRetry {
+	if input.Action == ActionRetry || input.Action == ActionRestart {
 		retryStatus = ""
 		failureCode = ""
 		failureMessage = ""
+	}
+	if input.Action == ActionRestart {
+		cancellationRequested = false
+		revisionCount = 0
 	}
 	if input.Action == ActionContinueExecution {
 		maxExecutorTurns += input.AdditionalExecutorTurns

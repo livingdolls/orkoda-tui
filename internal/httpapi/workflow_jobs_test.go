@@ -232,3 +232,26 @@ func TestWorkflowContinueRoute(t *testing.T) {
 		t.Fatalf("continue input = %#v", registry.transitionInput)
 	}
 }
+
+func TestWorkflowRestartRoute(t *testing.T) {
+	registry := &fakeWorkflowJobRegistry{job: testWorkflowJob()}
+	router := workflowRouter(registry)
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/jobs/workflow-1/restart",
+		strings.NewReader(`{"expected_version":1,"details":{"requested_by":"board"}}`),
+	)
+	request.Header.Set("content-type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("restart status = %d body = %s", response.Code, response.Body.String())
+	}
+	if registry.transitionJobID != "workflow-1" ||
+		registry.transitionInput.Action != workflowjob.ActionRestart ||
+		registry.transitionInput.ExpectedVersion != 1 ||
+		registry.transitionInput.Details["requested_by"] != "board" {
+		t.Fatalf("transition input = %#v", registry.transitionInput)
+	}
+}

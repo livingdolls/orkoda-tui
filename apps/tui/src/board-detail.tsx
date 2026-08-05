@@ -343,8 +343,8 @@ export function BoardDetail({
           </text>
           <text fg={colors.muted}>
             {isExecutorPaused(workflow)
-              ? "Inspect the partial diff and iteration timeline, press Esc, then choose Continue +8 or +16 turns."
-              : "Fix the cause, press Esc, then choose Retry workflow."}
+              ? "Inspect the partial diff, then choose Continue or Restart from beginning."
+              : "Fix the cause and Retry the failed stage, or choose Restart from beginning."}
           </text>
         </Banner>
       ) : null}

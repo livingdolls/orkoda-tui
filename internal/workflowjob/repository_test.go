@@ -437,3 +437,71 @@ func TestContinuePausedExecutor(t *testing.T) {
 		t.Fatalf("executing = %#v", executing)
 	}
 }
+
+func TestRestartFailedWorkflowFromBeginning(t *testing.T) {
+	repository, _, db, _, input := openWorkflowRepository(t, "READY")
+	defer db.Close()
+	ctx := context.Background()
+
+	job, err := repository.Create(ctx, input)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	for _, action := range []Action{
+		ActionStart,
+		ActionWorkspaceReady,
+		ActionExecutionStarted,
+		ActionExecutionCompleted,
+		ActionChecksCompleted,
+		ActionReviewCompleted,
+		ActionRequestRevision,
+		ActionQueueRevision,
+		ActionExecutionStarted,
+	} {
+		job, err = repository.Transition(ctx, job.ID, TransitionInput{
+			ExpectedVersion: job.Version,
+			Action:          action,
+		})
+		if err != nil {
+			t.Fatalf("Transition(%s) error = %v", action, err)
+		}
+	}
+	failed, err := repository.Transition(ctx, job.ID, TransitionInput{
+		ExpectedVersion: job.Version,
+		Action:          ActionFail,
+		FailureCode:     "EXECUTOR_FAILED",
+		FailureMessage:  "implementation failed",
+	})
+	if err != nil {
+		t.Fatalf("fail error = %v", err)
+	}
+	if failed.ExecutionVersion != 2 || failed.RevisionCount != 1 {
+		t.Fatalf("failed = %#v", failed)
+	}
+
+	restarted, err := repository.Transition(ctx, failed.ID, TransitionInput{
+		ExpectedVersion: failed.Version,
+		Action:          ActionRestart,
+		Details:         map[string]any{"requested_by": "test"},
+	})
+	if err != nil {
+		t.Fatalf("restart error = %v", err)
+	}
+	if restarted.Status != StatusWorkspacePreparing || restarted.CurrentDispatchID == "" ||
+		restarted.RetryStatus != "" || restarted.FailureCode != "" ||
+		restarted.FailureMessage != "" || restarted.RevisionCount != 0 ||
+		restarted.ExecutionVersion != 2 || restarted.CancellationRequested {
+		t.Fatalf("restarted = %#v", restarted)
+	}
+
+	var jobType, payloadJSON string
+	if err := db.QueryRowContext(ctx, `
+		SELECT type, payload_json FROM jobs WHERE id = ?
+	`, restarted.CurrentDispatchID).Scan(&jobType, &payloadJSON); err != nil {
+		t.Fatal(err)
+	}
+	if jobType != "workflow.prepare_workspace" ||
+		!strings.Contains(payloadJSON, `"action":"RESTART"`) {
+		t.Fatalf("dispatch type=%q payload=%s", jobType, payloadJSON)
+	}
+}

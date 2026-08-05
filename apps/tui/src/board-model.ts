@@ -41,6 +41,7 @@ export type BoardActionID =
   | "start-work"
   | "open-details"
   | "retry"
+  | "restart"
   | "continue-8"
   | "continue-16"
   | "cancel"
@@ -304,10 +305,17 @@ export function boardActions(item: BoardItem): BoardAction[] {
       actions.push({
         id: "retry",
         label: "Retry workflow",
-        description: "Retry the failed stage using the workflow's current version.",
+        description: "Retry only the failed stage using the current workspace.",
         tone: "warning",
       })
     }
+    actions.push({
+      id: "restart",
+      label: "Restart from beginning",
+      description:
+        "Discard the current workspace changes and rerun this workflow from its pinned base commit. Existing evidence is preserved.",
+      tone: "danger",
+    })
   }
 
   if (isActiveWorkflow(item.workflow.status)) {
