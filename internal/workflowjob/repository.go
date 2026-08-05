@@ -349,6 +349,13 @@ func (r *Repository) Transition(ctx context.Context, jobID string, input Transit
 		}
 		dispatchID = dispatch.ID
 	}
+	// EXECUTION_STARTED is handled by the workflow.execute job that was
+	// already recorded while the workflow was QUEUED. Keep that dispatch ID
+	// attached to the workflow until the stage finishes so stale jobs and dead
+	// dispatches can be identified reliably.
+	if input.Action == ActionExecutionStarted && dispatchID == "" {
+		dispatchID = job.CurrentDispatchID
+	}
 
 	retryStatus := job.RetryStatus
 	failureCode := job.FailureCode
