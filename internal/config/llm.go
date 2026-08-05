@@ -221,7 +221,7 @@ func loadLLMConfig() (LLMConfig, error) {
 		if _, exists := registered[fallback.Provider]; !exists {
 			return LLMConfig{}, fmt.Errorf("fallback provider %s is not registered", fallback.Provider)
 		}
-		key := fallback.Provider + "\\x00" + fallback.Model
+		key := fallback.Provider + "\x00" + fallback.Model
 		if _, exists := seenFallbacks[key]; exists {
 			return LLMConfig{}, fmt.Errorf("duplicate LLM fallback target %s/%s", fallback.Provider, fallback.Model)
 		}

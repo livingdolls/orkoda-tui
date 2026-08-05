@@ -25,17 +25,17 @@ type reviewAgentAssignment struct {
 
 type reviewBoardCard struct {
 	Plan           plans.Plan            `json:"plan"`
-	Workflow       workflowjob.Job        `json:"workflow"`
-	Execution      *execution.Execution   `json:"execution,omitempty"`
-	Check          *checks.Run            `json:"check,omitempty"`
-	Review         *reviewer.Run          `json:"review,omitempty"`
-	Issues         []reviewer.Issue       `json:"issues"`
-	PreviousReview *reviewer.Run          `json:"previous_review,omitempty"`
-	PreviousIssues []reviewer.Issue       `json:"previous_issues"`
-	Executor       reviewAgentAssignment  `json:"executor"`
-	Reviewer       reviewAgentAssignment  `json:"reviewer"`
-	Column         string                 `json:"review_column"`
-	UpdatedAt      time.Time              `json:"updated_at"`
+	Workflow       workflowjob.Job       `json:"workflow"`
+	Execution      *execution.Execution  `json:"execution,omitempty"`
+	Check          *checks.Run           `json:"check,omitempty"`
+	Review         *reviewer.Run         `json:"review,omitempty"`
+	Issues         []reviewer.Issue      `json:"issues"`
+	PreviousReview *reviewer.Run         `json:"previous_review,omitempty"`
+	PreviousIssues []reviewer.Issue      `json:"previous_issues"`
+	Executor       reviewAgentAssignment `json:"executor"`
+	Reviewer       reviewAgentAssignment `json:"reviewer"`
+	Column         string                `json:"review_column"`
+	UpdatedAt      time.Time             `json:"updated_at"`
 }
 
 type reviewBoardResponse struct {
@@ -43,7 +43,7 @@ type reviewBoardResponse struct {
 }
 
 type reviewSnapshotResponse struct {
-	Card        reviewBoardCard       `json:"card"`
+	Card        reviewBoardCard        `json:"card"`
 	CheckSteps  []checks.Step          `json:"check_steps"`
 	Checkpoints []execution.Checkpoint `json:"checkpoints"`
 	Decisions   []approval.Decision    `json:"decisions"`
@@ -200,8 +200,8 @@ func buildReviewBoardCard(
 
 	card := reviewBoardCard{
 		Plan: plan, Workflow: job, Issues: []reviewer.Issue{}, PreviousIssues: []reviewer.Issue{},
-		Executor: configuredReviewAgent(settings, agentconfig.RoleExecutor),
-		Reviewer: configuredReviewAgent(settings, agentconfig.RoleReviewer),
+		Executor:  configuredReviewAgent(settings, agentconfig.RoleExecutor),
+		Reviewer:  configuredReviewAgent(settings, agentconfig.RoleReviewer),
 		UpdatedAt: job.UpdatedAt,
 	}
 	if len(executions) > 0 {
