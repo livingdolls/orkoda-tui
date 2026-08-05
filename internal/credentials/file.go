@@ -164,14 +164,21 @@ func (s *AutoStore) Get(ctx context.Context, account string) (string, error) {
 	if s == nil || s.keychain == nil || s.fallback == nil {
 		return "", ErrUnavailable
 	}
-	value, err := s.keychain.Get(ctx, account)
-	if err == nil {
+	value, keychainErr := s.keychain.Get(ctx, account)
+	if keychainErr == nil {
 		return value, nil
 	}
-	if !errors.Is(err, ErrUnavailable) && !errors.Is(err, ErrNotFound) {
-		return "", err
+	value, fallbackErr := s.fallback.Get(ctx, account)
+	if fallbackErr == nil {
+		return value, nil
 	}
-	return s.fallback.Get(ctx, account)
+	if errors.Is(keychainErr, ErrNotFound) && errors.Is(fallbackErr, ErrNotFound) {
+		return "", ErrNotFound
+	}
+	if !errors.Is(fallbackErr, ErrNotFound) {
+		return "", fallbackErr
+	}
+	return "", keychainErr
 }
 
 func (s *AutoStore) Set(ctx context.Context, account, value string) error {
@@ -181,9 +188,10 @@ func (s *AutoStore) Set(ctx context.Context, account, value string) error {
 	if err := s.keychain.Set(ctx, account, value); err == nil {
 		_ = s.fallback.Delete(ctx, account)
 		return nil
-	} else if !errors.Is(err, ErrUnavailable) {
-		return err
 	}
+	// A desktop keychain command may exist but still be unusable because the
+	// session has no DBus service, the keyring is locked, or the user declined
+	// access. Preserve usability by falling back to the owner-only local store.
 	return s.fallback.Set(ctx, account, value)
 }
 
@@ -193,11 +201,11 @@ func (s *AutoStore) Delete(ctx context.Context, account string) error {
 	}
 	keychainErr := s.keychain.Delete(ctx, account)
 	fileErr := s.fallback.Delete(ctx, account)
-	if keychainErr != nil && !errors.Is(keychainErr, ErrUnavailable) && !errors.Is(keychainErr, ErrNotFound) {
-		return keychainErr
-	}
 	if fileErr != nil && !errors.Is(fileErr, ErrNotFound) {
 		return fileErr
+	}
+	if keychainErr != nil && !errors.Is(keychainErr, ErrUnavailable) && !errors.Is(keychainErr, ErrNotFound) && fileErr != nil {
+		return keychainErr
 	}
 	return nil
 }
