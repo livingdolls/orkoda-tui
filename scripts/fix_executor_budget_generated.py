@@ -27,6 +27,9 @@ path.write_text(text.replace(old, new, 1))
 
 path = Path("apps/tui/src/board-model.test.ts")
 text = path.read_text()
-text = text.replace("workflowFixture({", "workflow(\"FAILED\", {")
-text = text.replace("createBoardItem(projectFixture(), planFixture(), workflow)", "createBoardItem(project, plan(\"READY\"), workflow)")
+text = text.replace("const workflow = workflowFixture({", "const pausedWorkflow = workflow(\"FAILED\", {")
+text = text.replace(
+    "createBoardItem(projectFixture(), planFixture(), workflow)",
+    "createBoardItem(project, plan(\"READY\"), pausedWorkflow)",
+)
 path.write_text(text)
