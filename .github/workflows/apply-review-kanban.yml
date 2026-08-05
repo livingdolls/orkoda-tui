@@ -26,6 +26,7 @@ jobs:
       - run: bun install
       - name: Apply backend and TUI changes
         run: |
+          python3 scripts/fix_review_patcher.py
           python3 scripts/apply_review_backend.py
           python3 scripts/apply_review_ui.py
       - name: Format source
@@ -43,7 +44,7 @@ jobs:
           bun run test:ts
       - name: Commit final implementation
         run: |
-          rm .github/workflows/apply-review-kanban.yml scripts/apply_review_backend.py scripts/apply_review_ui.py
+          rm .github/workflows/apply-review-kanban.yml scripts/apply_review_backend.py scripts/apply_review_ui.py scripts/fix_review_patcher.py
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add --all
