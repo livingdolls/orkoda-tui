@@ -8,6 +8,7 @@ on:
       - scripts/harden_executor_startup_recovery.py
       - scripts/harden_executor_startup_recovery_v2.py
       - scripts/normalize_hardening_script.py
+      - scripts/fix_startup_recovery_test.py
       - .github/workflows/harden-executor-startup-recovery.yml
 
 permissions:
@@ -29,7 +30,9 @@ jobs:
           bun-version: 1.3.14
       - run: bun install
       - name: Apply hardening
-        run: python3 scripts/harden_executor_startup_recovery_v2.py
+        run: |
+          python3 scripts/harden_executor_startup_recovery_v2.py
+          python3 scripts/fix_startup_recovery_test.py
       - name: Format
         run: |
           gofmt -w cmd internal
@@ -45,6 +48,7 @@ jobs:
           rm -f scripts/harden_executor_startup_recovery.py
           rm -f scripts/harden_executor_startup_recovery_v2.py
           rm -f scripts/normalize_hardening_script.py
+          rm -f scripts/fix_startup_recovery_test.py
           rm -f .github/workflows/harden-executor-startup-recovery.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
