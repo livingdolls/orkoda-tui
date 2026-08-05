@@ -48,6 +48,7 @@ jobs:
               "def create_once(path: str, content: str) -> None:\n    content = source(content)\n    target = Path(path)",
               1,
           )
+          text = text.replace("status = 'PREPARING', head_sha = NULL, dirty = 0,", "status = 'PREPARING', head_sha = '', dirty = 0,")
           path.write_text(text)
           PY
           python3 scripts/implement_restart_failed_workflow.py
