@@ -1,0 +1,49 @@
+name: Apply provider setup wizard
+
+on:
+  push:
+    branches:
+      - feat/tui-provider-setup
+    paths:
+      - scripts/apply_provider_tui.py
+      - .github/workflows/apply-provider-tui.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/tui-provider-setup
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.x
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install
+      - name: Apply provider setup wizard
+        run: python3 scripts/apply_provider_tui.py
+      - name: Format
+        run: |
+          bunx biome check --write apps/tui/src
+          gofmt -w cmd internal
+      - name: Validate TUI
+        run: |
+          bun run lint:ts
+          bun run typecheck
+          bun run test:ts
+      - name: Validate backend regression
+        run: go test ./...
+      - name: Commit final implementation
+        run: |
+          rm -f scripts/apply_provider_tui.py .github/workflows/apply-provider-tui.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: configure LLM providers from the TUI" || exit 0
+          git push origin HEAD:feat/tui-provider-setup
