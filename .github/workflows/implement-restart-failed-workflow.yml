@@ -35,7 +35,7 @@ jobs:
           text = path.read_text()
           text = text.replace(
               "def replace_once(path: str, old: str, new: str) -> None:\n    content = read(path)",
-              "def source(value: str) -> str:\n    return value.replace(r\\\"\\t\\\", \\\"\\t\\\")\n\n\ndef replace_once(path: str, old: str, new: str) -> None:\n    old = source(old)\n    new = source(new)\n    content = read(path)",
+              "def source(value: str) -> str:\n    return value.replace(chr(92) + 't', chr(9))\n\n\ndef replace_once(path: str, old: str, new: str) -> None:\n    old = source(old)\n    new = source(new)\n    content = read(path)",
               1,
           )
           text = text.replace(
