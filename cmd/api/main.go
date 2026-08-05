@@ -292,6 +292,20 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	recoveredExecutorFailures, err := executionRepository.ReconcileFailedWorkflows(
+		runtimeCtx,
+		workflowJobRepository,
+	)
+	if err != nil {
+		return err
+	}
+	if recoveredExecutorFailures > 0 {
+		logger.Warn(
+			"recovered workflows with failed Executor executions",
+			"count",
+			recoveredExecutorFailures,
+		)
+	}
 	checkRepository, err := checks.NewRepository(db)
 	if err != nil {
 		return err
